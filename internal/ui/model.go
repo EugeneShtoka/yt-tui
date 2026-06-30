@@ -123,6 +123,10 @@ type Model struct {
 	statusErr bool
 	statusAt  time.Time
 	showHelp  bool
+
+	// ── Vim-style goto navigation ─────────────────────────────────────────
+	numPrefix string // accumulated digit keys (e.g. "42" before G or gg)
+	gPending  bool   // true after first 'g' press, waiting for second
 }
 
 func buildTabs(cfg *config.Config) []int {
@@ -248,6 +252,78 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 		}
 	}
 	return youtube.Video{}, false
+}
+
+func (m *Model) parseNumPrefix() int {
+	if m.numPrefix == "" {
+		return 0
+	}
+	n := 0
+	for _, ch := range m.numPrefix {
+		n = n*10 + int(ch-'0')
+	}
+	return n
+}
+
+func (m *Model) jumpToLine(idx int) {
+	switch m.activeTab {
+	case tabRecommended:
+		m.recCursor = clamp(idx, len(m.recVideos))
+	case tabSubscriptions:
+		if m.subMode == subModeAll {
+			m.subCursor = clamp(idx, len(m.subVideos))
+		} else if m.subChPane == 0 {
+			m.subChCursor = clamp(idx, len(m.subChannels))
+		} else {
+			m.subChVidCursor = clamp(idx, len(m.subChVideos))
+		}
+	case tabPlaylists:
+		if m.playlistPane == 0 {
+			m.playlistCursor = clamp(idx, len(m.playlists))
+		} else if len(m.playlists) > 0 {
+			vids := m.playlistVidCache[m.playlists[m.playlistCursor].ID]
+			m.playlistVidCursor = clamp(idx, len(vids))
+		}
+	case tabSearch:
+		m.searchCursor = clamp(idx, len(m.searchVideos))
+	case tabDownloading:
+		m.dlCursor = clamp(idx, len(m.downloader.Items()))
+	case tabLocal:
+		m.localCursor = clamp(idx, len(m.localVideos))
+	case tabHistory:
+		m.histCursor = clamp(idx, len(m.histEntries))
+	}
+}
+
+func (m *Model) jumpToLast() {
+	switch m.activeTab {
+	case tabRecommended:
+		m.recCursor = clamp(len(m.recVideos)-1, len(m.recVideos))
+	case tabSubscriptions:
+		if m.subMode == subModeAll {
+			m.subCursor = clamp(len(m.subVideos)-1, len(m.subVideos))
+		} else if m.subChPane == 0 {
+			m.subChCursor = clamp(len(m.subChannels)-1, len(m.subChannels))
+		} else {
+			m.subChVidCursor = clamp(len(m.subChVideos)-1, len(m.subChVideos))
+		}
+	case tabPlaylists:
+		if m.playlistPane == 0 {
+			m.playlistCursor = clamp(len(m.playlists)-1, len(m.playlists))
+		} else if len(m.playlists) > 0 {
+			vids := m.playlistVidCache[m.playlists[m.playlistCursor].ID]
+			m.playlistVidCursor = clamp(len(vids)-1, len(vids))
+		}
+	case tabSearch:
+		m.searchCursor = clamp(len(m.searchVideos)-1, len(m.searchVideos))
+	case tabDownloading:
+		items := m.downloader.Items()
+		m.dlCursor = clamp(len(items)-1, len(items))
+	case tabLocal:
+		m.localCursor = clamp(len(m.localVideos)-1, len(m.localVideos))
+	case tabHistory:
+		m.histCursor = clamp(len(m.histEntries)-1, len(m.histEntries))
+	}
 }
 
 func clamp(v, max int) int {

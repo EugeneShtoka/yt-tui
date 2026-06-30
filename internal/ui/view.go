@@ -128,6 +128,7 @@ func (m Model) renderContent(height int) string {
 // ── Generic video list ────────────────────────────────────────────────────────
 
 const (
+	colNum      = 4
 	colChannel  = 22
 	colDuration = 8
 	colViews    = 8
@@ -162,30 +163,34 @@ func (m Model) renderVideoList(
 	return lipgloss.JoinVertical(lipgloss.Left, header, body)
 }
 
+func (m Model) videoListTitleW() int {
+	w := m.width - colNum - 1 - colChannel - colDuration - colViews - colDate - 4
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
 func (m Model) renderVideoRows(videos []youtube.Video, cursor, height int) string {
 	if height <= 0 {
 		height = 10
 	}
 
-	titleW := m.width - colChannel - colDuration - colViews - colDate - 4
-	if titleW < 20 {
-		titleW = 20
-	}
-
+	titleW := m.videoListTitleW()
 	colHeader := m.renderVideoColHeader(titleW)
 	start, end := scrollWindow(cursor, len(videos), height-1)
 
 	var rows []string
 	rows = append(rows, colHeader)
 	for i := start; i < end && i < len(videos); i++ {
-		v := videos[i]
-		rows = append(rows, m.renderVideoRow(v, i == cursor, titleW))
+		rows = append(rows, m.renderVideoRow(videos[i], i == cursor, titleW, i+1))
 	}
 	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderVideoColHeader(titleW int) string {
-	return "  " +
+	return fmt.Sprintf("%*s", colNum, "#") + " " +
+		"  " +
 		styleColHeader.Width(titleW).Render("Title") + " " +
 		styleColHeader.Width(colChannel).Render("Channel") + " " +
 		styleColHeader.Width(colDuration).Render("Dur") + " " +
@@ -193,8 +198,8 @@ func (m Model) renderVideoColHeader(titleW int) string {
 		styleColHeader.Width(colDate).Render("Date")
 }
 
-func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW int) string {
-	// Status indicator
+func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) string {
+	numStr := fmt.Sprintf("%*d", colNum, num)
 	indicator := "  "
 	lv, hasLocal := m.db.HasLocalVideo(v.ID)
 
@@ -219,7 +224,7 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW int) string
 		titleStyle = styleNormal.Width(titleW)
 	}
 
-	return indicator +
+	return numStr + " " + indicator +
 		titleStyle.Render(title) + " " +
 		styleChannel.Width(colChannel).Render(channel) + " " +
 		styleDuration.Width(colDuration).Render(dur) + " " +
@@ -282,11 +287,12 @@ func (m Model) renderChannelList(height int) string {
 	var rows []string
 	for i := start; i < end && i < len(channels); i++ {
 		ch := channels[i]
-		name := truncate(ch.Name, m.width-4)
+		numStr := fmt.Sprintf("%*d ", colNum, i+1)
+		name := truncate(ch.Name, m.width-colNum-1-4)
 		if i == m.subChCursor {
-			rows = append(rows, styleSelected.Render("▶ "+name))
+			rows = append(rows, numStr+styleSelected.Render("▶ "+name))
 		} else {
-			rows = append(rows, "  "+name)
+			rows = append(rows, numStr+"  "+name)
 		}
 	}
 	return strings.Join(rows, "\n")
@@ -336,11 +342,12 @@ func (m Model) renderPlaylistRows(height int) string {
 	var rows []string
 	for i := start; i < end && i < len(playlists); i++ {
 		pl := playlists[i]
-		label := truncate(pl.Name, m.width-4)
+		numStr := fmt.Sprintf("%*d ", colNum, i+1)
+		label := truncate(pl.Name, m.width-colNum-1-4)
 		if i == m.playlistCursor {
-			rows = append(rows, styleSelected.Render("▶ "+label))
+			rows = append(rows, numStr+styleSelected.Render("▶ "+label))
 		} else {
-			rows = append(rows, "  "+label)
+			rows = append(rows, numStr+"  "+label)
 		}
 	}
 	return strings.Join(rows, "\n")
@@ -381,11 +388,11 @@ func (m Model) renderDownloading(height int) string {
 			styleDim.Render("No active downloads. Press s on any video to start."))
 	}
 
-	titleW := m.width - colChannel - colDuration - 42 - 4
+	titleW := m.width - colNum - 1 - colChannel - colDuration - 42 - 4
 	if titleW < 20 {
 		titleW = 20
 	}
-	colHeader := "  " +
+	colHeader := fmt.Sprintf("%*s", colNum, "#") + " " + "  " +
 		styleColHeader.Width(titleW).Render("Title") + " " +
 		styleColHeader.Width(colChannel).Render("Channel") + " " +
 		styleColHeader.Width(colDuration).Render("Dur") + " " +
@@ -395,14 +402,13 @@ func (m Model) renderDownloading(height int) string {
 	var rows []string
 	rows = append(rows, colHeader)
 	for i := start; i < end && i < len(items); i++ {
-		item := items[i]
-		rows = append(rows, m.renderDownloadRow(item, i == m.dlCursor))
+		rows = append(rows, m.renderDownloadRow(items[i], i == m.dlCursor, i+1))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
-func (m Model) renderDownloadRow(item downloader.Item, selected bool) string {
-	titleW := m.width - colChannel - colDuration - 42 - 4
+func (m Model) renderDownloadRow(item downloader.Item, selected bool, num int) string {
+	titleW := m.width - colNum - 1 - colChannel - colDuration - 42 - 4
 	if titleW < 20 {
 		titleW = 20
 	}
@@ -434,6 +440,7 @@ func (m Model) renderDownloadRow(item downloader.Item, selected bool) string {
 		statusPart = styleFailedTag.Render(msg)
 	}
 
+	numStr := fmt.Sprintf("%*d", colNum, num)
 	indicator := "  "
 	if selected {
 		indicator = styleSelected.Render("▶ ")
@@ -444,7 +451,7 @@ func (m Model) renderDownloadRow(item downloader.Item, selected bool) string {
 		titleStyled = styleSelected.Width(titleW).Render(title)
 	}
 
-	return indicator + titleStyled + " " +
+	return numStr + " " + indicator + titleStyled + " " +
 		styleChannel.Width(colChannel).Render(channel) + " " +
 		styleDuration.Width(colDuration).Render(dur) + " " +
 		dlType + " " + statusPart
@@ -461,11 +468,8 @@ func (m Model) renderLocal(height int) string {
 			styleDim.Render("No local videos. Download some with s."))
 	}
 
-	titleW := m.width - colChannel - colDuration - colViews - colDate - 4
-	if titleW < 20 {
-		titleW = 20
-	}
-	colHeader := "  " +
+	titleW := m.videoListTitleW()
+	colHeader := fmt.Sprintf("%*s", colNum, "#") + " " + "  " +
 		styleColHeader.Width(titleW).Render("Title") + " " +
 		styleColHeader.Width(colChannel).Render("Channel") + " " +
 		styleColHeader.Width(colDuration).Render("Dur") + " " +
@@ -476,17 +480,13 @@ func (m Model) renderLocal(height int) string {
 	var rows []string
 	rows = append(rows, colHeader)
 	for i := start; i < end && i < len(m.localVideos); i++ {
-		lv := m.localVideos[i]
-		rows = append(rows, m.renderLocalRow(lv, i == m.localCursor))
+		rows = append(rows, m.renderLocalRow(m.localVideos[i], i == m.localCursor, i+1))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
-func (m Model) renderLocalRow(lv db.LocalVideo, selected bool) string {
-	titleW := m.width - colChannel - colDuration - colViews - colDate - 4
-	if titleW < 20 {
-		titleW = 20
-	}
+func (m Model) renderLocalRow(lv db.LocalVideo, selected bool, num int) string {
+	titleW := m.videoListTitleW()
 
 	title := truncate(lv.Title, titleW)
 	channel := truncate(lv.Channel, colChannel-2)
@@ -498,6 +498,7 @@ func (m Model) renderLocalRow(lv db.LocalVideo, selected bool) string {
 		dlType = " ♪"
 	}
 
+	numStr := fmt.Sprintf("%*d", colNum, num)
 	indicator := "  "
 	var ts lipgloss.Style
 	switch {
@@ -517,7 +518,7 @@ func (m Model) renderLocalRow(lv db.LocalVideo, selected bool) string {
 		ts = styleNormal.Width(titleW)
 	}
 
-	return indicator +
+	return numStr + " " + indicator +
 		ts.Render(title+dlType) + " " +
 		styleChannel.Width(colChannel).Render(channel) + " " +
 		styleDuration.Width(colDuration).Render(dur) + " " +
@@ -537,7 +538,7 @@ func (m Model) renderHistory(height int) string {
 	}
 
 	start, end := scrollWindow(m.histCursor, len(m.histEntries), height-headerH)
-	titleW := m.width - 19 - 8 - colChannel - colDuration - colViews - colDate - 8
+	titleW := m.width - colNum - 1 - 19 - 8 - colChannel - colDuration - colViews - colDate - 8
 	if titleW < 20 {
 		titleW = 20
 	}
@@ -545,6 +546,7 @@ func (m Model) renderHistory(height int) string {
 	var rows []string
 	for i := start; i < end && i < len(m.histEntries); i++ {
 		e := m.histEntries[i]
+		numStr := fmt.Sprintf("%*d", colNum, i+1)
 		ts := styleChannel.Width(19).Render(e.Timestamp.Format("2006-01-02 15:04:05"))
 		evType := styleWarning.Width(8).Render(e.EventType)
 		title := truncate(e.Title, titleW)
@@ -559,7 +561,7 @@ func (m Model) renderHistory(height int) string {
 			indicator = styleSelected.Render("▶ ")
 			style = styleSelected.Width(titleW)
 		}
-		rows = append(rows, indicator+ts+" "+evType+" "+style.Render(title)+" "+
+		rows = append(rows, numStr+" "+indicator+ts+" "+evType+" "+style.Render(title)+" "+
 			styleChannel.Width(colChannel).Render(channel)+" "+
 			styleDuration.Width(colDuration).Render(dur)+" "+
 			styleDuration.Width(colViews).Render(views)+" "+
@@ -640,6 +642,8 @@ func (m Model) renderHelp(height int) string {
 		"  j / k / ↑ / ↓  " + "Move cursor",
 		"  h / l          " + "Left / right pane",
 		"  Ctrl+D / Ctrl+U" + "Page down / up",
+		"  gg / G         " + "Go to top / bottom",
+		"  {n}G / {n}gg   " + "Jump to row n",
 		"  Tab / Shift+Tab" + "Next / prev tab",
 		"  F2–F8          " + "Direct tab access",
 		"",

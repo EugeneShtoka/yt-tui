@@ -1,2 +1,25 @@
+# Build output
 yt-tui
+dist/
+
+# Go test/coverage artifacts
+*.test
+*.out
+coverage.html
+
+# Logs
 *.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config overrides
+*.local.yaml

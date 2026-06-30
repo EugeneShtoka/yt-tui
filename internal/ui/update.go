@@ -143,6 +143,44 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// ── Vim-style number prefix + goto ────────────────────────────────────
+	s := msg.String()
+	if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
+		m.numPrefix += s
+		m.gPending = false
+		return m, nil
+	} else if s == "0" && m.numPrefix != "" {
+		m.numPrefix += "0"
+		return m, nil
+	} else if s == "g" {
+		if m.gPending {
+			m.gPending = false
+			n := m.parseNumPrefix()
+			m.numPrefix = ""
+			if n > 0 {
+				m.jumpToLine(n - 1)
+			} else {
+				m.jumpToLine(0)
+			}
+			return m, nil
+		}
+		m.gPending = true
+		return m, nil
+	} else if s == "G" {
+		n := m.parseNumPrefix()
+		m.numPrefix = ""
+		m.gPending = false
+		if n > 0 {
+			m.jumpToLine(n - 1)
+		} else {
+			m.jumpToLast()
+		}
+		return m, nil
+	} else {
+		m.numPrefix = ""
+		m.gPending = false
+	}
+
 	switch {
 	// ── Tab switching ─────────────────────────────────────────────────────
 	case key.Matches(msg, keys.Tab):
