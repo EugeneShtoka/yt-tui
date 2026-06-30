@@ -643,7 +643,7 @@ func (m Model) renderHelp(height int) string {
 		"  h / l          " + "Left / right pane",
 		"  Ctrl+D / Ctrl+U" + "Page down / up",
 		"  gg / G         " + "Go to top / bottom",
-		"  {n}G / {n}gg   " + "Jump to row n",
+		"  {n}G           " + "Jump to row n",
 		"  Tab / Shift+Tab" + "Next / prev tab",
 		"  F2–F8          " + "Direct tab access",
 		"",

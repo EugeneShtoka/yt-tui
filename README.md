@@ -73,6 +73,9 @@ tabs:
 | `l` / `→` | Move right |
 | `Ctrl+d` / `PgDn` | Page down |
 | `Ctrl+u` / `PgUp` | Page up |
+| `gg` | Jump to top |
+| `G` | Jump to bottom |
+| `{n}G` | Jump to row n |
 | `Tab` / `Shift+Tab` | Next / previous tab |
 | `F2`–`F8` | Jump to tab by position |
 | `/` | Open search input |

@@ -155,13 +155,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	} else if s == "g" {
 		if m.gPending {
 			m.gPending = false
-			n := m.parseNumPrefix()
 			m.numPrefix = ""
-			if n > 0 {
-				m.jumpToLine(n - 1)
-			} else {
-				m.jumpToLine(0)
-			}
+			m.jumpToLine(0)
 			return m, nil
 		}
 		m.gPending = true
