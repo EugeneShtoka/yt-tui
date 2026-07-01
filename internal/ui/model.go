@@ -9,6 +9,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
@@ -123,10 +124,24 @@ type Model struct {
 	statusErr bool
 	statusAt  time.Time
 	showHelp  bool
+	keys      keyMap
 
 	// ── Vim-style goto navigation ─────────────────────────────────────────
 	numPrefix string // accumulated digit keys (e.g. "42" before G or gg)
 	gPending  bool   // true after first 'g' press, waiting for second
+	tPending  bool   // true after 't' press, waiting for tab letter
+
+	// ── Recommended: hide/blacklist state ────────────────────────────────
+	localVideoIDs  map[string]db.LocalVideo // cached for fast per-row lookup
+	recHidden      map[string]bool          // video IDs hidden from recommended
+	recPage        int                      // number of fetches fired this session
+
+	// ── Downloading: play-after-download ─────────────────────────────────
+	playAfterDownload map[string]bool
+
+	// ── Playback resume ───────────────────────────────────────────────────
+	playerBackend   player.Backend
+	playingVideoID  string // ID of the video currently playing (for position saves)
 }
 
 func buildTabs(cfg *config.Config) []int {
@@ -176,6 +191,14 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		firstTab = tabs[0]
 	}
 
+	localIDMap := buildLocalIDMap(localVideos)
+	recHidden, _ := database.HiddenRecVideoIDs()
+	if recHidden == nil {
+		recHidden = make(map[string]bool)
+	}
+
+	backend, _ := player.New(cfg)
+
 	return Model{
 		cfg:              cfg,
 		db:               database,
@@ -192,10 +215,23 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		searchInput:      si,
 		createInput:      ci,
 		spinner:          sp,
-		localVideos:      localVideos,
-		playlists:        playlists,
-		playlistVidCache: make(map[int64][]youtube.Video),
+		localVideos:       localVideos,
+		localVideoIDs:     localIDMap,
+		recHidden:         recHidden,
+		playAfterDownload: make(map[string]bool),
+		playlists:         playlists,
+		playlistVidCache:  make(map[int64][]youtube.Video),
+		keys:              buildKeyMap(cfg.Keybindings),
+		playerBackend:     backend,
 	}
+}
+
+func buildLocalIDMap(lvs []db.LocalVideo) map[string]db.LocalVideo {
+	m := make(map[string]db.LocalVideo, len(lvs))
+	for _, lv := range lvs {
+		m[lv.ID] = lv
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -203,8 +239,15 @@ func (m Model) Init() tea.Cmd {
 		youtube.FetchRecommended(m.cfg),
 		m.downloader.WaitForEvent(),
 		m.spinner.Tick,
+		positionTick(),
 	)
 }
+
+func positionTick() tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return positionTickMsg{} })
+}
+
+type positionTickMsg struct{}
 
 func (m *Model) setStatus(msg string, isErr bool) {
 	m.status = msg
@@ -249,6 +292,20 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 					return vids[i], true
 				}
 			}
+		}
+	case tabDownloading:
+		items := m.downloader.Items()
+		if i := m.dlCursor; i >= 0 && i < len(items) {
+			return items[i].Video, true
+		}
+	case tabLocal:
+		if i := m.localCursor; i >= 0 && i < len(m.localVideos) {
+			lv := m.localVideos[i]
+			return youtube.Video{
+				ID:    lv.ID,
+				Title: lv.Title,
+				URL:   "https://www.youtube.com/watch?v=" + lv.ID,
+			}, true
 		}
 	}
 	return youtube.Video{}, false

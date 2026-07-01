@@ -74,6 +74,9 @@ var (
 	styleCompleteTag = lipgloss.NewStyle().Foreground(colorGreen)
 	styleFailedTag   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4444"))
 
+	styleRowNum = lipgloss.NewStyle().
+			Foreground(colorSubtle)
+
 	styleColHeader = lipgloss.NewStyle().
 			Foreground(colorBorder).
 			Underline(true)

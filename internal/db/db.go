@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
@@ -18,17 +19,18 @@ const (
 )
 
 type LocalVideo struct {
-	ID           string
-	Title        string
-	Channel      string
-	Duration     int
-	ViewCount    int64
-	UploadDate   string
-	FilePath     string
-	DownloadType string // "video" or "audio"
-	DownloadedAt time.Time
-	Status       VideoStatus
-	LastPlayed   time.Time
+	ID             string
+	Title          string
+	Channel        string
+	Duration       int
+	ViewCount      int64
+	UploadDate     string
+	FilePath       string
+	DownloadType   string // "video" or "audio"
+	DownloadedAt   time.Time
+	Status         VideoStatus
+	LastPlayed     time.Time
+	LastPositionMs int64
 }
 
 type Playlist struct {
@@ -134,8 +136,34 @@ func (d *DB) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_feed_cache_feed ON feed_cache(feed, position);
 		CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
 		CREATE INDEX IF NOT EXISTS idx_history_video ON history(video_id);
+
+		CREATE TABLE IF NOT EXISTS hidden_rec_videos (
+			video_id TEXT PRIMARY KEY,
+			hidden_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS channel_removals (
+			channel_id   TEXT NOT NULL,
+			channel_name TEXT NOT NULL,
+			remove_count INTEGER DEFAULT 1,
+			last_removed DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (channel_id)
+		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Column added after initial schema; safe to ignore "duplicate column" error.
+	_, err = d.sql.Exec(`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`)
+	if err != nil && !isColumnExists(err) {
+		return err
+	}
+	return nil
+}
+
+func isColumnExists(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists")
 }
 
 // UpsertVideo inserts or updates a video record.
@@ -182,7 +210,7 @@ func (d *DB) LocalVideos() ([]LocalVideo, error) {
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
 		       lv.file_path, lv.download_type, lv.downloaded_at, lv.status,
-		       COALESCE(lv.last_played, '')
+		       COALESCE(lv.last_played, ''), COALESCE(lv.last_position_ms, 0)
 		FROM local_videos lv
 		JOIN videos v ON v.id = lv.id
 		ORDER BY lv.downloaded_at DESC
@@ -199,7 +227,7 @@ func (d *DB) LocalVideos() ([]LocalVideo, error) {
 			&lv.ID, &lv.Title, &lv.Channel, &lv.Duration,
 			&lv.ViewCount, &lv.UploadDate,
 			&lv.FilePath, &lv.DownloadType, &lv.DownloadedAt,
-			&lv.Status, &lastPlayed,
+			&lv.Status, &lastPlayed, &lv.LastPositionMs,
 		); err != nil {
 			return nil, err
 		}
@@ -209,6 +237,12 @@ func (d *DB) LocalVideos() ([]LocalVideo, error) {
 		result = append(result, lv)
 	}
 	return result, rows.Err()
+}
+
+// UpdateLastPosition saves the last known playback position for a local video.
+func (d *DB) UpdateLastPosition(id string, ms int64) error {
+	_, err := d.sql.Exec(`UPDATE local_videos SET last_position_ms=? WHERE id=?`, ms, id)
+	return err
 }
 
 // HasLocalVideo returns the local video record if it exists.
@@ -441,4 +475,64 @@ func (d *DB) GetFeedCache(feed string) ([]youtube.Video, error) {
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+// HideRecVideo records a video as hidden from the recommended feed.
+func (d *DB) HideRecVideo(videoID string) error {
+	_, err := d.sql.Exec(
+		`INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID)
+	return err
+}
+
+// HiddenRecVideoIDs returns a set of video IDs hidden from recommended.
+func (d *DB) HiddenRecVideoIDs() (map[string]bool, error) {
+	rows, err := d.sql.Query(`SELECT video_id FROM hidden_rec_videos`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// HideRecChannel upserts a channel removal record and increments its count.
+func (d *DB) HideRecChannel(channelID, channelName string) error {
+	_, err := d.sql.Exec(`
+		INSERT INTO channel_removals (channel_id, channel_name, remove_count, last_removed)
+		VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+		ON CONFLICT(channel_id) DO UPDATE SET
+			remove_count = remove_count + 1,
+			last_removed = CURRENT_TIMESTAMP
+	`, channelID, channelName)
+	return err
+}
+
+// ChannelRemovalCount returns how many times a channel has been hidden from recommended.
+func (d *DB) ChannelRemovalCount(channelID string) (int, error) {
+	var count int
+	err := d.sql.QueryRow(
+		`SELECT remove_count FROM channel_removals WHERE channel_id=?`, channelID,
+	).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return count, err
+}
+
+// ChannelViewCount returns play-event count for videos from a channel.
+func (d *DB) ChannelViewCount(channelID string) (int, error) {
+	var count int
+	err := d.sql.QueryRow(`
+		SELECT COUNT(*) FROM history h
+		JOIN videos v ON v.id = h.video_id
+		WHERE v.channel_id = ? AND h.event_type = 'play'
+	`, channelID).Scan(&count)
+	return count, err
 }

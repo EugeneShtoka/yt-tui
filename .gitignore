@@ -7,6 +7,9 @@ dist/
 *.out
 coverage.html
 
+# Docs
+PLAN.md
+
 # Logs
 *.log
 

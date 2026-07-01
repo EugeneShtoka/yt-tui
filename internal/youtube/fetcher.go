@@ -172,8 +172,12 @@ type SearchResultMsg struct {
 // --- Fetch commands ---
 
 func FetchRecommended(cfg *config.Config) tea.Cmd {
+	limit := cfg.RecommendedFetchCount
+	if limit <= 0 {
+		limit = 150
+	}
 	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/recommended", 50)
+		args := buildArgs(cfg, "https://www.youtube.com/feed/recommended", limit)
 		videos, err := runAndParseVideos(args)
 		return FetchResultMsg{Source: "recommended", Videos: videos, Err: err}
 	}

@@ -40,16 +40,22 @@ func (m Model) View() string {
 
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
-var tabKeys = [7]string{"F2", "F3", "F4", "F5", "F6", "F7", "F8"}
+// tabChordKey returns the t+letter chord hint for a given tab ID.
+var tabChordKeys = map[int]string{
+	tabRecommended:   "tr",
+	tabSubscriptions: "ts",
+	tabPlaylists:     "tp",
+	tabSearch:        "t/",
+	tabDownloading:   "td",
+	tabLocal:         "tl",
+	tabHistory:       "th",
+}
 
 func (m Model) renderTabBar() string {
 	var tabs []string
-	for i, id := range m.tabs {
-		fkey := ""
-		if i < len(tabKeys) {
-			fkey = tabKeys[i]
-		}
-		label := fmt.Sprintf("[%s] %s", fkey, tabNames[id])
+	for _, id := range m.tabs {
+		chord := tabChordKeys[id]
+		label := fmt.Sprintf("[%s] %s", chord, tabNames[id])
 		if id == m.activeTab {
 			tabs = append(tabs, styleTabActive.Render(label))
 		} else {
@@ -64,13 +70,23 @@ func (m Model) renderTabBar() string {
 
 func (m Model) renderStatusBar() string {
 	var left string
-	if m.status != "" && time.Since(m.statusAt) < 5*time.Second {
+	chord := m.numPrefix
+	if m.gPending {
+		chord += "g"
+	}
+	if m.tPending {
+		chord += "t"
+	}
+	switch {
+	case chord != "":
+		left = styleWarning.Render(chord)
+	case m.status != "" && time.Since(m.statusAt) < 5*time.Second:
 		if m.statusErr {
 			left = styleError.Render("✗ " + m.status)
 		} else {
 			left = styleSuccess.Render("✓ " + m.status)
 		}
-	} else {
+	default:
 		left = m.contextHelp()
 	}
 	right := styleHelp.Render("? help  q quit")
@@ -83,20 +99,22 @@ func (m Model) renderStatusBar() string {
 
 func (m Model) contextHelp() string {
 	switch m.activeTab {
-	case tabRecommended, tabSearch:
-		return styleHelp.Render("j/k: move  s: dl video  S: dl audio  w: watch later  a: playlist")
+	case tabRecommended:
+		return styleHelp.Render("j/k: move  d: dl  D: audio  c: copy url  r: hide  R: hide channel  w: watch later  a: playlist")
+	case tabSearch:
+		return styleHelp.Render("j/k: move  d: dl  D: audio  c: copy url  /: refocus  w: watch later  a: playlist")
 	case tabSubscriptions:
 		mode := "all videos"
 		if m.subMode == subModeChannels {
 			mode = "channels"
 		}
-		return styleHelp.Render(fmt.Sprintf("j/k: move  t: toggle mode (%s)  s: dl video  S: dl audio", mode))
+		return styleHelp.Render(fmt.Sprintf("j/k: move  m: toggle mode (%s)  d: dl  D: audio  c: copy url", mode))
 	case tabPlaylists:
-		return styleHelp.Render("j/k: move  enter: open  n: new  d: delete")
+		return styleHelp.Render("j/k: move  enter: open  n: new  x: delete")
 	case tabDownloading:
-		return styleHelp.Render("j/k: move")
+		return styleHelp.Render("j/k: move  p: play (or queue after finish)")
 	case tabLocal:
-		return styleHelp.Render("j/k: move  p: play  d: delete")
+		return styleHelp.Render("j/k: move  p: play  x: delete")
 	case tabHistory:
 		return styleHelp.Render("j/k: move  r: refresh")
 	}
@@ -189,7 +207,7 @@ func (m Model) renderVideoRows(videos []youtube.Video, cursor, height int) strin
 }
 
 func (m Model) renderVideoColHeader(titleW int) string {
-	return fmt.Sprintf("%*s", colNum, "#") + " " +
+	return styleRowNum.Render(fmt.Sprintf("%*s", colNum, "#")) + " " +
 		"  " +
 		styleColHeader.Width(titleW).Render("Title") + " " +
 		styleColHeader.Width(colChannel).Render("Channel") + " " +
@@ -199,9 +217,9 @@ func (m Model) renderVideoColHeader(titleW int) string {
 }
 
 func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) string {
-	numStr := fmt.Sprintf("%*d", colNum, num)
+	numStr := styleRowNum.Render(fmt.Sprintf("%*d", colNum, num))
 	indicator := "  "
-	lv, hasLocal := m.db.HasLocalVideo(v.ID)
+	lv, hasLocal := m.localVideoIDs[v.ID]
 
 	title := truncate(v.Title, titleW)
 	channel := truncate(v.Channel, colChannel-2)
@@ -413,6 +431,10 @@ func (m Model) renderDownloadRow(item downloader.Item, selected bool, num int) s
 		titleW = 20
 	}
 
+	titleSuffix := ""
+	if m.playAfterDownload[item.Video.ID] {
+		titleSuffix = " ♪►"
+	}
 	title := truncate(item.Video.Title, titleW)
 	channel := truncate(item.Video.Channel, colChannel-2)
 	dur := item.Video.DurationStr()
@@ -446,9 +468,9 @@ func (m Model) renderDownloadRow(item downloader.Item, selected bool, num int) s
 		indicator = styleSelected.Render("▶ ")
 	}
 
-	titleStyled := styleNormal.Width(titleW).Render(title)
+	titleStyled := styleNormal.Width(titleW).Render(title + titleSuffix)
 	if selected {
-		titleStyled = styleSelected.Width(titleW).Render(title)
+		titleStyled = styleSelected.Width(titleW).Render(title + titleSuffix)
 	}
 
 	return numStr + " " + indicator + titleStyled + " " +
@@ -645,19 +667,22 @@ func (m Model) renderHelp(height int) string {
 		"  gg / G         " + "Go to top / bottom",
 		"  {n}G           " + "Jump to row n",
 		"  Tab / Shift+Tab" + "Next / prev tab",
-		"  F2–F8          " + "Direct tab access",
+		"  tr ts tp t/ td tl th" + "  Switch to tab by chord",
 		"",
 		styleHelp.Render("Video Actions"),
-		"  s              " + "Download video (with SponsorBlock)",
-		"  S              " + "Download audio only",
-		"  p              " + "Play local video",
-		"  d              " + "Delete local video",
+		"  d              " + "Download video (with SponsorBlock)",
+		"  D              " + "Download audio only",
+		"  p              " + "Play local video / queue play after download",
+		"  x              " + "Delete local video / playlist entry",
+		"  c              " + "Copy video URL to clipboard",
+		"  r              " + "Hide video from recommended (other tabs: refresh)",
+		"  R              " + "Hide channel from recommended (auto-blacklist after 2×)",
 		"  w              " + "Add to Watch Later",
 		"  a              " + "Add to playlist",
 		"",
 		styleHelp.Render("General"),
-		"  /              " + "Search YouTube",
-		"  t              " + "Toggle subscriptions mode",
+		"  /              " + "Local search (within current tab)",
+		"  m              " + "Toggle subscriptions mode",
 		"  n              " + "New playlist",
 		"  r              " + "Refresh",
 		"  ?              " + "Toggle this help",

@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
@@ -23,6 +25,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case positionTickMsg:
+		if pos, ok := m.playerBackend.Position(); ok && m.playingVideoID != "" {
+			_ = m.db.UpdateLastPosition(m.playingVideoID, pos.Milliseconds())
+		}
+		return m, positionTick()
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -93,15 +101,31 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 	}
 	switch msg.Source {
 	case "recommended":
+		m.recPage++
 		m.recLoading = false
 		m.recRefreshing = false
 		m.recLoaded = true
 		if msg.Err == nil {
-			videos := filterByAge(msg.Videos, m.cfg.RecommendedMaxAgeDays)
-			sortByViews(videos)
-			m.recCursor = preserveCursor(m.recVideos, m.recCursor, videos)
-			m.recVideos = videos
-			go m.db.SaveFeedCache("recommended", videos)
+			merged := mergeVideos(m.recVideos, msg.Videos)
+			filtered := filterByAge(merged, m.cfg.RecommendedMaxAgeDays)
+			filtered = filterDownloaded(filtered, m.localVideoIDs)
+			filtered = filterHidden(filtered, m.recHidden)
+			filtered = filterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
+			sortByViews(filtered)
+			m.recCursor = preserveCursor(m.recVideos, m.recCursor, filtered)
+			m.recVideos = filtered
+			go m.db.SaveFeedCache("recommended", filtered)
+
+			// If too few results and we haven't hit the page cap, fetch again.
+			maxPages := m.cfg.RecommendedMaxPages
+			if maxPages <= 0 {
+				maxPages = 3
+			}
+			if len(filtered) < 20 && m.recPage < maxPages {
+				m.recLoading = true
+				m.recRefreshing = true
+				return m, youtube.FetchRecommended(m.cfg)
+			}
 		}
 	case "subscriptions":
 		m.subLoading = false
@@ -122,6 +146,13 @@ func (m *Model) handleDownloadEvent(ev downloader.Event) {
 		m.setStatus(fmt.Sprintf("Downloaded: %s", ev.FilePath), false)
 		if lv, err := m.db.LocalVideos(); err == nil {
 			m.localVideos = lv
+			m.localVideoIDs = buildLocalIDMap(lv)
+		}
+		if m.playAfterDownload[ev.VideoID] {
+			delete(m.playAfterDownload, ev.VideoID)
+			if lv, ok := m.localVideoIDs[ev.VideoID]; ok {
+				m.launchVideo(lv)
+			}
 		}
 	case downloader.EventError:
 		m.setStatus("Download failed: "+ev.Err.Error(), true)
@@ -143,8 +174,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// ── Vim-style number prefix + goto ────────────────────────────────────
 	s := msg.String()
+
+	// ── t+letter tab chord ────────────────────────────────────────────────
+	if m.tPending {
+		m.tPending = false
+		m.numPrefix = ""
+		m.gPending = false
+		return m.handleTabChord(s)
+	}
+
+	// ── Vim-style number prefix + goto ────────────────────────────────────
 	if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
 		m.numPrefix += s
 		m.gPending = false
@@ -171,6 +211,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.jumpToLast()
 		}
 		return m, nil
+	} else if s == "t" {
+		m.numPrefix = ""
+		m.gPending = false
+		m.tPending = true
+		return m, nil
 	} else {
 		m.numPrefix = ""
 		m.gPending = false
@@ -178,43 +223,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	// ── Tab switching ─────────────────────────────────────────────────────
-	case key.Matches(msg, keys.Tab):
+	case key.Matches(msg, m.keys.Tab):
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+1)%len(m.tabs)]
 		return m, m.onTabActivated()
-	case key.Matches(msg, keys.ShiftTab):
+	case key.Matches(msg, m.keys.ShiftTab):
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+len(m.tabs)-1)%len(m.tabs)]
 		return m, m.onTabActivated()
 
-	// F-keys are positional: F2 = first tab, F3 = second, etc.
-	case key.Matches(msg, keys.F2):
-		return m.switchToTabPos(0)
-	case key.Matches(msg, keys.F3):
-		return m.switchToTabPos(1)
-	case key.Matches(msg, keys.F4):
-		return m.switchToTabPos(2)
-	case key.Matches(msg, keys.F5):
-		return m.switchToTabPos(3)
-	case key.Matches(msg, keys.F6):
-		return m.switchToTabPos(4)
-	case key.Matches(msg, keys.F7):
-		return m.switchToTabPos(5)
-	case key.Matches(msg, keys.F8):
-		return m.switchToTabPos(6)
-
 	// ── Global actions ────────────────────────────────────────────────────
-	case key.Matches(msg, keys.Quit):
+	case key.Matches(msg, m.keys.Quit):
+		m.playerBackend.Close()
 		return m, tea.Quit
-	case key.Matches(msg, keys.Help):
+	case key.Matches(msg, m.keys.Help):
 		m.showHelp = !m.showHelp
 		return m, nil
-	case key.Matches(msg, keys.Search) && m.activeTab != tabSearch:
-		m.activeTab = tabSearch
-		m.searchFocused = true
-		m.searchInput.Focus()
-		return m, textinput.Blink
-	case key.Matches(msg, keys.Refresh):
+	case key.Matches(msg, m.keys.Refresh):
 		return m, m.refresh()
 	}
 
@@ -246,6 +271,37 @@ func (m Model) switchToTabPos(pos int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleTabChord resolves the second key of a t+letter tab-switch chord.
+// '/' maps to the Search tab; all others use the first letter of the tab name.
+func (m Model) handleTabChord(letter string) (tea.Model, tea.Cmd) {
+	var target int
+	switch letter {
+	case "r":
+		target = tabRecommended
+	case "s":
+		target = tabSubscriptions
+	case "p":
+		target = tabPlaylists
+	case "/":
+		target = tabSearch
+	case "d":
+		target = tabDownloading
+	case "l":
+		target = tabLocal
+	case "h":
+		target = tabHistory
+	default:
+		return m, nil // unknown letter — silently cancel
+	}
+	for _, id := range m.tabs {
+		if id == target {
+			m.activeTab = target
+			return m, m.onTabActivated()
+		}
+	}
+	return m, nil // tab not in visible set
+}
+
 // ── Tab activation ────────────────────────────────────────────────────────────
 
 func (m *Model) onTabActivated() tea.Cmd {
@@ -254,8 +310,13 @@ func (m *Model) onTabActivated() tea.Cmd {
 		if !m.recLoading {
 			m.recLoading = true
 			m.recRefreshing = m.recLoaded
+			m.recPage = 0
 			return youtube.FetchRecommended(m.cfg)
 		}
+	case tabSearch:
+		m.searchFocused = true
+		m.searchInput.Focus()
+		return textinput.Blink
 	case tabSubscriptions:
 		if m.subMode == subModeAll && !m.subLoading {
 			m.subLoading = true
@@ -290,6 +351,7 @@ func (m *Model) refresh() tea.Cmd {
 		if !m.recLoading {
 			m.recLoading = true
 			m.recRefreshing = m.recLoaded
+			m.recPage = 0
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSubscriptions:
@@ -323,31 +385,49 @@ func (m *Model) refresh() tea.Cmd {
 func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.recVideos)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.recCursor = clamp(m.recCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.recCursor = clamp(m.recCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.recCursor = clamp(m.recCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.recCursor = clamp(m.recCursor+m.pageSize(), n)
-	case key.Matches(msg, keys.Download):
+	case key.Matches(msg, m.keys.Refresh): // 'r' on recommended = hide video
+		if v, ok := m.currentVideo(); ok {
+			_ = m.db.HideRecVideo(v.ID)
+			m.recHidden[v.ID] = true
+			m.recVideos = removeVideoByID(m.recVideos, v.ID)
+			m.recCursor = clamp(m.recCursor, len(m.recVideos))
+			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
+		}
+	case key.Matches(msg, m.keys.HideChannel): // 'R' on recommended = hide channel
+		if v, ok := m.currentVideo(); ok {
+			_ = m.db.HideRecChannel(v.ChannelID, v.Channel)
+			m.recVideos = removeChannelVideos(m.recVideos, v.ChannelID)
+			m.recCursor = clamp(m.recCursor, len(m.recVideos))
+			m.checkAutoBlacklist(v.ChannelID, v.Channel)
+			m.setStatus("Hidden channel: "+v.Channel, false)
+		}
+	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeVideo)
 		}
-	case key.Matches(msg, keys.DownloadAudio):
+	case key.Matches(msg, m.keys.DownloadAudio):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, keys.WatchLater):
+	case key.Matches(msg, m.keys.WatchLater):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.AddWatchLater(v.ID, v.Title, v.Channel, v.URL)
 			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
 		}
-	case key.Matches(msg, keys.AddList):
+	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
@@ -356,7 +436,7 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSubscriptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, keys.ToggleMode):
+	case key.Matches(msg, m.keys.ToggleMode):
 		if m.subMode == subModeAll {
 			m.subMode = subModeChannels
 			if !m.subChLoaded && !m.subChLoading {
@@ -383,31 +463,33 @@ func (m Model) updateSubscriptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.subVideos)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.subCursor = clamp(m.subCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.subCursor = clamp(m.subCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.subCursor = clamp(m.subCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.subCursor = clamp(m.subCursor+m.pageSize(), n)
-	case key.Matches(msg, keys.Download):
+	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeVideo)
 		}
-	case key.Matches(msg, keys.DownloadAudio):
+	case key.Matches(msg, m.keys.DownloadAudio):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, keys.WatchLater):
+	case key.Matches(msg, m.keys.WatchLater):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.AddWatchLater(v.ID, v.Title, v.Channel, v.URL)
 			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
 		}
-	case key.Matches(msg, keys.AddList):
+	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
@@ -416,11 +498,11 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.subChPane == 0 {
 		n := len(m.subChannels)
 		switch {
-		case key.Matches(msg, keys.Up):
+		case key.Matches(msg, m.keys.Up):
 			m.subChCursor = clamp(m.subChCursor-1, n)
-		case key.Matches(msg, keys.Down):
+		case key.Matches(msg, m.keys.Down):
 			m.subChCursor = clamp(m.subChCursor+1, n)
-		case key.Matches(msg, keys.Enter), key.Matches(msg, keys.Right):
+		case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Right):
 			if m.subChCursor < n {
 				ch := m.subChannels[m.subChCursor]
 				m.subChActiveID = ch.ID
@@ -434,33 +516,35 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	n := len(m.subChVideos)
 	switch {
-	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
+	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
 		m.subChPane = 0
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.subChVidCursor = clamp(m.subChVidCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.subChVidCursor = clamp(m.subChVidCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.subChVidCursor = clamp(m.subChVidCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.subChVidCursor = clamp(m.subChVidCursor+m.pageSize(), n)
-	case key.Matches(msg, keys.Download):
+	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeVideo)
 		}
-	case key.Matches(msg, keys.DownloadAudio):
+	case key.Matches(msg, m.keys.DownloadAudio):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, keys.WatchLater):
+	case key.Matches(msg, m.keys.WatchLater):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.AddWatchLater(v.ID, v.Title, v.Channel, v.URL)
 			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
 		}
-	case key.Matches(msg, keys.AddList):
+	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
@@ -471,21 +555,21 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.playlistPane == 0 {
 		n := len(m.playlists)
 		switch {
-		case key.Matches(msg, keys.Up):
+		case key.Matches(msg, m.keys.Up):
 			m.playlistCursor = clamp(m.playlistCursor-1, n)
-		case key.Matches(msg, keys.Down):
+		case key.Matches(msg, m.keys.Down):
 			m.playlistCursor = clamp(m.playlistCursor+1, n)
-		case key.Matches(msg, keys.Enter), key.Matches(msg, keys.Right):
+		case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Right):
 			if m.playlistCursor < n {
 				m.playlistPane = 1
 				m.playlistVidCursor = 0
 			}
-		case key.Matches(msg, keys.NewList):
+		case key.Matches(msg, m.keys.NewList):
 			m.createMode = true
 			m.createInput.SetValue("")
 			m.createInput.Focus()
 			return m, textinput.Blink
-		case key.Matches(msg, keys.Delete):
+		case key.Matches(msg, m.keys.Delete):
 			if m.playlistCursor < n {
 				pl := m.playlists[m.playlistCursor]
 				_ = m.db.DeletePlaylist(pl.ID)
@@ -506,24 +590,24 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(vids)
 
 	switch {
-	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
+	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
 		m.playlistPane = 0
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.playlistVidCursor = clamp(m.playlistVidCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.playlistVidCursor = clamp(m.playlistVidCursor+1, n)
-	case key.Matches(msg, keys.Delete):
+	case key.Matches(msg, m.keys.Delete):
 		if m.playlistVidCursor < n {
 			vid := vids[m.playlistVidCursor]
 			_ = m.db.RemoveFromPlaylist(pl.ID, vid.ID)
 			delete(m.playlistVidCache, pl.ID)
 			m.playlistVidCursor = clamp(m.playlistVidCursor, n-1)
 		}
-	case key.Matches(msg, keys.Download):
+	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeVideo)
 		}
-	case key.Matches(msg, keys.DownloadAudio):
+	case key.Matches(msg, m.keys.DownloadAudio):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
@@ -534,99 +618,96 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Search ────────────────────────────────────────────────────────────────────
 
 func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Allow tab switching directly from search results without needing Escape first.
-	switch {
-	case key.Matches(msg, keys.Tab):
-		idx := m.currentTabIndex()
-		m.activeTab = m.tabs[(idx+1)%len(m.tabs)]
-		return m, m.onTabActivated()
-	case key.Matches(msg, keys.ShiftTab):
-		idx := m.currentTabIndex()
-		m.activeTab = m.tabs[(idx+len(m.tabs)-1)%len(m.tabs)]
-		return m, m.onTabActivated()
-	case key.Matches(msg, keys.F2):
-		return m.switchToTabPos(0)
-	case key.Matches(msg, keys.F3):
-		return m.switchToTabPos(1)
-	case key.Matches(msg, keys.F4):
-		return m.switchToTabPos(2)
-	case key.Matches(msg, keys.F5):
-		return m.switchToTabPos(3)
-	case key.Matches(msg, keys.F6):
-		return m.switchToTabPos(4)
-	case key.Matches(msg, keys.F7):
-		return m.switchToTabPos(5)
-	case key.Matches(msg, keys.F8):
-		return m.switchToTabPos(6)
-	}
-
-	if key.Matches(msg, keys.Search) {
+	// '/' refocuses the search input when results are shown.
+	if msg.String() == "/" {
 		m.searchFocused = true
 		m.searchInput.Focus()
 		return m, textinput.Blink
 	}
 	n := len(m.searchVideos)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.searchCursor = clamp(m.searchCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.searchCursor = clamp(m.searchCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.searchCursor = clamp(m.searchCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.searchCursor = clamp(m.searchCursor+m.pageSize(), n)
-	case key.Matches(msg, keys.Download):
+	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeVideo)
 		}
-	case key.Matches(msg, keys.DownloadAudio):
+	case key.Matches(msg, m.keys.DownloadAudio):
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, keys.WatchLater):
+	case key.Matches(msg, m.keys.WatchLater):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.AddWatchLater(v.ID, v.Title, v.Channel, v.URL)
 			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
 		}
-	case key.Matches(msg, keys.AddList):
+	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
 
 func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	blurSearch := func() {
+		m.searchFocused = false
+		m.searchInput.Blur()
+	}
 	switch msg.String() {
 	case "enter":
 		q := m.searchInput.Value()
 		if q == "" {
-			m.searchFocused = false
-			m.searchInput.Blur()
+			blurSearch()
 			return m, nil
 		}
 		m.lastQuery = q
 		m.searchLoading = true
-		m.searchFocused = false
-		m.searchInput.Blur()
+		blurSearch()
 		_ = m.db.AddHistory("", "search", q)
 		return m, youtube.Search(m.cfg, q)
 	case "esc":
-		m.searchFocused = false
-		m.searchInput.Blur()
+		blurSearch()
 		return m, nil
 	case "tab":
-		m.searchFocused = false
-		m.searchInput.Blur()
+		blurSearch()
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+1)%len(m.tabs)]
 		return m, m.onTabActivated()
 	case "shift+tab":
-		m.searchFocused = false
-		m.searchInput.Blur()
+		blurSearch()
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+len(m.tabs)-1)%len(m.tabs)]
 		return m, m.onTabActivated()
+	case "f2":
+		blurSearch()
+		return m.switchToTabPos(0)
+	case "f3":
+		blurSearch()
+		return m.switchToTabPos(1)
+	case "f4":
+		blurSearch()
+		return m.switchToTabPos(2)
+	case "f5":
+		blurSearch()
+		return m.switchToTabPos(3)
+	case "f6":
+		blurSearch()
+		return m.switchToTabPos(4)
+	case "f7":
+		blurSearch()
+		return m.switchToTabPos(5)
+	case "f8":
+		blurSearch()
+		return m.switchToTabPos(6)
 	default:
 		var cmd tea.Cmd
 		m.searchInput, cmd = m.searchInput.Update(msg)
@@ -640,10 +721,24 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	items := m.downloader.Items()
 	n := len(items)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.dlCursor = clamp(m.dlCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.dlCursor = clamp(m.dlCursor+1, n)
+	case key.Matches(msg, m.keys.Play):
+		if m.dlCursor < n {
+			item := items[m.dlCursor]
+			if item.Status == downloader.StatusComplete {
+				if lv, ok := m.localVideoIDs[item.Video.ID]; ok {
+					m.launchVideo(lv)
+				}
+			} else {
+				m.playAfterDownload[item.Video.ID] = true
+				m.setStatus("Will play after download: "+truncate(item.Video.Title, 50), false)
+			}
+		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
@@ -653,29 +748,19 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.localVideos)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.localCursor = clamp(m.localCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.localCursor = clamp(m.localCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.localCursor = clamp(m.localCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.localCursor = clamp(m.localCursor+m.pageSize(), n)
-	case key.Matches(msg, keys.Play):
+	case key.Matches(msg, m.keys.Play):
 		if m.localCursor < n {
-			lv := m.localVideos[m.localCursor]
-			if err := player.Play(lv.FilePath, m.cfg); err != nil {
-				m.setStatus("play: "+err.Error(), true)
-			} else {
-				_ = m.db.SetVideoStatus(lv.ID, db.StatusStarted)
-				_ = m.db.AddHistory(lv.ID, "play", "")
-				if lv2, err := m.db.LocalVideos(); err == nil {
-					m.localVideos = lv2
-				}
-				m.setStatus("Playing: "+truncate(lv.Title, 50), false)
-			}
+			m.launchVideo(m.localVideos[m.localCursor])
 		}
-	case key.Matches(msg, keys.Delete):
+	case key.Matches(msg, m.keys.Delete):
 		if m.localCursor < n {
 			lv := m.localVideos[m.localCursor]
 			_ = os.Remove(lv.FilePath)
@@ -687,6 +772,8 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.localCursor = clamp(m.localCursor, len(m.localVideos))
 			m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
 		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
 	}
 	return m, nil
 }
@@ -696,13 +783,13 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.histEntries)
 	switch {
-	case key.Matches(msg, keys.Up):
+	case key.Matches(msg, m.keys.Up):
 		m.histCursor = clamp(m.histCursor-1, n)
-	case key.Matches(msg, keys.Down):
+	case key.Matches(msg, m.keys.Down):
 		m.histCursor = clamp(m.histCursor+1, n)
-	case key.Matches(msg, keys.PageUp):
+	case key.Matches(msg, m.keys.PageUp):
 		m.histCursor = clamp(m.histCursor-m.pageSize(), n)
-	case key.Matches(msg, keys.PageDown):
+	case key.Matches(msg, m.keys.PageDown):
 		m.histCursor = clamp(m.histCursor+m.pageSize(), n)
 	}
 	return m, nil
@@ -830,4 +917,157 @@ func sortByViews(videos []youtube.Video) {
 	sort.Slice(videos, func(i, j int) bool {
 		return videos[i].ViewCount > videos[j].ViewCount
 	})
+}
+
+// mergeVideos merges incoming into existing by video ID; incoming wins on conflict.
+func mergeVideos(existing, incoming []youtube.Video) []youtube.Video {
+	m := make(map[string]youtube.Video, len(existing)+len(incoming))
+	for _, v := range existing {
+		m[v.ID] = v
+	}
+	for _, v := range incoming {
+		m[v.ID] = v
+	}
+	out := make([]youtube.Video, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
+}
+
+// filterDownloaded removes videos that are already in the local library.
+func filterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []youtube.Video {
+	out := videos[:0]
+	for _, v := range videos {
+		if _, ok := local[v.ID]; !ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// filterHidden removes videos the user has explicitly hidden from recommended.
+func filterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Video {
+	out := videos[:0]
+	for _, v := range videos {
+		if !hidden[v.ID] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// filterBlacklisted removes videos whose channel is blacklisted.
+// As a side effect it enriches name-only blacklist entries with the channel ID.
+func filterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel, cfg *config.Config) []youtube.Video {
+	out := videos[:0]
+	for _, v := range videos {
+		if bl, matched := matchBlacklisted(v, list); matched {
+			if bl >= 0 && cfg.BlacklistedChannels[bl].ID == "" && v.ChannelID != "" {
+				cfg.BlacklistedChannels[bl].ID = v.ChannelID
+				go cfg.Save()
+			}
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// matchBlacklisted returns the index in list and true if the video's channel is blacklisted.
+// Matches by ID first (exact), then by name (case-insensitive) for entries without an ID.
+func matchBlacklisted(v youtube.Video, list []config.BlacklistedChannel) (int, bool) {
+	for i, bl := range list {
+		if bl.ID != "" && bl.ID == v.ChannelID {
+			return i, true
+		}
+		if bl.ID == "" && strings.EqualFold(bl.Name, v.Channel) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// removeVideoByID returns a new slice with the given video ID removed.
+func removeVideoByID(videos []youtube.Video, id string) []youtube.Video {
+	out := make([]youtube.Video, 0, len(videos))
+	for _, v := range videos {
+		if v.ID != id {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// removeChannelVideos returns a new slice with all videos from a channel removed.
+func removeChannelVideos(videos []youtube.Video, channelID string) []youtube.Video {
+	out := make([]youtube.Video, 0, len(videos))
+	for _, v := range videos {
+		if v.ChannelID != channelID {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// launchVideo starts playback of a local video, resuming from last position.
+func (m *Model) launchVideo(lv db.LocalVideo) {
+	startAt := time.Duration(lv.LastPositionMs) * time.Millisecond
+	if err := m.playerBackend.Launch(lv.FilePath, startAt); err != nil {
+		m.setStatus("play: "+err.Error(), true)
+		return
+	}
+	m.playingVideoID = lv.ID
+	_ = m.db.SetVideoStatus(lv.ID, db.StatusStarted)
+	_ = m.db.AddHistory(lv.ID, "play", "")
+	if lv2, err := m.db.LocalVideos(); err == nil {
+		m.localVideos = lv2
+		m.localVideoIDs = buildLocalIDMap(lv2)
+	}
+	label := truncate(lv.Title, 50)
+	if startAt > 0 {
+		m.setStatus(fmt.Sprintf("Playing (from %s): %s", formatDuration(startAt), label), false)
+	} else {
+		m.setStatus("Playing: "+label, false)
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+// copyCurrentURL copies the selected video's URL to the system clipboard.
+func (m *Model) copyCurrentURL() {
+	v, ok := m.currentVideo()
+	if !ok {
+		return
+	}
+	if err := clipboard.WriteAll(v.URL); err != nil {
+		m.setStatus("clipboard: "+err.Error(), true)
+	} else {
+		m.setStatus("Copied: "+v.URL, false)
+	}
+}
+
+// checkAutoBlacklist auto-blacklists a channel if it has been hidden ≥2 times with 0 plays.
+func (m *Model) checkAutoBlacklist(channelID, channelName string) {
+	count, err := m.db.ChannelRemovalCount(channelID)
+	if err != nil || count < 2 {
+		return
+	}
+	views, err := m.db.ChannelViewCount(channelID)
+	if err != nil || views > 0 {
+		return
+	}
+	m.cfg.AddBlacklistedChannel(channelID, channelName)
+	if err := m.cfg.Save(); err == nil {
+		m.setStatus("Auto-blacklisted channel: "+channelName, false)
+	}
 }
