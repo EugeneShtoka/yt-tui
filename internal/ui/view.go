@@ -253,9 +253,9 @@ func (m Model) fullHintRaw() string {
 		isSearchEntry := m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search"
 		if !isSearchEntry {
 			if yt {
-				return fmt.Sprintf("j/k: move  %s: details  %s: block channel  %s: subscribe  %s: delete  %s: refresh", drill, hideCh, sub, del, ref)
+				return fmt.Sprintf("j/k: move  %s: play  %s: details  %s: block channel  %s: subscribe  %s: delete  %s: refresh", play, drill, hideCh, sub, del, ref)
 			}
-			return fmt.Sprintf("j/k: move  %s: details  %s: block channel  %s: delete  %s: refresh", drill, hideCh, del, ref)
+			return fmt.Sprintf("j/k: move  %s: play  %s: details  %s: block channel  %s: delete  %s: refresh", play, drill, hideCh, del, ref)
 		}
 		return fmt.Sprintf("j/k: move  %s: search  %s: delete  %s: refresh", drill, del, ref)
 	}

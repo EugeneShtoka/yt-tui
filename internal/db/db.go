@@ -63,6 +63,11 @@ func New(dataDir string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Single connection serializes all writes; prevents SQLITE_BUSY from concurrent goroutines.
+	sqlDB.SetMaxOpenConns(1)
+	if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`); err != nil {
+		return nil, err
+	}
 	d := &DB{sql: sqlDB}
 	if err := d.migrate(); err != nil {
 		return nil, err

@@ -187,13 +187,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.subChVidRefreshing = false
 			if msg.Err != nil {
 				m.setStatus("channel videos: "+msg.Err.Error(), true)
+			} else if msg.ChannelID != m.subChActiveID || m.subChPane != 1 {
+				// Stale response — user navigated away; save to DB but don't touch UI.
+				if len(msg.Videos) > 0 {
+					go func(chID string, vids []youtube.Video) {
+						_ = m.db.SaveChannelVideos(chID, vids)
+					}(msg.ChannelID, msg.Videos)
+				}
 			} else {
 				// Merge fetched videos with any already-loaded DB cache.
 				merged := mergeVideos(m.subChVideos, msg.Videos)
 				sortVideos(merged, m.subChVidSort)
 				m.subChVideos = merged
 				m.subChVidCursor = 0
-				m.subChPane = 1
 				// Update latest-video entry and persist.
 				if len(merged) > 0 {
 					latest := merged[0]
@@ -985,9 +991,15 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 			if m.subChCursor < n {
 				ch := sorted[m.subChCursor]
-				m.subChActiveID = ch.ID
 				m.subChVidCursor = 0
 				m.subChPane = 1
+				if ch.ID == m.subChActiveID && len(m.subChVideos) > 0 {
+					// Re-entering same channel — reuse in-memory data, refresh in background.
+					m.subChVidLoading = false
+					m.subChVidRefreshing = true
+					return m, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount)
+				}
+				m.subChActiveID = ch.ID
 				if cached, err := m.db.GetChannelVideos(ch.ID); err == nil && len(cached) > 0 {
 					// Has cached data — show immediately, fetch latest in background.
 					m.subChVideos = cached
@@ -1528,6 +1540,17 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, -1, m.pageSize())
 	case key.Matches(msg, m.keys.PageDown):
 		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, +1, m.pageSize())
+	case key.Matches(msg, m.keys.Play):
+		if m.histCursor < n {
+			e := m.histEntries[m.histCursor]
+			if e.EventType != "search" {
+				if lv, ok := m.localVideoIDs[e.VideoID]; ok {
+					m.launchVideo(lv)
+				} else {
+					m.setStatus("Not downloaded: "+truncate(e.Title, 40), true)
+				}
+			}
+		}
 	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 		if m.histCursor < n {
 			e := m.histEntries[m.histCursor]
@@ -1551,8 +1574,16 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				_ = m.db.DeleteSearchHistory(e.Details)
 				m.setStatus("Removed search: "+truncate(e.Details, 50), false)
 			} else {
+				if lv, ok := m.localVideoIDs[e.VideoID]; ok {
+					_ = os.Remove(lv.FilePath)
+					_ = m.db.DeleteLocalVideo(lv.ID)
+					if lv2, err := m.db.LocalVideos(); err == nil {
+						m.localVideos = lv2
+						m.localVideoIDs = buildLocalIDMap(lv2)
+					}
+				}
 				_ = m.db.DeleteVideoHistory(e.VideoID)
-				m.setStatus("Removed from history: "+truncate(e.Title, 50), false)
+				m.setStatus("Deleted: "+truncate(e.Title, 50), false)
 			}
 			m.histEntries = append(m.histEntries[:m.histCursor], m.histEntries[m.histCursor+1:]...)
 			if m.histCursor >= len(m.histEntries) && m.histCursor > 0 {
@@ -1951,6 +1982,10 @@ func removeChannelByID(channels []youtube.Channel, id string) []youtube.Channel 
 
 // launchVideo starts playback of a local video, resuming from last position.
 func (m *Model) launchVideo(lv db.LocalVideo) {
+	if _, err := os.Stat(lv.FilePath); err != nil {
+		m.setStatus("File not found: "+truncate(lv.Title, 50), true)
+		return
+	}
 	startAt := time.Duration(lv.LastPositionMs) * time.Millisecond
 	if err := m.playerBackend.Launch(lv.FilePath, startAt); err != nil {
 		m.setStatus("play: "+err.Error(), true)
