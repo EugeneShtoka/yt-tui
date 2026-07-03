@@ -39,18 +39,18 @@ Key tables and their purpose:
 | Table | Purpose |
 | --- | --- |
 | `videos` | Canonical video metadata (id, title, channel, duration, views, upload date, url) |
-| `feed_cache` | Serialised feed snapshots (recommended, subscriptions) for instant startup |
+| `feed_cache` | Serialised feed snapshots (recommended) for instant startup |
 | `local_videos` | Downloaded files with path, status, last play position |
 | `history` | Every user action (download, play, search, delete) keyed by video_id |
 | `subscribed_channels` | Full channel list (id, name, url, subscribers) persisted after fetch |
-| `channel_latest` | Latest known video per channel for channel-list display |
-| `channel_videos` | All fetched videos per channel |
+| `channel_videos` | All fetched videos per channel; latest-per-channel is derived at query time |
 | `yt_playlists` | Cached YouTube playlist list (id, title) |
+| `yt_playlist_videos` | Cached YouTube playlist video lists (playlist_id, video_id, position) |
 | `playlists` / `playlist_videos` | Local playlists |
 | `watch_later` | Local Watch Later entries (fallback when no YouTube connection) |
-| `hidden_rec_videos` / `channel_removals` | Block lists for recommended feed filtering |
+| `hidden_rec_videos` | Block list for recommended feed filtering |
 
-All writes from goroutines (background fetches) go through `go func()` closures — the DB is used directly from goroutines since SQLite with WAL handles concurrent reads/writes safely.
+The DB is opened with `SetMaxOpenConns(1)` so all access — including fire-and-forget save goroutines — is serialised through a single connection. `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` are set at open time as additional safety.
 
 ### `downloader`
 
@@ -223,10 +223,10 @@ main.go
   downloader.New()        → dl
   theme.Load() → ui.InitStyles()
   ui.NewModel(cfg, database, dl)
-    database.GetFeedCache("recommended")   → recVideos  (immediate)
-    database.GetFeedCache("subscriptions") → subVideos  (immediate)
+    database.GetFeedCache("recommended")   → recVideos   (immediate)
     database.GetSubscribedChannels()       → subChannels (immediate)
-    database.GetChannelLatest()            → subChLatest (immediate)
+    database.GetAllChannelVideos(ids)      → subVideos   (immediate)
+    database.GetChannelLatestAll()         → subChLatest (immediate)
     database.GetYTPlaylists()              → ytPlaylists (immediate)
     database.LocalVideos()                 → localVideos (immediate)
   tea.NewProgram(model).Run()
@@ -251,19 +251,33 @@ User presses key
 ### Background fetch completing
 
 ``` text
-FetchChannelLatest goroutine completes
-  → returns ChannelVideosMsg{Source: "ch-background"}
+FetchChannelLatestN goroutine completes
+  → returns ChannelVideosMsg{Source: "ch-background", ChannelID: id}
   → Update() handler:
-      if newer video found: m.subChLatest[id] = newest; persist to DB
+      if newer video found:
+        m.subChLatest[id] = newest
+        go SaveChannelVideos(id, videos)   ← serialised by SetMaxOpenConns(1)
+        rebuildSubVideos()                 ← re-queries GetAllChannelVideos
       else: no-op
-  → View() re-renders channel list with updated latest-video data
+  → View() re-renders channel list with updated latest-video column
+
+FetchChannelVideos goroutine completes (user drilled into a channel)
+  → returns ChannelVideosMsg{Source: "subscriptions", ChannelID: id}
+  → Update() handler:
+      if msg.ChannelID != m.subChActiveID || m.subChPane != 1:
+        stale response — go SaveChannelVideos(id, videos); return  ← no UI change
+      else:
+        merge with m.subChVideos; sort; update m.subChVideos
+        go SaveChannelVideos(id, merged)
+        rebuildSubVideos()
+  → View() renders channel video pane
 ```
 
 ---
 
 ## Threading model
 
-Bubble Tea runs the `Update` / `View` loop on a single goroutine. All `tea.Cmd` functions run on separate goroutines managed by the framework. The only direct goroutine launches in the codebase are fire-and-forget DB writes (`go func() { _ = m.db.Save... }()`), which is safe because SQLite WAL mode allows concurrent writes and these never read back into the model.
+Bubble Tea runs the `Update` / `View` loop on a single goroutine. All `tea.Cmd` functions run on separate goroutines managed by the framework. The only direct goroutine launches in the codebase are fire-and-forget DB writes (`go func() { _ = m.db.Save... }()`). These are safe because `SetMaxOpenConns(1)` serialises them through a single connection — they never race with each other or with the main loop's DB reads, and they never feed back into the model.
 
 The downloader maintains its own goroutine per active download, plus a semaphore goroutine. It communicates with the UI exclusively through `EventMsg` values sent via the Bubble Tea event channel.
 

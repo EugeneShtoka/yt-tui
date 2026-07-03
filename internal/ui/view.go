@@ -374,7 +374,11 @@ func (m Model) renderVideoRows(videos []youtube.Video, cursor, vs, height int) s
 
 	titleW := m.videoListTitleW()
 	colHeader := m.renderVideoColHeader(titleW)
-	start, end := scrollWindowAt(vs, len(videos), height-1)
+	windowH := height - 1
+	if ps := m.pageSize(); ps < windowH {
+		windowH = ps
+	}
+	start, end := scrollWindowAt(vs, len(videos), windowH)
 
 	var rows []string
 	rows = append(rows, colHeader)
@@ -528,7 +532,11 @@ func (m Model) renderChannelList(height int) string {
 		styleColHeader.Width(colViews).Render("Views") + " " +
 		styleColHeader.Width(colDate).Render("Date")
 
-	start, end := scrollWindowAt(m.subChVS, len(channels), height-1)
+	windowH := height - 1
+	if ps := m.pageSize(); ps < windowH {
+		windowH = ps
+	}
+	start, end := scrollWindowAt(m.subChVS, len(channels), windowH)
 	rows := []string{colHeader}
 
 	for i := start; i < end && i < len(channels); i++ {

@@ -8,7 +8,8 @@ A terminal UI for browsing, searching, and downloading YouTube videos, built wit
 - Subscribed channels view with per-channel latest video, sort by date / name / subscribers
 - Search YouTube — with persistent search history navigation (↑/↓ in search box)
 - Manage YouTube playlists and Watch Later queue, plus local playlists
-- Download videos or audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp); files named `Channel - Title.ext`
+- Download videos or audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp); files named `Channel - Title.ext` (MKV for video, to support embedded subtitles)
+- Automatic subtitle download and embedding (configurable languages, enabled by default)
 - Concurrent download queue with progress display
 - Queue a video to auto-play as soon as its download finishes
 - Automatic [SponsorBlock](https://sponsor.ajay.app/) segment removal
@@ -52,10 +53,14 @@ max_concurrent_downloads = 3
 sponsorblock = true
 sponsorblock_categories = ["sponsor", "selfpromo", "interaction"]
 audio_format = "mp3"
+subtitles = true
+subtitle_langs = ["en.*"]          # regex patterns, passed to yt-dlp --sub-langs
 hint_mode = "full"                 # "full" | "minimal" | "none"
 recommended_max_age_days = 7
 recommended_fetch_count = 150
 recommended_max_pages = 3
+channel_latest_count = 3           # videos fetched per channel during background refresh
+channel_strikes = 2                # hide-video strikes before auto-blocking a channel
 # theme = "theme.toml"             # path relative to config dir or absolute
 
 tabs = [
@@ -90,6 +95,7 @@ tab_chord   = "t"   # press t, then a tab_key to switch tabs
 sort_chord  = "s"   # press s, then a sort_key to sort (only where sort is available)
 goto_prefix = "g"   # press twice (gg) to jump to top
 goto_bottom = "G"   # jump to bottom (or {n}G to jump to row n)
+force_refresh = "R" # full re-fetch for all subscribed channels
 
 [keybindings.tab_keys]
 recommended   = "r"
@@ -108,6 +114,12 @@ channel     = "c"
 duration    = "D"
 subscribers = "s"   # channel list only
 ```
+
+**`subtitles`** / **`subtitle_langs`** — when `subtitles = true`, video downloads include `--write-subs --sub-langs <langs>`. Languages are regex patterns (e.g. `"en.*"` matches `en`, `en-US`, `en-GB`). MKV container is used so subtitles are embedded in the file.
+
+**`channel_latest_count`** — how many videos to fetch per channel during background refresh (default 3). Keeps background syncs fast regardless of channel size.
+
+**`channel_strikes`** — number of times you hide a video from a channel before it is automatically blocked from recommended (default 2).
 
 **`browser`** — passed directly to `yt-dlp --cookies-from-browser`. Any value yt-dlp accepts works (`chrome`, `firefox`, `vivaldi`, `vivaldi+gnomekeyring`, etc.).
 
@@ -200,6 +212,7 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 | `S` | Subscribe to channel |
 | `u` | Unsubscribe from channel |
 | `r` | Refresh current tab |
+| `R` | Force-refresh all subscribed channels (full fetch, ignores cache) |
 
 ### Search tab
 
@@ -210,6 +223,14 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 | `Enter` | Run search |
 | `Esc` | Blur input, keep results |
 
+### History tab
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Video entry: show detail; search entry: jump to Search with query pre-filled |
+| `p` | Play video (video entries only; checks file exists before launching) |
+| `x` | Delete local file and all history records for that video |
+
 ### Subscriptions tab
 
 | Key | Action |
@@ -217,6 +238,8 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 | `m` | Toggle between All Videos and Channels view |
 | `Enter` / `→` | Open channel (channel pane) or play video (video pane) |
 | `h` / `Backspace` / `Esc` | Back to channel list |
+| `r` | Refresh channel list; per-channel latest-N fetch in background |
+| `R` | Force full re-fetch for every subscribed channel |
 
 ### General
 

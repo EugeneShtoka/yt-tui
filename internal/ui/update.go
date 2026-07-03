@@ -141,18 +141,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = m.db.SaveSubscribedChannels(channels)
 				_ = m.db.SaveFeedCache("recommended", videos)
 			}(msg.Channels, m.recVideos)
-			// For each channel: latest fetch if DB has data, full fetch if empty.
+			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
 			var bgCmds []tea.Cmd
 			for _, ch := range msg.Channels {
 				if ch.ID == "" {
 					continue
 				}
 				ch := ch
-				if cached, err := m.db.GetChannelVideos(ch.ID); err == nil && len(cached) > 0 {
-					bgCmds = append(bgCmds, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount))
-				} else {
-					bgCmds = append(bgCmds, youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "ch-background"))
-				}
+				bgCmds = append(bgCmds, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount))
 			}
 			if len(bgCmds) > 0 {
 				return m, tea.Batch(bgCmds...)
@@ -171,6 +167,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else if msg.Source == "ch-background" {
 			// Background latest-video fetch: merge and persist; rebuild subVideos if newer found.
+			if msg.ChannelID == m.subChActiveID && m.subChPane == 1 {
+				m.subChVidRefreshing = false
+			}
 			if msg.Err == nil && len(msg.Videos) > 0 {
 				newest := msg.Videos[0]
 				existing, ok := m.subChLatest[msg.ChannelID]
