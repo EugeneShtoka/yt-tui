@@ -50,7 +50,8 @@ func (v Video) DateStr() string {
 }
 
 type Channel struct {
-	ID    string
-	Name  string
-	URL   string
+	ID          string
+	Name        string
+	URL         string
+	Subscribers int64
 }

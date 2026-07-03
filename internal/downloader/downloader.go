@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -34,15 +35,16 @@ const (
 )
 
 type Item struct {
-	Video        youtube.Video
-	Type         DownloadType
-	Progress     float64
-	Speed        string
-	ETA          string
-	Status       Status
-	FilePath     string
-	Err          error
-	StartedAt    time.Time
+	Video     youtube.Video
+	Type      DownloadType
+	Progress  float64
+	Speed     string
+	ETA       string
+	Status    Status
+	FilePath  string
+	Err       error
+	StartedAt time.Time
+	cancel    context.CancelFunc
 }
 
 type EventKind int
@@ -56,6 +58,7 @@ const (
 type Event struct {
 	Kind     EventKind
 	VideoID  string
+	Type     DownloadType
 	Progress float64
 	Speed    string
 	ETA      string
@@ -118,12 +121,15 @@ func (d *Downloader) run(item *Item) {
 	d.semaphore <- struct{}{}
 	defer func() { <-d.semaphore }()
 
+	ctx, cancel := context.WithCancel(context.Background())
 	d.mu.Lock()
 	item.Status = StatusActive
+	item.cancel = cancel
 	d.mu.Unlock()
+	defer cancel()
 
 	args := d.buildArgs(item)
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -174,11 +180,12 @@ func (d *Downloader) run(item *Item) {
 	}
 
 	if finalPath == "" {
-		ext := "mp4"
+		ext := "mkv"
 		if item.Type == TypeAudio {
 			ext = d.cfg.AudioFormat
 		}
-		finalPath = filepath.Join(d.cfg.DownloadDir, item.Video.ID+"."+ext)
+		name := sanitizeFilename(item.Video.Channel + " - " + item.Video.Title)
+		finalPath = filepath.Join(d.cfg.DownloadDir, name+"."+ext)
 	}
 
 	d.mu.Lock()
@@ -202,9 +209,9 @@ func (d *Downloader) run(item *Item) {
 		DownloadedAt: time.Now(),
 		Status:       db.StatusNew,
 	})
-	_ = d.db.AddHistory(item.Video.ID, "download", string(item.Type))
+	_ = d.db.AddHistory(item.Video.ID, "download "+string(item.Type), "")
 
-	d.eventCh <- Event{Kind: EventComplete, VideoID: item.Video.ID, FilePath: finalPath}
+	d.eventCh <- Event{Kind: EventComplete, VideoID: item.Video.ID, Type: item.Type, FilePath: finalPath}
 }
 
 func (d *Downloader) buildArgs(item *Item) []string {
@@ -216,9 +223,18 @@ func (d *Downloader) buildArgs(item *Item) []string {
 			"--audio-quality", "0")
 	} else {
 		args = append(args,
-			"-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best",
-			"--merge-output-format", "mp4",
+			"-f", "bestvideo[height<=1080]+bestaudio/best",
+			"--merge-output-format", "mkv",
 		)
+		if d.cfg.Subtitles {
+			if langs := d.cfg.SubtitleLangsArg(); langs != "" {
+				args = append(args,
+					"--write-sub", "--write-auto-sub",
+					"--sub-langs", langs,
+					"--embed-subs",
+				)
+			}
+		}
 	}
 
 	if sb := d.cfg.SponsorBlockArg(); sb != "" {
@@ -226,7 +242,7 @@ func (d *Downloader) buildArgs(item *Item) []string {
 	}
 
 	args = append(args,
-		"-o", filepath.Join(d.cfg.DownloadDir, "%(id)s.%(ext)s"),
+		"-o", filepath.Join(d.cfg.DownloadDir, "%(channel)s - %(title)s.%(ext)s"),
 		"--no-playlist",
 		"--newline",
 		"--no-warnings",
@@ -238,12 +254,49 @@ func (d *Downloader) buildArgs(item *Item) []string {
 	return args
 }
 
+// sanitizeFilename replaces characters that are invalid in filenames.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\x00':
+			b.WriteRune('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	result := strings.TrimSpace(b.String())
+	if result == "" {
+		return "download"
+	}
+	return result
+}
+
 func (d *Downloader) fail(item *Item, err error) {
 	d.mu.Lock()
 	item.Status = StatusFailed
 	item.Err = err
 	d.mu.Unlock()
 	d.eventCh <- Event{Kind: EventError, VideoID: item.Video.ID, Err: err}
+}
+
+// Remove cancels and removes a download item by video ID.
+func (d *Downloader) Remove(id string) {
+	d.mu.Lock()
+	item, ok := d.items[id]
+	if ok {
+		if item.cancel != nil {
+			item.cancel()
+		}
+		delete(d.items, id)
+		for i, oid := range d.order {
+			if oid == id {
+				d.order = append(d.order[:i], d.order[i+1:]...)
+				break
+			}
+		}
+	}
+	d.mu.Unlock()
 }
 
 // Items returns a snapshot of all download items in order.

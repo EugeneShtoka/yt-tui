@@ -1,95 +1,139 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/EugeneShtoka/yt-tui/internal/theme"
+)
+
+// colorAccent and colorBgSelect are kept as package vars so inline styles in view.go can reference them.
+var (
+	colorAccent  lipgloss.Color
+	colorBgSelect lipgloss.Color
+)
 
 var (
-	colorAccent   = lipgloss.Color("#FF6B6B")
-	colorMuted    = lipgloss.Color("#666666")
-	colorSubtle   = lipgloss.Color("#888888")
-	colorGreen    = lipgloss.Color("#4CAF50")
-	colorYellow   = lipgloss.Color("#FFC107")
-	colorBg       = lipgloss.Color("#1a1a2e")
-	colorSelected = lipgloss.Color("#2a2a4e")
-	colorBorder   = lipgloss.Color("#333355")
-	colorNew      = lipgloss.Color("#7EC8E3")
+	styleTabActive     lipgloss.Style
+	styleTabInactive   lipgloss.Style
+	styleTabBar        lipgloss.Style
+	styleSelected      lipgloss.Style
+	styleNormal        lipgloss.Style
+	styleBold          lipgloss.Style
+	styleDim           lipgloss.Style
+	styleChannel       lipgloss.Style
+	styleDuration      lipgloss.Style
+	styleStatus        lipgloss.Style
+	styleError         lipgloss.Style
+	styleSuccess       lipgloss.Style
+	styleWarning       lipgloss.Style
+	styleHeader        lipgloss.Style
+	styleHelp          lipgloss.Style
+	styleProgressFill  lipgloss.Style
+	styleProgressEmpty lipgloss.Style
+	stylePendingTag    lipgloss.Style
+	styleActiveTag     lipgloss.Style
+	styleCompleteTag   lipgloss.Style
+	styleFailedTag     lipgloss.Style
+	styleRowNum        lipgloss.Style
+	styleColHeader     lipgloss.Style
+	styleInputPrompt   lipgloss.Style
+	styleSectionTitle  lipgloss.Style
+)
+
+func init() {
+	InitStyles(theme.Default())
+}
+
+// InitStyles rebuilds all UI styles from the given theme.
+// Call this once at startup after loading the user's theme file.
+func InitStyles(t theme.Theme) {
+	colorAccent   = lipgloss.Color(t.Accent)
+	colorBgSelect = lipgloss.Color(t.BgSelect)
+	accent    := colorAccent
+	muted     := lipgloss.Color(t.Muted)
+	subtle    := lipgloss.Color(t.Subtle)
+	success   := lipgloss.Color(t.Success)
+	warning   := lipgloss.Color(t.Warning)
+	errorC    := lipgloss.Color(t.Error)
+	border    := lipgloss.Color(t.Border)
+	highlight := lipgloss.Color(t.Highlight)
 
 	styleTabActive = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorAccent).
-			Padding(0, 1)
+		Bold(true).
+		Foreground(accent).
+		Padding(0, 1)
 
 	styleTabInactive = lipgloss.NewStyle().
-				Foreground(colorSubtle).
-				Padding(0, 1)
+		Foreground(subtle).
+		Padding(0, 1)
 
 	styleTabBar = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(colorBorder).
-			BorderBottom(true)
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(border).
+		BorderBottom(true)
 
 	styleSelected = lipgloss.NewStyle().
-			Background(colorSelected).
-			Bold(true)
+		Background(colorBgSelect).
+		Bold(true)
 
 	styleNormal = lipgloss.NewStyle()
 
 	styleBold = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorNew)
+		Bold(true).
+		Foreground(highlight)
 
 	styleDim = lipgloss.NewStyle().
-			Faint(true)
+		Faint(true)
 
 	styleChannel = lipgloss.NewStyle().
-			Foreground(colorSubtle)
+		Foreground(subtle)
 
 	styleDuration = lipgloss.NewStyle().
-			Foreground(colorMuted)
+		Foreground(muted)
 
 	styleStatus = lipgloss.NewStyle().
-			Foreground(colorSubtle)
+		Foreground(subtle)
 
 	styleError = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF4444")).
-			Bold(true)
+		Foreground(errorC).
+		Bold(true)
 
 	styleSuccess = lipgloss.NewStyle().
-			Foreground(colorGreen)
+		Foreground(success)
 
 	styleWarning = lipgloss.NewStyle().
-			Foreground(colorYellow)
+		Foreground(warning)
 
 	styleHeader = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorAccent)
+		Bold(true).
+		Foreground(accent)
 
 	styleHelp = lipgloss.NewStyle().
-			Foreground(colorMuted)
+		Foreground(muted)
 
-	styleProgressFill  = lipgloss.NewStyle().Foreground(colorGreen)
-	styleProgressEmpty = lipgloss.NewStyle().Foreground(colorMuted)
+	styleProgressFill  = lipgloss.NewStyle().Foreground(success)
+	styleProgressEmpty = lipgloss.NewStyle().Foreground(muted)
 
-	stylePendingTag  = lipgloss.NewStyle().Foreground(colorMuted)
-	styleActiveTag   = lipgloss.NewStyle().Foreground(colorYellow)
-	styleCompleteTag = lipgloss.NewStyle().Foreground(colorGreen)
-	styleFailedTag   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4444"))
+	stylePendingTag  = lipgloss.NewStyle().Foreground(muted)
+	styleActiveTag   = lipgloss.NewStyle().Foreground(warning)
+	styleCompleteTag = lipgloss.NewStyle().Foreground(success)
+	styleFailedTag   = lipgloss.NewStyle().Foreground(errorC)
 
 	styleRowNum = lipgloss.NewStyle().
-			Foreground(colorSubtle)
+		Foreground(subtle)
 
 	styleColHeader = lipgloss.NewStyle().
-			Foreground(colorBorder).
-			Underline(true)
+		Foreground(subtle).
+		Underline(true)
 
 	styleInputPrompt = lipgloss.NewStyle().
-				Foreground(colorAccent).
-				Bold(true)
+		Foreground(accent).
+		Bold(true)
 
 	styleSectionTitle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorAccent).
-				MarginBottom(1)
-)
+		Bold(true).
+		Foreground(accent).
+		MarginBottom(1)
+}
 
 func progressBar(pct float64, width int) string {
 	if width <= 0 {
