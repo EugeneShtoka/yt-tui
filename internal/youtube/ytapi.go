@@ -291,3 +291,13 @@ func CreateYTPlaylist(client *YTClient, name string) tea.Cmd {
 		return CreatePlaylistMsg{Name: name, ID: id, Err: err}
 	}
 }
+
+type RemoveYTPlaylistVideoMsg struct {
+	Err error
+}
+
+func RemoveYTPlaylistVideo(client *YTClient, playlistID, videoID string) tea.Cmd {
+	return func() tea.Msg {
+		return RemoveYTPlaylistVideoMsg{Err: client.RemoveFromPlaylist(playlistID, videoID)}
+	}
+}

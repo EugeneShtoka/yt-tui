@@ -47,6 +47,7 @@ type KeyBindings struct {
 
 	Refresh      string `toml:"refresh"`       // re-query / latest fetch
 	ForceRefresh string `toml:"force_refresh"` // full fetch for all channels
+	VideoInfo    string `toml:"video_info"`    // open video details popup
 
 	DrillDown  string `toml:"drill_down"`  // open/select; plays video in video contexts
 	Back       string `toml:"back"`        // go back / close pane (always includes ← arrow)
@@ -81,6 +82,7 @@ func defaultKeyBindings() KeyBindings {
 
 		Refresh:      "r",
 		ForceRefresh: "R",
+		VideoInfo:    "i",
 
 		DrillDown:  "enter",
 		Back:       "h,backspace",
@@ -133,6 +135,7 @@ func (kb *KeyBindings) fillDefaults() {
 
 	if kb.Refresh == ""      { kb.Refresh = d.Refresh }
 	if kb.ForceRefresh == "" { kb.ForceRefresh = d.ForceRefresh }
+	if kb.VideoInfo == ""    { kb.VideoInfo = d.VideoInfo }
 
 	if kb.DrillDown == ""  { kb.DrillDown = d.DrillDown }
 	if kb.Back == ""       { kb.Back = d.Back }

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"sort"
 	"strings"
 	"time"
@@ -248,6 +249,13 @@ type Model struct {
 	// ── Playback resume ───────────────────────────────────────────────────
 	playerBackend   player.Backend
 	playingVideoID  string // ID of the video currently playing (for position saves)
+
+	// ── Video detail overlay ──────────────────────────────────────────────
+	vidDetailOverlay bool
+	vidDetailVideo   *youtube.VideoDetails
+	vidDetailLoading bool
+	vidDetailDescVS  int         // description scroll start line
+	vidDetailThumb   image.Image // nil until loaded; stays nil if fetch fails
 }
 
 func buildTabs(cfg *config.Config) []int {
@@ -940,4 +948,16 @@ func vidSortLabel(mode int) string {
 		return "by duration"
 	}
 	return "default"
+}
+
+// videoShowChannel returns false when the Channel column is redundant
+// (drilling into a specific channel's videos).
+func (m Model) videoShowChannel() bool {
+	if m.activeTab == tabSubscriptions && m.subMode == subModeChannels && m.subChPane == 1 {
+		return false
+	}
+	if m.activeTab == tabSearch && m.searchChSel != nil {
+		return false
+	}
+	return true
 }

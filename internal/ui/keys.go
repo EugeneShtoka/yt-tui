@@ -38,6 +38,7 @@ type keyMap struct {
 	Help          key.Binding
 	Filter        key.Binding // activate local filter input
 	GotoBottom    key.Binding // go to last row (or Nth with number prefix)
+	VideoInfo     key.Binding // open video details popup
 }
 
 func buildKeyMap(kb config.KeyBindings) keyMap {
@@ -92,5 +93,6 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		Help:         b(kb.Help,         "help"),
 		Filter:     b(kb.Filter,        "filter"),
 		GotoBottom: b(kb.GotoBottom,    "go to bottom"),
+		VideoInfo:  b(kb.VideoInfo,     "video info"),
 	}
 }

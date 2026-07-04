@@ -1,6 +1,8 @@
 package youtube
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Video struct {
 	ID         string
@@ -54,4 +56,11 @@ type Channel struct {
 	Name        string
 	URL         string
 	Subscribers int64
+}
+
+type VideoDetails struct {
+	Video
+	Description  string
+	ThumbnailURL string
+	Subscribers  int64
 }

@@ -249,6 +249,11 @@ type PlaylistVideosMsg struct {
 	Err        error
 }
 
+type VideoDetailsMsg struct {
+	Details VideoDetails
+	Err     error
+}
+
 // --- Fetch commands ---
 
 func FetchRecommended(cfg *config.Config) tea.Cmd {
@@ -421,6 +426,59 @@ func FetchPlaylistVideos(cfg *config.Config, playlistID string) tea.Cmd {
 		args := buildArgs(cfg, url, 0)
 		videos, err := runAndParseVideos(args)
 		return PlaylistVideosMsg{PlaylistID: playlistID, Videos: videos, Err: err}
+	}
+}
+
+type ytdlpDetailEntry struct {
+	ID                   string  `json:"id"`
+	Title                string  `json:"title"`
+	Channel              string  `json:"channel"`
+	ChannelID            string  `json:"channel_id"`
+	Duration             float64 `json:"duration"`
+	ViewCount            int64   `json:"view_count"`
+	UploadDate           string  `json:"upload_date"`
+	WebpageURL           string  `json:"webpage_url"`
+	Description          string  `json:"description"`
+	Thumbnail            string  `json:"thumbnail"`
+	ChannelFollowerCount int64   `json:"channel_follower_count"`
+}
+
+func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
+	return func() tea.Msg {
+		args := []string{"--dump-json", "--no-warnings", "--quiet"}
+		if cfg.Browser != "" {
+			args = append(args, "--cookies-from-browser", cfg.Browser)
+		}
+		args = append(args, videoURL)
+
+		cmd := exec.Command("yt-dlp", args...)
+		out, err := cmd.Output()
+		if err != nil {
+			return VideoDetailsMsg{Err: fmt.Errorf("yt-dlp: %w", err)}
+		}
+		var e ytdlpDetailEntry
+		if err := json.Unmarshal(out, &e); err != nil {
+			return VideoDetailsMsg{Err: fmt.Errorf("parse: %w", err)}
+		}
+		u := e.WebpageURL
+		if u == "" && e.ID != "" {
+			u = "https://www.youtube.com/watch?v=" + e.ID
+		}
+		return VideoDetailsMsg{Details: VideoDetails{
+			Video: Video{
+				ID:         e.ID,
+				Title:      e.Title,
+				Channel:    e.Channel,
+				ChannelID:  e.ChannelID,
+				Duration:   int(e.Duration),
+				ViewCount:  e.ViewCount,
+				UploadDate: e.UploadDate,
+				URL:        u,
+			},
+			Description:  e.Description,
+			ThumbnailURL: e.Thumbnail,
+			Subscribers:  e.ChannelFollowerCount,
+		}}
 	}
 }
 

@@ -28,6 +28,9 @@ func (m Model) View() string {
 		if m.addOverlay {
 			content = m.renderAddOverlay(content)
 		}
+		if m.vidDetailOverlay {
+			content = m.renderVideoDetailOverlay(content)
+		}
 	}
 
 	// Pad content so the status bar is always pinned to the bottom.
@@ -216,18 +219,20 @@ func (m Model) fullHintRaw() string {
 	}
 	chords := strings.Join(chordParts, "  ")
 
+	info := kb.VideoInfo.Help().Key
+
 	switch m.activeTab {
 	case tabRecommended:
-		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: download  %s: dl audio  %s: copy url  %s: hide video  %s: block channel", chords, play, playA, dl, dlA, cp, hide, hideCh)
+		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: download  %s: dl audio  %s: copy url  %s: info  %s: hide video  %s: block channel", chords, play, playA, dl, dlA, cp, info, hide, hideCh)
 		if yt {
 			h += fmt.Sprintf("  %s: subscribe  %s: watch later  %s: add to playlist", sub, wl, addPl)
 		}
 		return h
 	case tabSearch:
 		if m.searchChSel != nil {
-			return fmt.Sprintf("j/k: move  %s: download  %s: dl audio  %s: copy url  %s: filter  h/esc: back", dl, dlA, cp, cfg.Filter)
+			return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  %s: filter  h/esc: back", info, dl, dlA, cp, cfg.Filter)
 		}
-		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: open channel  %s: download  %s: dl audio  %s: copy url", chords, play, playA, drill, dl, dlA, cp)
+		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: open channel  %s: info  %s: download  %s: dl audio  %s: copy url", chords, play, playA, drill, info, dl, dlA, cp)
 		if yt {
 			h += fmt.Sprintf("  %s: subscribe", sub)
 		}
@@ -237,13 +242,16 @@ func (m Model) fullHintRaw() string {
 			return fmt.Sprintf("j/k: move  %s: open  %s: all videos  %s  %s: unsubscribe", drill, mode, chords, unsub)
 		}
 		if m.subMode == subModeChannels && m.subChPane == 1 {
-			return fmt.Sprintf("j/k: move  %s: download  %s: dl audio  %s: copy url  h/esc: back", dl, dlA, cp)
+			return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back", info, dl, dlA, cp)
 		}
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: channels  %s: download  %s: dl audio  %s: copy url  %s: unsubscribe", chords, play, playA, mode, dl, dlA, cp, unsub)
+		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: channels  %s: info  %s: download  %s: dl audio  %s: copy url  %s: unsubscribe", chords, play, playA, mode, info, dl, dlA, cp, unsub)
 	case tabPlaylists:
+		if m.playlistPane == 1 {
+			return fmt.Sprintf("j/k: move  %s: info  %s: open  %s: new playlist  %s: delete", info, drill, newPl, del)
+		}
 		return fmt.Sprintf("j/k: move  %s: open  %s: new playlist  %s: delete", drill, newPl, del)
 	case tabDownloading:
-		return fmt.Sprintf("j/k: move  %s: play  %s: play audio  %s: block channel  %s: delete", play, playA, hideCh, del)
+		return fmt.Sprintf("j/k: move  %s: play  %s: play audio  %s: info  %s: block channel  %s: delete", play, playA, info, hideCh, del)
 	case tabLocal:
 		return fmt.Sprintf("j/k: move  %s  %s: play  %s: delete", chords, play, del)
 	case tabHistory:
@@ -360,7 +368,11 @@ func (m Model) renderVideoList(
 }
 
 func (m Model) videoListTitleW() int {
-	w := m.width - colNum - 1 - colChannel - colDuration - colViews - colDate - 6
+	// indicator(2) + seps between cols; channel col adds itself + 1 sep when visible
+	w := m.width - colNum - 1 - colDuration - colViews - colDate - 5
+	if m.videoShowChannel() {
+		w -= colChannel + 1
+	}
 	if w < 20 {
 		w = 20
 	}
@@ -389,13 +401,16 @@ func (m Model) renderVideoRows(videos []youtube.Video, cursor, vs, height int) s
 }
 
 func (m Model) renderVideoColHeader(titleW int) string {
-	return strings.Repeat(" ", colNum) + " " +
-		"  " +
-		styleColHeader.Width(titleW).Render("Title") + " " +
-		styleColHeader.Width(colChannel).Render("Channel") + " " +
+	dateLabel := "Date"
+	h := strings.Repeat(" ", colNum) + " " + "  " +
+		styleColHeader.Width(titleW).Render("Title") + " "
+	if m.videoShowChannel() {
+		h += styleColHeader.Width(colChannel).Render("Channel") + " "
+	}
+	return h +
 		styleColHeader.Width(colDuration).Render("Duration") + " " +
 		styleColHeader.Width(colViews).Render("Views") + " " +
-		styleColHeader.Width(colDate).Render("Date")
+		styleColHeader.Width(colDate).Render(dateLabel)
 }
 
 func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) string {
@@ -440,9 +455,11 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 	}
 
 	numStr := numStyle.Render(fmt.Sprintf("%*d", colNum, num))
-	return numStr + sep + indicator +
-		titleStyle.Render(title) + sep +
-		chStyle.Render(channel) + sep +
+	row := numStr + sep + indicator + titleStyle.Render(title) + sep
+	if m.videoShowChannel() {
+		row += chStyle.Render(channel) + sep
+	}
+	return row +
 		durStyle.Render(dur) + sep +
 		viewsStyle.Render(views) + sep +
 		dateStyle.Render(date)
@@ -1005,6 +1022,208 @@ func (m Model) renderHistoryDetail(height int) string {
 		rows = append(rows, "  "+evType+" "+ts+" "+detail)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
+}
+
+// ── Video detail overlay ──────────────────────────────────────────────────────
+
+const (
+	vidDetailThumbW = 30
+	vidDetailThumbH = 8 // ~16:9 with 2:1 terminal cell height:width ratio
+)
+
+func (m Model) renderVideoDetailOverlay(behind string) string {
+	boxW := m.width - 4
+	if boxW > 90 {
+		boxW = 90
+	}
+	if boxW < 44 {
+		boxW = 44
+	}
+	innerW := boxW - 2
+
+	// Loading state: simple centered spinner.
+	if m.vidDetailLoading {
+		msg := m.spinner.View() + " Loading video details…"
+		pad := (innerW - lipgloss.Width(msg)) / 2
+		if pad < 0 {
+			pad = 0
+		}
+		lines := []string{"", strings.Repeat(" ", pad) + msg, ""}
+		box := m.buildDetailBox(lines, innerW)
+		return compositeBox(box, boxW, behind, m.width)
+	}
+
+	if m.vidDetailVideo == nil {
+		return behind
+	}
+	v := m.vidDetailVideo
+
+	thumbW := vidDetailThumbW
+	thumbH := vidDetailThumbH // 16:9 fallback while image is loading
+	if thumbW > innerW-10 {
+		thumbW = innerW - 10
+	}
+	if m.vidDetailThumb != nil {
+		b := m.vidDetailThumb.Bounds()
+		imgW := b.Max.X - b.Min.X
+		imgH := b.Max.Y - b.Min.Y
+		if imgW > 0 && imgH > 0 {
+			// Divide by 2 to account for ~2:1 terminal cell height:width ratio.
+			thumbH = thumbW * imgH / imgW / 2
+			if thumbH < 1 {
+				thumbH = 1
+			}
+		}
+	}
+	metaW := innerW - thumbW - 2 // 2 for "  " separator
+
+	// Build thumbnail lines (each exactly thumbW visual cols).
+	var thumbLines []string
+	if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
+		thumbLines = strings.Split(rendered, "\n")
+	}
+	// Pad thumbnail to thumbH rows with placeholder lines.
+	for len(thumbLines) < thumbH {
+		thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
+	}
+
+	// Build metadata lines (each padded to metaW via lipgloss).
+	pad := func(s string) string { return styleNormal.Width(metaW).Render(s) }
+	labelStyle := styleDim
+	var metaLines []string
+	metaLines = append(metaLines, styleNormal.Width(metaW).Render(truncate(v.Title, metaW)))
+	metaLines = append(metaLines, pad(""))
+	metaLines = append(metaLines, pad(labelStyle.Render("Channel  ")+truncate(v.Channel, metaW-9)))
+	if v.Subscribers > 0 {
+		metaLines = append(metaLines, pad(labelStyle.Render("Subs     ")+fmtViews(v.Subscribers)))
+	}
+	metaLines = append(metaLines, pad(labelStyle.Render("Views    ")+v.ViewsStr()))
+	metaLines = append(metaLines, pad(labelStyle.Render("Duration ")+v.DurationStr()))
+	metaLines = append(metaLines, pad(labelStyle.Render("Date     ")+v.DateStr()))
+	metaLines = append(metaLines, pad(""))
+	metaLines = append(metaLines, styleHelp.Width(metaW).Render(truncate(v.URL, metaW)))
+
+	// Side-by-side: thumbnail (left) + metadata (right).
+	rowCount := max(thumbH, len(metaLines))
+	var sideLines []string
+	for i := 0; i < rowCount; i++ {
+		left := strings.Repeat(" ", thumbW)
+		if i < len(thumbLines) {
+			left = thumbLines[i]
+		}
+		right := styleNormal.Width(metaW).Render("")
+		if i < len(metaLines) {
+			right = metaLines[i]
+		}
+		sideLines = append(sideLines, left+"  "+right)
+	}
+
+	// Description section.
+	var allLines []string
+	allLines = append(allLines, sideLines...)
+
+	if v.Description != "" {
+		allLines = append(allLines, styleColHeader.Width(innerW).Render(""))
+		allLines = append(allLines, styleColHeader.Width(innerW).Render("Description"))
+		descLines := wordWrap(v.Description, innerW)
+		// Clamp scroll to valid range.
+		maxVS := len(descLines) - 1
+		if maxVS < 0 {
+			maxVS = 0
+		}
+		vs := m.vidDetailDescVS
+		if vs > maxVS {
+			vs = maxVS
+		}
+		descVisible := descLines[vs:]
+		const maxDescVisible = 12
+		if len(descVisible) > maxDescVisible {
+			descVisible = descVisible[:maxDescVisible]
+		}
+		for _, dl := range descVisible {
+			allLines = append(allLines, styleNormal.Width(innerW).Render(dl))
+		}
+	}
+
+	allLines = append(allLines, styleHelp.Width(innerW).Render(""))
+	allLines = append(allLines, styleHelp.Width(innerW).Render("j/k: scroll  esc: close"))
+
+	box := m.buildDetailBox(allLines, innerW)
+	return compositeBox(box, boxW, behind, m.width)
+}
+
+// buildDetailBox wraps contentLines in a bordered box. Each line in contentLines
+// must already be exactly innerW visual columns wide.
+func (m Model) buildDetailBox(contentLines []string, innerW int) string {
+	accentStyle := lipgloss.NewStyle().Foreground(colorAccent)
+	top := accentStyle.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
+	bot := accentStyle.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	rows := []string{top}
+	for _, l := range contentLines {
+		rows = append(rows, accentStyle.Render("│")+l+accentStyle.Render("│"))
+	}
+	rows = append(rows, bot)
+	return strings.Join(rows, "\n")
+}
+
+// compositeBox overlays box (width boxW) centered on behind (terminal width termW).
+func compositeBox(box string, boxW int, behind string, termW int) string {
+	bh := lipgloss.Height(box)
+	x := (termW - boxW) / 2
+	if x < 0 {
+		x = 0
+	}
+	behindLines := strings.Split(behind, "\n")
+	y := (len(behindLines) - bh) / 2
+	if y < 0 {
+		y = 0
+	}
+	overlayLines := strings.Split(box, "\n")
+	for i, ol := range overlayLines {
+		lineIdx := y + i
+		if lineIdx >= len(behindLines) {
+			behindLines = append(behindLines, "")
+		}
+		base := behindLines[lineIdx]
+		baseRunes := []rune(base)
+		for len(baseRunes) < x {
+			baseRunes = append(baseRunes, ' ')
+		}
+		behindLines[lineIdx] = string(baseRunes[:x]) + ol
+	}
+	return strings.Join(behindLines, "\n")
+}
+
+// wordWrap splits text into lines of at most width visible characters,
+// breaking at word boundaries (spaces). Existing newlines are preserved.
+func wordWrap(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+	var result []string
+	for _, para := range strings.Split(text, "\n") {
+		if lipgloss.Width(para) <= width {
+			result = append(result, para)
+			continue
+		}
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			result = append(result, "")
+			continue
+		}
+		line := words[0]
+		for _, w := range words[1:] {
+			candidate := line + " " + w
+			if lipgloss.Width(candidate) <= width {
+				line = candidate
+			} else {
+				result = append(result, line)
+				line = w
+			}
+		}
+		result = append(result, line)
+	}
+	return result
 }
 
 // ── Add-to-playlist overlay ───────────────────────────────────────────────────

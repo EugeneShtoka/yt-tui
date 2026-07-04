@@ -104,6 +104,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case youtube.RemoveYTPlaylistVideoMsg:
+		if msg.Err != nil {
+			m.setStatus("remove from playlist: "+msg.Err.Error(), true)
+		}
+		return m, nil
+
 	case youtube.CreatePlaylistMsg:
 		if msg.Err != nil {
 			m.setStatus("create playlist: "+msg.Err.Error(), true)
@@ -111,6 +117,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ytPlaylists = append(m.ytPlaylists, youtube.YTPlaylist{ID: msg.ID, Title: msg.Name})
 			m.setStatus("Created playlist: "+msg.Name, false)
 		}
+		return m, nil
+
+	case youtube.VideoDetailsMsg:
+		m.vidDetailLoading = false
+		if msg.Err != nil {
+			m.vidDetailOverlay = false
+			m.setStatus("video details: "+msg.Err.Error(), true)
+			return m, nil
+		}
+		details := msg.Details
+		m.vidDetailVideo = &details
+		if details.ThumbnailURL != "" {
+			return m, loadThumbnailCmd(details.ThumbnailURL)
+		}
+		return m, nil
+
+	case thumbnailLoadedMsg:
+		m.vidDetailThumb = msg.img
 		return m, nil
 
 	case youtube.FetchResultMsg:
@@ -366,6 +390,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		debug.Log("→ handleAddOverlay (addOverlay=true)")
 		return m.handleAddOverlay(msg)
 	}
+	if m.vidDetailOverlay {
+		debug.Log("→ handleVideoDetailKey (vidDetailOverlay=true)")
+		return m.handleVideoDetailKey(msg)
+	}
 	if m.showHelp {
 		debug.Log("→ dismiss help")
 		m.showHelp = false
@@ -456,6 +484,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Help):
 		debug.Log("→ toggle help")
 		m.showHelp = !m.showHelp
+		return m, nil
+	case key.Matches(msg, m.keys.VideoInfo):
+		if v, ok := m.currentVideo(); ok && v.URL != "" {
+			m.vidDetailOverlay = true
+			m.vidDetailLoading = true
+			m.vidDetailVideo = nil
+			m.vidDetailThumb = nil
+			m.vidDetailDescVS = 0
+			return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+		}
 		return m, nil
 	case key.Matches(msg, m.keys.ForceRefresh):
 		debug.Log("→ force refresh")
@@ -1184,8 +1222,9 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Delete):
 		if m.playlistVidCursor < n {
 			vid := vids[m.playlistVidCursor]
+			var cmd tea.Cmd
 			if m.selectedPlaylistIsYT() {
-				go func() { _ = m.ytClient.RemoveFromPlaylist(plKey, vid.ID) }()
+				cmd = youtube.RemoveYTPlaylistVideo(m.ytClient, plKey, vid.ID)
 			} else {
 				localID := parseLocalPlaylistID(plKey)
 				_ = m.db.RemoveFromPlaylist(localID, vid.ID)
@@ -1199,6 +1238,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.playlistVidCache[plKey] = updated
 			m.playlistVidCursor, m.playlistVidVS = vsMove(clamp(m.playlistVidCursor, len(updated)), m.playlistVidVS, len(updated), 0, m.pageSize())
+			return m, cmd
 		}
 	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
@@ -1640,6 +1680,31 @@ func (m *Model) openAddOverlay(v youtube.Video) {
 	m.addVideo = v
 	m.addOverlay = true
 	m.addOverlaySel = 0
+}
+
+func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Quit):
+		m.vidDetailOverlay = false
+		m.vidDetailVideo = nil
+		m.vidDetailThumb = nil
+		m.vidDetailDescVS = 0
+		m.vidDetailLoading = false
+	case key.Matches(msg, m.keys.Down):
+		m.vidDetailDescVS++
+	case key.Matches(msg, m.keys.Up):
+		if m.vidDetailDescVS > 0 {
+			m.vidDetailDescVS--
+		}
+	case key.Matches(msg, m.keys.PageDown):
+		m.vidDetailDescVS += m.pageSize()
+	case key.Matches(msg, m.keys.PageUp):
+		m.vidDetailDescVS -= m.pageSize()
+		if m.vidDetailDescVS < 0 {
+			m.vidDetailDescVS = 0
+		}
+	}
+	return m, nil
 }
 
 func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
