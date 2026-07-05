@@ -21,21 +21,36 @@ func (m Model) View() string {
 	contentH := m.height - lipgloss.Height(tabBar) - lipgloss.Height(status)
 
 	var content string
+	var kittyOverlay string
 	if m.showHelp {
 		content = m.renderHelp(contentH)
 	} else if m.vidDetailOverlay {
+		thumbW, thumbH := m.thumbDimensions()
+
 		m.width -= vidDetailPanelW
 		left := m.renderContent(contentH)
 		if m.addOverlay {
 			left = m.renderAddOverlay(left)
 		}
 		m.width += vidDetailPanelW
-		panel := m.renderVideoDetailPanel(vidDetailPanelW, contentH)
+		panel := m.renderVideoDetailPanel(vidDetailPanelW, contentH, thumbH)
 		content = lipgloss.JoinHorizontal(lipgloss.Top, left, panel)
+
+		if kittyCapable() && m.vidDetailThumb != nil {
+			tabBarH := lipgloss.Height(tabBar)
+			thumbRow := tabBarH + 2                    // 1-indexed: past tabBar rows + top border
+			thumbCol := m.width - vidDetailPanelW + 2  // 1-indexed: past left panel + left border
+			kittyOverlay = kittyImageOverlay(m.vidDetailThumb, thumbRow, thumbCol, thumbW, thumbH)
+		}
 	} else {
 		content = m.renderContent(contentH)
 		if m.addOverlay {
 			content = m.renderAddOverlay(content)
+		}
+		// Delete the Kitty image if the panel just closed. BubbleTea's differential
+		// renderer only writes this once (on the frame it appears), then skips it.
+		if kittyCapable() {
+			kittyOverlay = kittyDeleteOverlay()
 		}
 	}
 
@@ -44,7 +59,9 @@ func (m Model) View() string {
 		content += strings.Repeat("\n", contentH-actual)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status)
+	// kittyOverlay is appended after the full frame so BubbleTea writes it last.
+	// DECSC/DECRC inside the overlay keeps BubbleTea's cursor tracking intact.
+	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status) + kittyOverlay
 }
 
 // ── Tab bar ───────────────────────────────────────────────────────────────────
@@ -1034,7 +1051,7 @@ func (m Model) renderHistoryDetail(height int) string {
 
 const vidDetailPanelW = 52
 
-func (m Model) renderVideoDetailPanel(panelW, panelH int) string {
+func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 	innerW := panelW - 2
 	accent := lipgloss.NewStyle().Foreground(colorAccent)
 	norm := func(s string) string { return styleNormal.Width(innerW).Render(s) }
@@ -1051,32 +1068,25 @@ func (m Model) renderVideoDetailPanel(panelW, panelH int) string {
 		lines = append(lines, norm(m.spinner.View()+" Loading…"))
 	} else if m.vidDetailVideo != nil {
 		v := m.vidDetailVideo
-
-		// Thumbnail — fills full inner width; height from actual image aspect ratio.
-		// Default uses 16:9. The /2 corrects for 2:1 terminal cell height:width ratio.
 		thumbW := innerW
-		thumbH := (thumbW*9 + 15) / 16 / 2 // round up before the /16
-		if thumbH < 1 {
-			thumbH = 1
-		}
-		if m.vidDetailThumb != nil {
-			b := m.vidDetailThumb.Bounds()
-			iw := b.Max.X - b.Min.X
-			ih := b.Max.Y - b.Min.Y
-			if iw > 0 && ih > 0 {
-				if h := (thumbW*ih + iw - 1) / iw / 2; h >= 1 {
-					thumbH = h
-				}
+
+		// Thumbnail area. Kitty terminals get blank space here; the actual image
+		// is placed by kittyImageOverlay() appended to the View() output.
+		// Non-Kitty terminals get half-block rendering inline.
+		if kittyCapable() {
+			for i := 0; i < thumbH; i++ {
+				lines = append(lines, norm(""))
 			}
+		} else {
+			var thumbLines []string
+			if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
+				thumbLines = strings.Split(rendered, "\n")
+			}
+			for len(thumbLines) < thumbH {
+				thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
+			}
+			lines = append(lines, thumbLines...)
 		}
-		var thumbLines []string
-		if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
-			thumbLines = strings.Split(rendered, "\n")
-		}
-		for len(thumbLines) < thumbH {
-			thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
-		}
-		lines = append(lines, thumbLines...)
 
 		// Title (word-wrapped, up to 3 lines).
 		lines = append(lines, norm(""))

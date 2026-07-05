@@ -1,11 +1,16 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/jpeg"
+	"image/png"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -29,8 +34,61 @@ func loadThumbnailCmd(url string) tea.Cmd {
 	}
 }
 
+// kittyCapable is true when the terminal supports the Kitty Graphics Protocol.
+var kittyCapable = sync.OnceValue(func() bool {
+	switch strings.ToLower(os.Getenv("TERM_PROGRAM")) {
+	case "kitty", "wezterm", "ghostty":
+		return true
+	}
+	return os.Getenv("KITTY_WINDOW_ID") != ""
+})
+
+const thumbImageID = 42
+
+// kittyImageOverlay returns a terminal sequence that:
+//  1. Saves the cursor (DECSC)
+//  2. Jumps to the absolute 1-indexed (row, col) position
+//  3. Deletes any previous placement of our image ID
+//  4. Transmits and displays img via the Kitty Graphics Protocol
+//  5. Restores the cursor (DECRC)
+//
+// Appending this to the View() output causes BubbleTea to write it after the
+// full frame, placing the image in WezTerm's pixel layer without disturbing
+// the character-grid layout.
+func kittyImageOverlay(img image.Image, row, col, thumbW, thumbH int) string {
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		return ""
+	}
+	b64 := base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+
+	var sb strings.Builder
+	// Save cursor, jump to image top-left.
+	fmt.Fprintf(&sb, "\033[s\033[%d;%dH", row, col)
+	// Delete previous placement of our image.
+	fmt.Fprintf(&sb, "\033_Ga=d,d=i,i=%d\033\\", thumbImageID)
+	// Transmit + display: PNG format, inline data, cell size c×r.
+	fmt.Fprintf(&sb, "\033_Ga=T,f=100,t=d,i=%d,c=%d,r=%d,m=1;\033\\", thumbImageID, thumbW, thumbH)
+	const chunkSize = 4096
+	for len(b64) > chunkSize {
+		fmt.Fprintf(&sb, "\033_Gm=1;%s\033\\", b64[:chunkSize])
+		b64 = b64[chunkSize:]
+	}
+	fmt.Fprintf(&sb, "\033_Gm=0;%s\033\\", b64)
+	// Restore cursor to where BubbleTea's renderer left off.
+	sb.WriteString("\033[u")
+	return sb.String()
+}
+
+// kittyDeleteOverlay emits the sequence to remove the thumbnail image.
+// Called when the video detail panel is closed.
+func kittyDeleteOverlay() string {
+	return fmt.Sprintf("\033_Ga=d,d=i,i=%d\033\\", thumbImageID)
+}
+
 // renderThumbnail renders img using Unicode half-block characters (▄) with
 // true-color ANSI escape sequences. Returns "" if img is nil.
+// Used as fallback when the terminal does not support Kitty.
 func renderThumbnail(img image.Image, targetW, targetH int) string {
 	if targetW <= 0 || targetH <= 0 || img == nil {
 		return ""
@@ -40,8 +98,6 @@ func renderThumbnail(img image.Image, targetW, targetH int) string {
 
 // renderThumbnailHalfBlock renders img using Unicode half-block characters (▄)
 // with true-color ANSI escape sequences.
-// Background color = upper pixel row, foreground = lower pixel row.
-// Each line is exactly targetW visible columns.
 func renderThumbnailHalfBlock(img image.Image, targetW, targetH int) string {
 	bounds := img.Bounds()
 	srcW := bounds.Max.X - bounds.Min.X

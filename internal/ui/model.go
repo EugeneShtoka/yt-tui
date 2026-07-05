@@ -710,6 +710,27 @@ func clamp(v, max int) int {
 	return v
 }
 
+// thumbDimensions returns the (width, height) in terminal cells for the
+// video-detail thumbnail area, accounting for the actual image aspect ratio.
+func (m Model) thumbDimensions() (w, h int) {
+	thumbW := vidDetailPanelW - 2
+	thumbH := (thumbW*9 + 15) / 16 / 2
+	if thumbH < 1 {
+		thumbH = 1
+	}
+	if m.vidDetailThumb != nil {
+		b := m.vidDetailThumb.Bounds()
+		iw := b.Max.X - b.Min.X
+		ih := b.Max.Y - b.Min.Y
+		if iw > 0 && ih > 0 {
+			if h := (thumbW*ih + iw - 1) / iw / 2; h >= 1 {
+				thumbH = h
+			}
+		}
+	}
+	return thumbW, thumbH
+}
+
 func truncate(s string, n int) string {
 	if runewidth.StringWidth(s) <= n {
 		return s
