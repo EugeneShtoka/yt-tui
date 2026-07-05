@@ -51,7 +51,7 @@ func (e ytdlpEntry) toVideo() Video {
 	}
 	return Video{
 		ID:         e.ID,
-		Title:      e.Title,
+		Title:      StripEmojis(e.Title),
 		Channel:    ch,
 		ChannelID:  e.ChannelID,
 		Duration:   int(e.Duration),
@@ -70,7 +70,7 @@ func (e ytdlpEntry) toChannel() Channel {
 	if name == "" {
 		name = e.Channel
 	}
-	return Channel{ID: e.ID, Name: name, URL: u, Subscribers: e.ChannelFollowerCount}
+	return Channel{ID: e.ID, Name: StripEmojis(name), URL: u, Subscribers: e.ChannelFollowerCount}
 }
 
 func isRateLimited(s string) bool {
@@ -467,7 +467,7 @@ func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
 		return VideoDetailsMsg{Details: VideoDetails{
 			Video: Video{
 				ID:         e.ID,
-				Title:      e.Title,
+				Title:      StripEmojis(e.Title),
 				Channel:    e.Channel,
 				ChannelID:  e.ChannelID,
 				Duration:   int(e.Duration),

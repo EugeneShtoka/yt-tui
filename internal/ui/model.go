@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/mattn/go-runewidth"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
@@ -255,7 +256,7 @@ type Model struct {
 	vidDetailVideo   *youtube.VideoDetails
 	vidDetailLoading bool
 	vidDetailDescVS  int         // description scroll start line
-	vidDetailThumb   image.Image // nil until loaded; stays nil if fetch fails
+	vidDetailThumb image.Image // nil until loaded; stays nil if fetch fails
 }
 
 func buildTabs(cfg *config.Config) []int {
@@ -710,14 +711,22 @@ func clamp(v, max int) int {
 }
 
 func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
+	if runewidth.StringWidth(s) <= n {
 		return s
 	}
 	if n <= 1 {
 		return "…"
 	}
-	return string(runes[:n-1]) + "…"
+	runes := []rune(s)
+	var w, i int
+	for i < len(runes) {
+		if w+runewidth.RuneWidth(runes[i]) > n-1 {
+			break
+		}
+		w += runewidth.RuneWidth(runes[i])
+		i++
+	}
+	return string(runes[:i]) + "…"
 }
 
 func sortVideos(videos []youtube.Video, mode int) {

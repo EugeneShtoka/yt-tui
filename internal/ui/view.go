@@ -23,13 +23,19 @@ func (m Model) View() string {
 	var content string
 	if m.showHelp {
 		content = m.renderHelp(contentH)
+	} else if m.vidDetailOverlay {
+		m.width -= vidDetailPanelW
+		left := m.renderContent(contentH)
+		if m.addOverlay {
+			left = m.renderAddOverlay(left)
+		}
+		m.width += vidDetailPanelW
+		panel := m.renderVideoDetailPanel(vidDetailPanelW, contentH)
+		content = lipgloss.JoinHorizontal(lipgloss.Top, left, panel)
 	} else {
 		content = m.renderContent(contentH)
 		if m.addOverlay {
 			content = m.renderAddOverlay(content)
-		}
-		if m.vidDetailOverlay {
-			content = m.renderVideoDetailOverlay(content)
 		}
 	}
 
@@ -1026,172 +1032,128 @@ func (m Model) renderHistoryDetail(height int) string {
 
 // ── Video detail overlay ──────────────────────────────────────────────────────
 
-const (
-	vidDetailThumbW = 30
-	vidDetailThumbH = 8 // ~16:9 with 2:1 terminal cell height:width ratio
-)
+const vidDetailPanelW = 52
 
-func (m Model) renderVideoDetailOverlay(behind string) string {
-	boxW := m.width - 4
-	if boxW > 90 {
-		boxW = 90
-	}
-	if boxW < 44 {
-		boxW = 44
-	}
-	innerW := boxW - 2
+func (m Model) renderVideoDetailPanel(panelW, panelH int) string {
+	innerW := panelW - 2
+	accent := lipgloss.NewStyle().Foreground(colorAccent)
+	norm := func(s string) string { return styleNormal.Width(innerW).Render(s) }
 
-	// Loading state: simple centered spinner.
+	// inner rows (excluding borders); last 2 rows are always the footer.
+	inner := panelH - 2
+	const footerH = 2
+	contentRows := inner - footerH
+
+	var lines []string
+	needsScroll := false
+
 	if m.vidDetailLoading {
-		msg := m.spinner.View() + " Loading video details…"
-		pad := (innerW - lipgloss.Width(msg)) / 2
-		if pad < 0 {
-			pad = 0
+		lines = append(lines, norm(m.spinner.View()+" Loading…"))
+	} else if m.vidDetailVideo != nil {
+		v := m.vidDetailVideo
+
+		// Thumbnail — fills full inner width; height from actual image aspect ratio.
+		// Default uses 16:9. The /2 corrects for 2:1 terminal cell height:width ratio.
+		thumbW := innerW
+		thumbH := (thumbW*9 + 15) / 16 / 2 // round up before the /16
+		if thumbH < 1 {
+			thumbH = 1
 		}
-		lines := []string{"", strings.Repeat(" ", pad) + msg, ""}
-		box := m.buildDetailBox(lines, innerW)
-		return compositeBox(box, boxW, behind, m.width)
-	}
+		if m.vidDetailThumb != nil {
+			b := m.vidDetailThumb.Bounds()
+			iw := b.Max.X - b.Min.X
+			ih := b.Max.Y - b.Min.Y
+			if iw > 0 && ih > 0 {
+				if h := (thumbW*ih + iw - 1) / iw / 2; h >= 1 {
+					thumbH = h
+				}
+			}
+		}
+		var thumbLines []string
+		if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
+			thumbLines = strings.Split(rendered, "\n")
+		}
+		for len(thumbLines) < thumbH {
+			thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
+		}
+		lines = append(lines, thumbLines...)
 
-	if m.vidDetailVideo == nil {
-		return behind
-	}
-	v := m.vidDetailVideo
+		// Title (word-wrapped, up to 3 lines).
+		lines = append(lines, norm(""))
+		for i, tl := range wordWrap(v.Title, innerW) {
+			if i >= 3 {
+				break
+			}
+			lines = append(lines, norm(tl))
+		}
 
-	thumbW := vidDetailThumbW
-	thumbH := vidDetailThumbH // 16:9 fallback while image is loading
-	if thumbW > innerW-10 {
-		thumbW = innerW - 10
-	}
-	if m.vidDetailThumb != nil {
-		b := m.vidDetailThumb.Bounds()
-		imgW := b.Max.X - b.Min.X
-		imgH := b.Max.Y - b.Min.Y
-		if imgW > 0 && imgH > 0 {
-			// Divide by 2 to account for ~2:1 terminal cell height:width ratio.
-			thumbH = thumbW * imgH / imgW / 2
-			if thumbH < 1 {
-				thumbH = 1
+		// Metadata.
+		lbl := styleDim
+		meta := func(k, val string) string {
+			return styleNormal.Width(innerW).Render(lbl.Render(k) + val)
+		}
+		lines = append(lines, norm(""))
+		lines = append(lines, meta("Channel  ", truncate(v.Channel, innerW-9)))
+		if v.Subscribers > 0 {
+			lines = append(lines, meta("Subs     ", fmtViews(v.Subscribers)))
+		}
+		lines = append(lines, meta("Views    ", v.ViewsStr()))
+		lines = append(lines, meta("Duration ", v.DurationStr()))
+		lines = append(lines, meta("Date     ", v.DateStr()))
+		lines = append(lines, styleHelp.Width(innerW).Render(""))
+		lines = append(lines, styleHelp.Width(innerW).Render(truncate(v.URL, innerW)))
+
+		// Description — fills remaining content rows.
+		if v.Description != "" {
+			lines = append(lines, styleColHeader.Width(innerW).Render(""))
+			lines = append(lines, styleColHeader.Width(innerW).Render("Description"))
+			available := contentRows - len(lines)
+			if available > 0 {
+				descLines := wordWrap(v.Description, innerW)
+				needsScroll = len(descLines) > available
+				maxVS := len(descLines) - 1
+				if maxVS < 0 {
+					maxVS = 0
+				}
+				vs := m.vidDetailDescVS
+				if vs > maxVS {
+					vs = maxVS
+				}
+				visible := descLines[vs:]
+				if len(visible) > available {
+					visible = visible[:available]
+				}
+				for _, dl := range visible {
+					lines = append(lines, norm(dl))
+				}
 			}
 		}
 	}
-	metaW := innerW - thumbW - 2 // 2 for "  " separator
 
-	// Build thumbnail lines (each exactly thumbW visual cols).
-	var thumbLines []string
-	if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
-		thumbLines = strings.Split(rendered, "\n")
+	// Trim / pad content to exactly contentRows (footer is appended separately).
+	for len(lines) < contentRows {
+		lines = append(lines, norm(""))
 	}
-	// Pad thumbnail to thumbH rows with placeholder lines.
-	for len(thumbLines) < thumbH {
-		thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
+	lines = lines[:contentRows]
+
+	// Footer — always pinned to the last two rows of the panel.
+	footerText := "esc: close"
+	if needsScroll {
+		footerText = "j/k: scroll  esc: close"
 	}
+	lines = append(lines, styleHelp.Width(innerW).Render(""))
+	lines = append(lines, styleHelp.Width(innerW).Render(footerText))
 
-	// Build metadata lines (each padded to metaW via lipgloss).
-	pad := func(s string) string { return styleNormal.Width(metaW).Render(s) }
-	labelStyle := styleDim
-	var metaLines []string
-	metaLines = append(metaLines, styleNormal.Width(metaW).Render(truncate(v.Title, metaW)))
-	metaLines = append(metaLines, pad(""))
-	metaLines = append(metaLines, pad(labelStyle.Render("Channel  ")+truncate(v.Channel, metaW-9)))
-	if v.Subscribers > 0 {
-		metaLines = append(metaLines, pad(labelStyle.Render("Subs     ")+fmtViews(v.Subscribers)))
-	}
-	metaLines = append(metaLines, pad(labelStyle.Render("Views    ")+v.ViewsStr()))
-	metaLines = append(metaLines, pad(labelStyle.Render("Duration ")+v.DurationStr()))
-	metaLines = append(metaLines, pad(labelStyle.Render("Date     ")+v.DateStr()))
-	metaLines = append(metaLines, pad(""))
-	metaLines = append(metaLines, styleHelp.Width(metaW).Render(truncate(v.URL, metaW)))
-
-	// Side-by-side: thumbnail (left) + metadata (right).
-	rowCount := max(thumbH, len(metaLines))
-	var sideLines []string
-	for i := 0; i < rowCount; i++ {
-		left := strings.Repeat(" ", thumbW)
-		if i < len(thumbLines) {
-			left = thumbLines[i]
-		}
-		right := styleNormal.Width(metaW).Render("")
-		if i < len(metaLines) {
-			right = metaLines[i]
-		}
-		sideLines = append(sideLines, left+"  "+right)
-	}
-
-	// Description section.
-	var allLines []string
-	allLines = append(allLines, sideLines...)
-
-	if v.Description != "" {
-		allLines = append(allLines, styleColHeader.Width(innerW).Render(""))
-		allLines = append(allLines, styleColHeader.Width(innerW).Render("Description"))
-		descLines := wordWrap(v.Description, innerW)
-		// Clamp scroll to valid range.
-		maxVS := len(descLines) - 1
-		if maxVS < 0 {
-			maxVS = 0
-		}
-		vs := m.vidDetailDescVS
-		if vs > maxVS {
-			vs = maxVS
-		}
-		descVisible := descLines[vs:]
-		const maxDescVisible = 12
-		if len(descVisible) > maxDescVisible {
-			descVisible = descVisible[:maxDescVisible]
-		}
-		for _, dl := range descVisible {
-			allLines = append(allLines, styleNormal.Width(innerW).Render(dl))
-		}
-	}
-
-	allLines = append(allLines, styleHelp.Width(innerW).Render(""))
-	allLines = append(allLines, styleHelp.Width(innerW).Render("j/k: scroll  esc: close"))
-
-	box := m.buildDetailBox(allLines, innerW)
-	return compositeBox(box, boxW, behind, m.width)
-}
-
-// buildDetailBox wraps contentLines in a bordered box. Each line in contentLines
-// must already be exactly innerW visual columns wide.
-func (m Model) buildDetailBox(contentLines []string, innerW int) string {
-	accentStyle := lipgloss.NewStyle().Foreground(colorAccent)
-	top := accentStyle.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
-	bot := accentStyle.Render("╰" + strings.Repeat("─", innerW) + "╯")
-	rows := []string{top}
-	for _, l := range contentLines {
-		rows = append(rows, accentStyle.Render("│")+l+accentStyle.Render("│"))
+	// Assemble bordered box.
+	top := accent.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
+	bot := accent.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	rows := make([]string, 0, panelH)
+	rows = append(rows, top)
+	for _, l := range lines {
+		rows = append(rows, accent.Render("│")+l+accent.Render("│"))
 	}
 	rows = append(rows, bot)
 	return strings.Join(rows, "\n")
-}
-
-// compositeBox overlays box (width boxW) centered on behind (terminal width termW).
-func compositeBox(box string, boxW int, behind string, termW int) string {
-	bh := lipgloss.Height(box)
-	x := (termW - boxW) / 2
-	if x < 0 {
-		x = 0
-	}
-	behindLines := strings.Split(behind, "\n")
-	y := (len(behindLines) - bh) / 2
-	if y < 0 {
-		y = 0
-	}
-	overlayLines := strings.Split(box, "\n")
-	for i, ol := range overlayLines {
-		lineIdx := y + i
-		if lineIdx >= len(behindLines) {
-			behindLines = append(behindLines, "")
-		}
-		base := behindLines[lineIdx]
-		baseRunes := []rune(base)
-		for len(baseRunes) < x {
-			baseRunes = append(baseRunes, ' ')
-		}
-		behindLines[lineIdx] = string(baseRunes[:x]) + ol
-	}
-	return strings.Join(behindLines, "\n")
 }
 
 // wordWrap splits text into lines of at most width visible characters,

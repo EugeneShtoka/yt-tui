@@ -72,6 +72,12 @@ func New(dataDir string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
+	if err := d.cleanEmojiTitles(); err != nil {
+		return nil, err
+	}
+	if err := d.pruneRecommendedFeed(); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -188,9 +194,50 @@ func (d *DB) migrate() error {
 			fetched_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (playlist_id, video_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS video_details_cache (
+			video_id      TEXT PRIMARY KEY,
+			description   TEXT NOT NULL DEFAULT '',
+			thumbnail_url TEXT NOT NULL DEFAULT '',
+			subscribers   INTEGER NOT NULL DEFAULT 0,
+			fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	} {
 		if _, err = d.sql.Exec(stmt); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (d *DB) cleanEmojiTitles() error {
+	type tableCol struct{ table, idCol, titleCol string }
+	targets := []tableCol{
+		{"videos", "id", "title"},
+		{"watch_later", "video_id", "title"},
+		{"yt_playlists", "id", "title"},
+	}
+	for _, t := range targets {
+		rows, err := d.sql.Query("SELECT " + t.idCol + ", " + t.titleCol + " FROM " + t.table)
+		if err != nil {
+			return err
+		}
+		type row struct{ id, title string }
+		var updates []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.title); err != nil {
+				rows.Close()
+				return err
+			}
+			if clean := youtube.StripEmojis(r.title); clean != r.title {
+				updates = append(updates, row{r.id, clean})
+			}
+		}
+		rows.Close()
+		for _, u := range updates {
+			if _, err := d.sql.Exec("UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", u.title, u.id); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -796,8 +843,58 @@ func (d *DB) GetFeedCache(feed string) ([]youtube.Video, error) {
 
 // HideRecVideo records a video as hidden from the recommended feed.
 func (d *DB) HideRecVideo(videoID string) error {
-	_, err := d.sql.Exec(
-		`INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID)
+	if _, err := d.sql.Exec(`INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID); err != nil {
+		return err
+	}
+	_, err := d.sql.Exec(`DELETE FROM video_details_cache WHERE video_id=?`, videoID)
+	return err
+}
+
+// SaveVideoDetailsCache stores description, thumbnail URL and subscriber count for a video.
+func (d *DB) SaveVideoDetailsCache(videoID, description, thumbnailURL string, subscribers int64) error {
+	_, err := d.sql.Exec(`
+		INSERT OR REPLACE INTO video_details_cache (video_id, description, thumbnail_url, subscribers)
+		VALUES (?, ?, ?, ?)
+	`, videoID, description, thumbnailURL, subscribers)
+	return err
+}
+
+type CachedDetails struct {
+	Description  string
+	ThumbnailURL string
+	Subscribers  int64
+}
+
+// GetVideoDetailsCache returns cached details for a video, false if not cached.
+func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
+	var c CachedDetails
+	err := d.sql.QueryRow(`
+		SELECT description, thumbnail_url, subscribers FROM video_details_cache WHERE video_id=?
+	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers)
+	if err == sql.ErrNoRows {
+		return c, false, nil
+	}
+	return c, err == nil, err
+}
+
+// pruneRecommendedFeed removes recommended feed entries and their cached details for videos
+// older than two weeks.
+func (d *DB) pruneRecommendedFeed() error {
+	cutoff := time.Now().AddDate(0, 0, -14).Format("20060102")
+	if _, err := d.sql.Exec(`
+		DELETE FROM video_details_cache WHERE video_id IN (
+			SELECT fc.video_id FROM feed_cache fc
+			JOIN videos v ON v.id = fc.video_id
+			WHERE v.upload_date != '' AND v.upload_date < ?
+		)
+	`, cutoff); err != nil {
+		return err
+	}
+	_, err := d.sql.Exec(`
+		DELETE FROM feed_cache WHERE video_id IN (
+			SELECT id FROM videos WHERE upload_date != '' AND upload_date < ?
+		)
+	`, cutoff)
 	return err
 }
 

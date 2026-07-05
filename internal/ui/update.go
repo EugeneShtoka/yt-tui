@@ -120,20 +120,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case youtube.VideoDetailsMsg:
-		m.vidDetailLoading = false
 		if msg.Err != nil {
+			m.vidDetailLoading = false
 			m.vidDetailOverlay = false
 			m.setStatus("video details: "+msg.Err.Error(), true)
 			return m, nil
 		}
 		details := msg.Details
 		m.vidDetailVideo = &details
+		_ = m.db.SaveVideoDetailsCache(details.Video.ID, details.Description, details.ThumbnailURL, details.Subscribers)
 		if details.ThumbnailURL != "" {
+			// Keep loading=true until thumbnail arrives so panel renders once with image.
 			return m, loadThumbnailCmd(details.ThumbnailURL)
 		}
+		m.vidDetailLoading = false
 		return m, nil
 
 	case thumbnailLoadedMsg:
+		m.vidDetailLoading = false
 		m.vidDetailThumb = msg.img
 		return m, nil
 
@@ -492,6 +496,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.vidDetailVideo = nil
 			m.vidDetailThumb = nil
 			m.vidDetailDescVS = 0
+			if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
+				details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
+				m.vidDetailVideo = &details
+				if cached.ThumbnailURL != "" {
+					return m, loadThumbnailCmd(cached.ThumbnailURL)
+				}
+				m.vidDetailLoading = false
+				return m, nil
+			}
 			return m, youtube.FetchVideoDetails(m.cfg, v.URL)
 		}
 		return m, nil
