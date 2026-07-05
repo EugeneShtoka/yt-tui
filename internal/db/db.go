@@ -57,7 +57,7 @@ type DB struct {
 	sql *sql.DB
 }
 
-func New(dataDir string) (*DB, error) {
+func New(dataDir string, stripEmojis bool) (*DB, error) {
 	path := filepath.Join(dataDir, "yt-tui.db")
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -72,8 +72,10 @@ func New(dataDir string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
-	if err := d.cleanEmojiTitles(); err != nil {
-		return nil, err
+	if stripEmojis {
+		if err := d.cleanEmojiTitles(); err != nil {
+			return nil, err
+		}
 	}
 	if err := d.pruneRecommendedFeed(); err != nil {
 		return nil, err

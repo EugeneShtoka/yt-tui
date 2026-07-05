@@ -51,7 +51,7 @@ func (e ytdlpEntry) toVideo() Video {
 	}
 	return Video{
 		ID:         e.ID,
-		Title:      StripEmojis(e.Title),
+		Title:      e.Title,
 		Channel:    ch,
 		ChannelID:  e.ChannelID,
 		Duration:   int(e.Duration),
@@ -70,7 +70,7 @@ func (e ytdlpEntry) toChannel() Channel {
 	if name == "" {
 		name = e.Channel
 	}
-	return Channel{ID: e.ID, Name: StripEmojis(name), URL: u, Subscribers: e.ChannelFollowerCount}
+	return Channel{ID: e.ID, Name: name, URL: u, Subscribers: e.ChannelFollowerCount}
 }
 
 func isRateLimited(s string) bool {
@@ -203,6 +203,20 @@ func runAndParseChannels(args []string) ([]Channel, error) {
 	return nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
+func applyStripEmojisVideos(vv []Video) []Video {
+	for i := range vv {
+		vv[i].Title = StripEmojis(vv[i].Title)
+	}
+	return vv
+}
+
+func applyStripEmojisChannels(cc []Channel) []Channel {
+	for i := range cc {
+		cc[i].Name = StripEmojis(cc[i].Name)
+	}
+	return cc
+}
+
 // YTPlaylist is a YouTube playlist (ID + title).
 type YTPlaylist struct {
 	ID    string
@@ -264,6 +278,9 @@ func FetchRecommended(cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
 		args := buildArgs(cfg, "https://www.youtube.com/feed/recommended", limit)
 		videos, err := runAndParseVideos(args)
+		if cfg.StripEmojis {
+			videos = applyStripEmojisVideos(videos)
+		}
 		return FetchResultMsg{Source: "recommended", Videos: videos, Err: err}
 	}
 }
@@ -272,6 +289,9 @@ func FetchSubscribedChannels(cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
 		args := buildArgs(cfg, "https://www.youtube.com/feed/channels", 0)
 		channels, err := runAndParseChannels(args)
+		if cfg.StripEmojis {
+			channels = applyStripEmojisChannels(channels)
+		}
 		return ChannelListMsg{Channels: channels, Err: err}
 	}
 }
@@ -282,6 +302,9 @@ func FetchSubscribedChannelsBackground(cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
 		args := buildArgs(cfg, "https://www.youtube.com/feed/channels", 0)
 		channels, err := runAndParseChannels(args)
+		if cfg.StripEmojis {
+			channels = applyStripEmojisChannels(channels)
+		}
 		return ChannelListMsg{Channels: channels, Err: err, Background: true}
 	}
 }
@@ -297,6 +320,9 @@ func FetchChannelVideos(cfg *config.Config, channelURL, channelID, source string
 		}
 		args := buildArgs(cfg, vidURL, 0)
 		videos, err := runAndParseVideos(args)
+		if cfg.StripEmojis {
+			videos = applyStripEmojisVideos(videos)
+		}
 		return ChannelVideosMsg{Source: source, ChannelID: channelID, Videos: videos, Err: err}
 	}
 }
@@ -319,6 +345,9 @@ func FetchChannelLatestN(cfg *config.Config, channelURL, channelID string, n int
 		}
 		args := buildArgs(cfg, vidURL, n)
 		videos, err := runAndParseVideos(args)
+		if cfg.StripEmojis {
+			videos = applyStripEmojisVideos(videos)
+		}
 		return ChannelVideosMsg{Source: "ch-background", ChannelID: channelID, Videos: videos, Err: err}
 	}
 }
@@ -390,11 +419,17 @@ func Search(cfg *config.Config, query string) tea.Cmd {
 				url.QueryEscape(query) + "&sp=EgIQAg%3D%3D"
 			args := buildArgs(cfg, chURL, 10)
 			channels, _, err := runAndParseMixed(args)
+			if cfg.StripEmojis {
+				channels = applyStripEmojisChannels(channels)
+			}
 			chCh <- chResult{channels, err}
 		}()
 
 		vidArgs := buildArgs(cfg, "ytsearch25:"+query, 25)
 		_, videos, err := runAndParseMixed(vidArgs)
+		if cfg.StripEmojis {
+			videos = applyStripEmojisVideos(videos)
+		}
 
 		cr := <-chCh
 		if err == nil && cr.err != nil {
@@ -425,6 +460,9 @@ func FetchPlaylistVideos(cfg *config.Config, playlistID string) tea.Cmd {
 		url := "https://www.youtube.com/playlist?list=" + playlistID
 		args := buildArgs(cfg, url, 0)
 		videos, err := runAndParseVideos(args)
+		if cfg.StripEmojis {
+			videos = applyStripEmojisVideos(videos)
+		}
 		return PlaylistVideosMsg{PlaylistID: playlistID, Videos: videos, Err: err}
 	}
 }
@@ -464,10 +502,14 @@ func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
 		if u == "" && e.ID != "" {
 			u = "https://www.youtube.com/watch?v=" + e.ID
 		}
+		title := e.Title
+		if cfg.StripEmojis {
+			title = StripEmojis(title)
+		}
 		return VideoDetailsMsg{Details: VideoDetails{
 			Video: Video{
 				ID:         e.ID,
-				Title:      StripEmojis(e.Title),
+				Title:      title,
 				Channel:    e.Channel,
 				ChannelID:  e.ChannelID,
 				Duration:   int(e.Duration),

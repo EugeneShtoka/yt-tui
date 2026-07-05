@@ -183,6 +183,7 @@ type Config struct {
 	RecommendedMaxPages   int                  `toml:"recommended_max_pages"`
 	ChannelLatestCount    int                  `toml:"channel_latest_count"`
 	ChannelStrikes        int                  `toml:"channel_strikes"`
+	StripEmojis           bool                 `toml:"strip_emojis"`
 	Subtitles             bool                 `toml:"subtitles"`
 	SubtitleLangs         []string             `toml:"subtitle_langs"`
 	Keybindings           KeyBindings          `toml:"keybindings"`
@@ -212,6 +213,7 @@ func defaultConfig() *Config {
 		RecommendedMaxPages:   3,
 		ChannelLatestCount:    3,
 		ChannelStrikes:        2,
+		StripEmojis:           true,
 		Subtitles:             true,
 		SubtitleLangs:         []string{"en.*"},
 		Keybindings:           defaultKeyBindings(),

@@ -51,7 +51,7 @@ func main() {
 		}
 	}
 
-	database, err := db.New(cfg.DataDir)
+	database, err := db.New(cfg.DataDir, cfg.StripEmojis)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "db error: %v\n", err)
 		os.Exit(1)

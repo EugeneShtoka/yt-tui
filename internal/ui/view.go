@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	runewidth "github.com/mattn/go-runewidth"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
@@ -1167,7 +1168,8 @@ func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 }
 
 // wordWrap splits text into lines of at most width visible characters,
-// breaking at word boundaries (spaces). Existing newlines are preserved.
+// breaking at word boundaries (spaces). Long tokens (e.g. URLs) are
+// hard-broken at the width boundary. Existing newlines are preserved.
 func wordWrap(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
@@ -1183,17 +1185,50 @@ func wordWrap(text string, width int) []string {
 			result = append(result, "")
 			continue
 		}
-		line := words[0]
-		for _, w := range words[1:] {
-			candidate := line + " " + w
-			if lipgloss.Width(candidate) <= width {
-				line = candidate
+		cur := ""
+		for _, w := range words {
+			if lipgloss.Width(w) > width {
+				// flush current accumulator, then hard-break the long token
+				if cur != "" {
+					result = append(result, cur)
+					cur = ""
+				}
+				runes := []rune(w)
+				for len(runes) > 0 {
+					taken := 0
+					col := 0
+					for taken < len(runes) {
+						cw := runewidth.RuneWidth(runes[taken])
+						if col+cw > width {
+							break
+						}
+						col += cw
+						taken++
+					}
+					if taken == 0 {
+						taken = 1
+					}
+					result = append(result, string(runes[:taken]))
+					runes = runes[taken:]
+				}
+				continue
+			}
+			var candidate string
+			if cur == "" {
+				candidate = w
 			} else {
-				result = append(result, line)
-				line = w
+				candidate = cur + " " + w
+			}
+			if lipgloss.Width(candidate) <= width {
+				cur = candidate
+			} else {
+				result = append(result, cur)
+				cur = w
 			}
 		}
-		result = append(result, line)
+		if cur != "" {
+			result = append(result, cur)
+		}
 	}
 	return result
 }
