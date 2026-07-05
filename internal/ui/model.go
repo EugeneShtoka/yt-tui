@@ -296,6 +296,10 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	localVideos, _ := database.LocalVideos()
 	playlists, _ := database.Playlists()
 
+	// Drop cached recommended entries that have no channel_id so the
+	// next fetch repopulates them correctly.
+	_ = database.PurgeFeedCacheMissingChannelID("recommended")
+
 	// Load feed caches synchronously — fast DB reads, shown immediately.
 	recCache, _ := database.GetFeedCache("recommended")
 

@@ -16,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/EugeneShtoka/yt-tui/internal/debug"
 )
 
 // YTClient holds browser-extracted cookies and can make YouTube innertube API calls.
@@ -74,14 +75,6 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 	return &YTClient{cookieHeader: cookieHeader, sapisid: sapisid}, nil
 }
 
-// authCookies is the minimal set YouTube needs for authenticated innertube API calls.
-// Sending all browser cookies exceeds HTTP/2's HPACK header size limit.
-var authCookies = map[string]bool{
-	"SID": true, "HSID": true, "SSID": true, "APISID": true, "SAPISID": true,
-	"LOGIN_INFO": true, "VISITOR_INFO1_LIVE": true, "YSC": true, "PREF": true,
-	"__Secure-1PAPISID": true, "__Secure-3PAPISID": true,
-	"__Secure-1PSID": true, "__Secure-3PSID": true,
-}
 
 func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 	data, err := os.ReadFile(path)
@@ -89,9 +82,12 @@ func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 		return "", "", err
 	}
 
+	seen := make(map[string]bool)
 	var pairs []string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		// yt-dlp prefixes HttpOnly cookie lines with "#HttpOnly_" — strip it.
+		line = strings.TrimPrefix(line, "#HttpOnly_")
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -99,20 +95,34 @@ func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 		if len(fields) < 7 {
 			continue
 		}
-		name := fields[5]
-		value := fields[6]
-		if !authCookies[name] {
+		domain := fields[0]
+		// Only accept cookies scoped to youtube.com, not google.com etc.
+		if !strings.HasSuffix(domain, "youtube.com") {
 			continue
 		}
+		name := fields[5]
+		value := fields[6]
+		// Deduplicate: first occurrence wins (most specific domain first in yt-dlp output).
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		pairs = append(pairs, name+"="+value)
-		if name == "SAPISID" {
+		// Prefer __Secure-3PAPISID for HTTPS innertube requests; fall back to SAPISID.
+		if name == "__Secure-3PAPISID" {
 			sapisid = value
 		}
-		// Use __Secure-3PAPISID as fallback
-		if name == "__Secure-3PAPISID" && sapisid == "" {
+		if name == "SAPISID" && sapisid == "" {
 			sapisid = value
 		}
 	}
+	var names []string
+	for _, p := range pairs {
+		if i := strings.IndexByte(p, '='); i >= 0 {
+			names = append(names, p[:i])
+		}
+	}
+	debug.Log("parseCookieFile: cookies=%d names=%v sapisid_len=%d", len(pairs), names, len(sapisid))
 	return strings.Join(pairs, "; "), sapisid, nil
 }
 
@@ -120,7 +130,9 @@ func (c *YTClient) sapisidhash() string {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	h := sha1.New()
 	h.Write([]byte(ts + " " + c.sapisid + " https://www.youtube.com"))
-	return ts + "_" + hex.EncodeToString(h.Sum(nil))
+	hash := ts + "_" + hex.EncodeToString(h.Sum(nil))
+	debug.Log("sapisidhash: ts=%s sapisid_prefix=%q", ts, c.sapisid[:min(6, len(c.sapisid))])
+	return hash
 }
 
 func (c *YTClient) post(endpoint string, body map[string]any) ([]byte, error) {
@@ -152,6 +164,8 @@ func (c *YTClient) post(endpoint string, body map[string]any) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "SAPISIDHASH "+c.sapisidhash())
 	req.Header.Set("X-Origin", "https://www.youtube.com")
+	req.Header.Set("X-Goog-AuthUser", "0")
+	req.Header.Set("Referer", "https://www.youtube.com/")
 	req.Header.Set("Cookie", c.cookieHeader)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
@@ -239,10 +253,35 @@ func (c *YTClient) DeletePlaylist(playlistID string) error {
 }
 
 func (c *YTClient) Subscribe(channelID string) error {
-	_, err := c.post("subscription/subscribe", map[string]any{
+	data, err := c.post("subscription/subscribe", map[string]any{
 		"channelIds": []string{channelID},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	debug.Log("subscribe response: %s", string(data))
+	var result struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		ResponseContext *struct {
+			MainAppWebResponseContext *struct {
+				LoggedOut bool `json:"loggedOut"`
+			} `json:"mainAppWebResponseContext"`
+		} `json:"responseContext"`
+	}
+	if json.Unmarshal(data, &result) == nil {
+		if result.Error != nil {
+			return fmt.Errorf("%d: %s", result.Error.Code, result.Error.Message)
+		}
+		if result.ResponseContext != nil &&
+			result.ResponseContext.MainAppWebResponseContext != nil &&
+			result.ResponseContext.MainAppWebResponseContext.LoggedOut {
+			return fmt.Errorf("not logged in — session may have expired")
+		}
+	}
+	return nil
 }
 
 func (c *YTClient) Unsubscribe(channelID string) error {

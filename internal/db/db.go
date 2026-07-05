@@ -258,6 +258,7 @@ func (d *DB) SaveChannelVideos(channelID string, videos []youtube.Video) error {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title=excluded.title, channel=excluded.channel,
+				channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
 				duration=excluded.duration, view_count=excluded.view_count,
 				upload_date=excluded.upload_date, url=excluded.url
 		`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
@@ -353,6 +354,7 @@ func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, vie
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, channel=excluded.channel,
+			channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
 			duration=excluded.duration, view_count=excluded.view_count,
 			upload_date=excluded.upload_date, url=excluded.url
 	`, id, title, channel, channelID, duration, viewCount, uploadDate, url)
@@ -801,6 +803,7 @@ func (d *DB) SaveFeedCache(feed string, videos []youtube.Video) error {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title=excluded.title, channel=excluded.channel,
+				channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
 				duration=excluded.duration, view_count=excluded.view_count,
 				upload_date=excluded.upload_date
 		`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
@@ -841,6 +844,19 @@ func (d *DB) GetFeedCache(feed string) ([]youtube.Video, error) {
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+// PurgeFeedCacheMissingChannelID removes entries from feed_cache whose video
+// has no channel_id so the next fetch repopulates them with correct IDs.
+func (d *DB) PurgeFeedCacheMissingChannelID(feed string) error {
+	_, err := d.sql.Exec(`
+		DELETE FROM feed_cache
+		WHERE feed = ?
+		  AND video_id IN (
+			SELECT id FROM videos WHERE channel_id IS NULL OR channel_id = ''
+		  )
+	`, feed)
+	return err
 }
 
 // HideRecVideo records a video as hidden from the recommended feed.
@@ -1018,6 +1034,7 @@ func (d *DB) SaveYTPlaylistVideos(playlistID string, videos []youtube.Video) err
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title=excluded.title, channel=excluded.channel,
+				channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
 				duration=excluded.duration, view_count=excluded.view_count,
 				upload_date=excluded.upload_date, url=excluded.url
 		`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {

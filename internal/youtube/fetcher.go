@@ -29,6 +29,7 @@ type ytdlpEntry struct {
 	UploadDate       string  `json:"upload_date"`
 	WebpageURL           string  `json:"webpage_url"`
 	URL                  string  `json:"url"`
+	ChannelURL           string  `json:"channel_url"`
 	IEKey                string  `json:"ie_key"`
 	Type                 string  `json:"_type"`
 	ChannelFollowerCount int64   `json:"channel_follower_count"`
@@ -45,6 +46,12 @@ func (e ytdlpEntry) toVideo() Video {
 	if ch == "" {
 		ch = e.PlaylistUploader
 	}
+	chID := e.ChannelID
+	if chID == "" {
+		if parts := strings.SplitN(e.ChannelURL, "/channel/", 2); len(parts) == 2 {
+			chID = strings.SplitN(parts[1], "/", 2)[0]
+		}
+	}
 	u := e.WebpageURL
 	if u == "" && e.ID != "" {
 		u = "https://www.youtube.com/watch?v=" + e.ID
@@ -53,7 +60,7 @@ func (e ytdlpEntry) toVideo() Video {
 		ID:         e.ID,
 		Title:      e.Title,
 		Channel:    ch,
-		ChannelID:  e.ChannelID,
+		ChannelID:  chID,
 		Duration:   int(e.Duration),
 		ViewCount:  e.ViewCount,
 		UploadDate: e.UploadDate,
