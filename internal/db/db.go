@@ -53,6 +53,20 @@ type HistoryEntry struct {
 	Timestamp  time.Time
 }
 
+type ActivityEntry struct {
+	ID              int64
+	Type            string // "subscribe", "create_playlist", "add_to_playlist"
+	IsLocal         bool
+	ChannelID       string
+	ChannelName     string
+	PlaylistID      string // YT playlist ID
+	PlaylistLocalID int64  // local playlist DB ID
+	PlaylistName    string
+	VideoID         string
+	VideoTitle      string
+	Timestamp       time.Time
+}
+
 type DB struct {
 	sql *sql.DB
 }
@@ -208,6 +222,19 @@ func (d *DB) migrate() error {
 			thumbnail_url TEXT NOT NULL DEFAULT '',
 			subscribers   INTEGER NOT NULL DEFAULT 0,
 			fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS activity_log (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			type             TEXT NOT NULL,
+			is_local         INTEGER NOT NULL DEFAULT 0,
+			channel_id       TEXT,
+			channel_name     TEXT,
+			playlist_id      TEXT,
+			playlist_local_id INTEGER,
+			playlist_name    TEXT,
+			video_id         TEXT,
+			video_title      TEXT,
+			timestamp        DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 	} {
 		if _, err = d.sql.Exec(stmt); err != nil {
@@ -1172,4 +1199,54 @@ func (d *DB) GetYTPlaylistVideos(playlistID string) ([]youtube.Video, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// LogActivity records a user action in the activity log.
+func (d *DB) LogActivity(e ActivityEntry) error {
+	isLocal := 0
+	if e.IsLocal {
+		isLocal = 1
+	}
+	_, err := d.sql.Exec(`
+		INSERT INTO activity_log
+			(type, is_local, channel_id, channel_name, playlist_id, playlist_local_id, playlist_name, video_id, video_title)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, e.Type, isLocal, e.ChannelID, e.ChannelName, e.PlaylistID, nullInt64(e.PlaylistLocalID), e.PlaylistName, e.VideoID, e.VideoTitle)
+	return err
+}
+
+// GetActivityLog returns the most recent activity entries, newest first.
+func (d *DB) GetActivityLog(limit int) ([]ActivityEntry, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, type, is_local,
+		       COALESCE(channel_id,''), COALESCE(channel_name,''),
+		       COALESCE(playlist_id,''), COALESCE(playlist_local_id,0), COALESCE(playlist_name,''),
+		       COALESCE(video_id,''), COALESCE(video_title,''), timestamp
+		FROM activity_log ORDER BY timestamp DESC LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []ActivityEntry
+	for rows.Next() {
+		var e ActivityEntry
+		var isLocal int
+		if err := rows.Scan(&e.ID, &e.Type, &isLocal,
+			&e.ChannelID, &e.ChannelName,
+			&e.PlaylistID, &e.PlaylistLocalID, &e.PlaylistName,
+			&e.VideoID, &e.VideoTitle, &e.Timestamp); err != nil {
+			return nil, err
+		}
+		e.IsLocal = isLocal != 0
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+func nullInt64(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

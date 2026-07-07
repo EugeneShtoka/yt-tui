@@ -294,6 +294,7 @@ func (c *YTClient) Unsubscribe(channelID string) error {
 // --- Tea commands for operations that return results ---
 
 type SubscribeMsg struct {
+	ChannelID   string
 	ChannelName string
 	Err         error
 }
@@ -313,7 +314,7 @@ type CreatePlaylistMsg struct {
 func SubscribeToChannel(client *YTClient, channelID, channelName string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.Subscribe(channelID)
-		return SubscribeMsg{ChannelName: channelName, Err: err}
+		return SubscribeMsg{ChannelID: channelID, ChannelName: channelName, Err: err}
 	}
 }
 

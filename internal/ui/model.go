@@ -27,7 +27,8 @@ const (
 	tabDownloading   = 5
 	tabLocal         = 6
 	tabHistory       = 7
-	numTabIDs        = 8
+	tabActivity      = 8
+	numTabIDs        = 9
 )
 
 // ytWatchLaterID is YouTube's internal Watch Later playlist ID.
@@ -35,7 +36,7 @@ const ytWatchLaterID = "WL"
 
 var tabNames = [numTabIDs]string{
 	"Recommended", "Subscriptions", "Channels", "Playlists",
-	"Search", "Downloading", "Local", "History",
+	"Search", "Downloading", "Local", "History", "Activity",
 }
 
 var tabIDByName = map[string]int{
@@ -47,6 +48,7 @@ var tabIDByName = map[string]int{
 	"downloading":   tabDownloading,
 	"local":         tabLocal,
 	"history":       tabHistory,
+	"activity":      tabActivity,
 }
 
 // ContextID identifies the UI context for key dispatch and sort-matrix filtering.
@@ -218,6 +220,11 @@ type Model struct {
 	histLoaded        bool
 	histDetailVideoID string
 	histDetail        []db.HistoryEntry
+
+	// ── Activity ─────────────────────────────────────────────────────────────
+	actEntries []db.ActivityEntry
+	actCursor  int
+	actVS      int
 
 	// ── Local filter ─────────────────────────────────────────────────────────
 	localFilter        string
@@ -1201,6 +1208,10 @@ func (m Model) chordDefs() []chordDef {
 					}
 				}
 				m.setStatus("Locally subscribed: "+chName, false)
+				_ = m.db.LogActivity(db.ActivityEntry{
+					Type: "subscribe", IsLocal: true,
+					ChannelID: chID, ChannelName: chName,
+				})
 				return m, nil
 			},
 		},

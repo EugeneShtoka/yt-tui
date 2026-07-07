@@ -90,6 +90,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("subscribe failed: "+msg.Err.Error(), true)
 		} else {
 			m.setStatus("Subscribed to: "+msg.ChannelName, false)
+			_ = m.db.LogActivity(db.ActivityEntry{
+				Type: "subscribe", IsLocal: false,
+				ChannelID: msg.ChannelID, ChannelName: msg.ChannelName,
+			})
 		}
 		return m, nil
 
@@ -121,12 +125,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("create playlist: "+msg.Err.Error(), true)
 		} else {
 			m.ytPlaylists = append(m.ytPlaylists, youtube.YTPlaylist{ID: msg.ID, Title: msg.Name})
+			_ = m.db.LogActivity(db.ActivityEntry{
+				Type: "create_playlist", IsLocal: false,
+				PlaylistID: msg.ID, PlaylistName: msg.Name,
+			})
 			if m.addAfterCreate {
 				m.addAfterCreate = false
 				v := m.addVideo
 				plID := msg.ID
 				go func() { _ = m.ytClient.AddToPlaylist(plID, v.ID) }()
 				delete(m.playlistVidCache, plID)
+				_ = m.db.LogActivity(db.ActivityEntry{
+					Type: "add_to_playlist", IsLocal: false,
+					PlaylistID: msg.ID, PlaylistName: msg.Name,
+					VideoID: v.ID, VideoTitle: v.Title,
+				})
 				m.setStatus(fmt.Sprintf("Created '%s' and added video", msg.Name), false)
 			} else {
 				m.setStatus("Created playlist: "+msg.Name, false)
@@ -402,7 +415,7 @@ func (m Model) handleLocalFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 var tabDebugNames = [numTabIDs]string{
-	"recommended", "subscriptions", "channels", "playlists", "search", "downloading", "local", "history",
+	"recommended", "subscriptions", "channels", "playlists", "search", "downloading", "local", "history", "activity",
 }
 
 func tabName(id int) string {
@@ -621,6 +634,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateLocal(msg)
 	case tabHistory:
 		return m.updateHistory(msg)
+	case tabActivity:
+		return m.updateActivity(msg)
 	}
 
 	return m, nil
@@ -800,6 +815,8 @@ func (m *Model) onTabActivated() tea.Cmd {
 		}
 	case tabHistory:
 		return m.loadHistory()
+	case tabActivity:
+		m.loadActivity()
 	}
 	return nil
 }
@@ -815,6 +832,80 @@ func (m *Model) loadHistory() tea.Cmd {
 		m.histLoaded = true
 	}
 	return nil
+}
+
+func (m *Model) loadActivity() {
+	entries, err := m.db.GetActivityLog(200)
+	if err != nil {
+		m.setStatus("activity: "+err.Error(), true)
+		return
+	}
+	m.actEntries = entries
+	m.actCursor = clamp(m.actCursor, len(entries))
+}
+
+func (m Model) updateActivity(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.actEntries)
+	switch {
+	case key.Matches(msg, m.keys.Up):
+		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, -1, m.pageSize())
+	case key.Matches(msg, m.keys.Down):
+		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, +1, m.pageSize())
+	case key.Matches(msg, m.keys.PageUp):
+		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, -1, m.pageSize())
+	case key.Matches(msg, m.keys.PageDown):
+		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, +1, m.pageSize())
+	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
+		if m.actCursor < n {
+			return m.navigateToActivity(m.actEntries[m.actCursor])
+		}
+	}
+	return m, nil
+}
+
+func (m Model) navigateToActivity(e db.ActivityEntry) (tea.Model, tea.Cmd) {
+	switch e.Type {
+	case "subscribe":
+		m.activeTab = tabChannels
+		channels := m.sortedChannels()
+		for i, ch := range channels {
+			if ch.ID == e.ChannelID {
+				m.subChCursor = i
+				cmd := m.openChannelVideos(ch, false)
+				return m, cmd
+			}
+		}
+		m.setStatus("No longer subscribed to: "+e.ChannelName, true)
+		return m, m.onTabActivated()
+	case "create_playlist", "add_to_playlist":
+		m.activeTab = tabPlaylists
+		if e.PlaylistLocalID != 0 {
+			offset := 0
+			if m.ytPlLoaded {
+				offset = len(m.ytPlaylists)
+			}
+			for i, pl := range m.playlists {
+				if pl.ID == e.PlaylistLocalID {
+					m.playlistCursor = offset + i
+					m.playlistPane = 1
+					cmd := m.fetchCurrentPlaylistVideos()
+					return m, cmd
+				}
+			}
+		} else if e.PlaylistID != "" && m.ytPlLoaded {
+			for i, pl := range m.ytPlaylists {
+				if pl.ID == e.PlaylistID {
+					m.playlistCursor = i
+					m.playlistPane = 1
+					cmd := m.fetchCurrentPlaylistVideos()
+					return m, cmd
+				}
+			}
+		}
+		m.setStatus("Playlist no longer exists: "+e.PlaylistName, true)
+		return m, m.onTabActivated()
+	}
+	return m, nil
 }
 
 func (m *Model) refresh() tea.Cmd {
@@ -846,6 +937,8 @@ func (m *Model) refresh() tea.Cmd {
 		}
 	case tabHistory:
 		return m.loadHistory()
+	case tabActivity:
+		m.loadActivity()
 	case tabPlaylists:
 		if m.playlistPane == 1 {
 			return m.fetchCurrentPlaylistVideos()
@@ -1906,10 +1999,19 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				playlists, _ := m.db.Playlists()
 				m.playlists = playlists
+				_ = m.db.LogActivity(db.ActivityEntry{
+					Type: "create_playlist", IsLocal: true,
+					PlaylistLocalID: id, PlaylistName: name,
+				})
 				if m.addAfterCreate {
 					m.addAfterCreate = false
 					_ = m.db.AddToPlaylist(id, m.addVideo.ID)
 					delete(m.playlistVidCache, fmt.Sprintf("local:%d", id))
+					_ = m.db.LogActivity(db.ActivityEntry{
+						Type: "add_to_playlist", IsLocal: true,
+						PlaylistLocalID: id, PlaylistName: name,
+						VideoID: m.addVideo.ID, VideoTitle: m.addVideo.Title,
+					})
 					m.setStatus(fmt.Sprintf("Created '%s' and added video", name), false)
 				} else {
 					m.setStatus("Created playlist: "+name, false)
@@ -2002,11 +2104,21 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			pl := m.ytPlaylists[idx]
 			go func() { _ = m.ytClient.AddToPlaylist(pl.ID, v.ID) }()
 			delete(m.playlistVidCache, pl.ID)
+			_ = m.db.LogActivity(db.ActivityEntry{
+				Type: "add_to_playlist", IsLocal: false,
+				PlaylistID: pl.ID, PlaylistName: pl.Title,
+				VideoID: v.ID, VideoTitle: v.Title,
+			})
 			m.setStatus(fmt.Sprintf("Added to '%s'", pl.Title), false)
 		} else if idx < len(m.playlists) {
 			pl := m.playlists[idx]
 			_ = m.db.AddToPlaylist(pl.ID, v.ID)
 			delete(m.playlistVidCache, fmt.Sprintf("local:%d", pl.ID))
+			_ = m.db.LogActivity(db.ActivityEntry{
+				Type: "add_to_playlist", IsLocal: true,
+				PlaylistLocalID: pl.ID, PlaylistName: pl.Name,
+				VideoID: v.ID, VideoTitle: v.Title,
+			})
 			m.setStatus(fmt.Sprintf("Added to '%s'", pl.Name), false)
 		}
 		m.addOverlay = false
@@ -2036,6 +2148,15 @@ func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.playlists = playlists
 				_ = m.db.AddToPlaylist(id, m.addVideo.ID)
 				delete(m.playlistVidCache, fmt.Sprintf("local:%d", id))
+				_ = m.db.LogActivity(db.ActivityEntry{
+					Type: "create_playlist", IsLocal: true,
+					PlaylistLocalID: id, PlaylistName: name,
+				})
+				_ = m.db.LogActivity(db.ActivityEntry{
+					Type: "add_to_playlist", IsLocal: true,
+					PlaylistLocalID: id, PlaylistName: name,
+					VideoID: m.addVideo.ID, VideoTitle: m.addVideo.Title,
+				})
 				m.setStatus(fmt.Sprintf("Created '%s' and added video", name), false)
 			}
 		}

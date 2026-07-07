@@ -224,7 +224,7 @@ type Config struct {
 
 var DefaultTabs = []string{
 	"recommended", "subscriptions", "channels", "playlists",
-	"search", "downloading", "local", "history",
+	"search", "downloading", "local", "history", "activity",
 }
 
 func defaultConfig() *Config {
