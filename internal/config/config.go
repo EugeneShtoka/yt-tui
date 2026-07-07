@@ -8,6 +8,16 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type SubscribeKeys struct {
+	Remote string `toml:"remote"`
+	Local  string `toml:"local"`
+}
+
+type PlaylistKeys struct {
+	Remote string `toml:"remote"`
+	Local  string `toml:"local"`
+}
+
 type SortKeys struct {
 	Date        string `toml:"date"`
 	Views       string `toml:"views"`
@@ -15,11 +25,13 @@ type SortKeys struct {
 	Channel     string `toml:"channel"`
 	Duration    string `toml:"duration"`
 	Subscribers string `toml:"subscribers"`
+	Tags        string `toml:"tags"`
 }
 
 type TabKeys struct {
 	Recommended   string `toml:"recommended"`
 	Subscriptions string `toml:"subscriptions"`
+	Channels      string `toml:"channels"`
 	Playlists     string `toml:"playlists"`
 	Search        string `toml:"search"`
 	Downloading   string `toml:"downloading"`
@@ -36,13 +48,14 @@ type KeyBindings struct {
 	HideVideo     string `toml:"hide_video"`
 	HideChannel   string `toml:"hide_channel"`
 	CopyURL       string `toml:"copy_url"`
-	WatchLater    string `toml:"watch_later"`
 	AddToPlaylist string `toml:"add_to_playlist"`
 	NewPlaylist   string `toml:"new_playlist"`
 	ToggleMode    string `toml:"toggle_mode"`
-	Subscribe     string `toml:"subscribe"`
-	Unsubscribe   string `toml:"unsubscribe"`
-	Help          string `toml:"help"`
+	Subscribe      string `toml:"subscribe"`
+	Unsubscribe    string `toml:"unsubscribe"`
+	RenameChannel  string `toml:"rename_channel"`
+	TagChannel     string `toml:"tag_channel"`
+	Help           string `toml:"help"`
 	Quit          string `toml:"quit"`
 
 	Refresh      string `toml:"refresh"`       // re-query / latest fetch
@@ -55,10 +68,13 @@ type KeyBindings struct {
 	TabChord   string `toml:"tab_chord"`   // first key of tab-switch chord
 	SortChord  string `toml:"sort_chord"`  // first key of sort chord
 	GotoPrefix string `toml:"goto_prefix"` // first key of goto-top chord (press twice)
-	GotoBottom string `toml:"goto_bottom"` // go to last row (or Nth with number prefix)
+	GotoBottom string `toml:"goto_bottom"` // go to last row
+	GotoLine   string `toml:"goto_line"`   // go to line N (requires number prefix; defaults to same as goto_bottom)
 
-	SortKeys SortKeys `toml:"sort_keys"`
-	TabKeys  TabKeys  `toml:"tab_keys"`
+	SortKeys      SortKeys      `toml:"sort_keys"`
+	TabKeys       TabKeys       `toml:"tab_keys"`
+	SubscribeKeys SubscribeKeys `toml:"subscribe_keys"`
+	PlaylistKeys  PlaylistKeys  `toml:"playlist_keys"`
 }
 
 func defaultKeyBindings() KeyBindings {
@@ -71,12 +87,13 @@ func defaultKeyBindings() KeyBindings {
 		HideVideo:     "b",
 		HideChannel:   "B",
 		CopyURL:       "c",
-		WatchLater:    "w",
 		AddToPlaylist: "a",
 		NewPlaylist:   "n",
 		ToggleMode:    "m",
 		Subscribe:     "S",
 		Unsubscribe:   "u",
+		RenameChannel: "A",
+		TagChannel:    "T",
 		Help:          "?",
 		Quit:          "q",
 
@@ -91,7 +108,10 @@ func defaultKeyBindings() KeyBindings {
 		SortChord:  "s",
 		GotoPrefix: "g",
 		GotoBottom: "G",
+		GotoLine:   "G",
 
+		SubscribeKeys: SubscribeKeys{Remote: "r", Local: "l"},
+		PlaylistKeys:  PlaylistKeys{Remote: "r", Local: "l"},
 		SortKeys: SortKeys{
 			Date:        "d",
 			Views:       "v",
@@ -99,10 +119,12 @@ func defaultKeyBindings() KeyBindings {
 			Channel:     "c",
 			Duration:    "D",
 			Subscribers: "s",
+			Tags:        "t",
 		},
 		TabKeys: TabKeys{
 			Recommended:   "r",
 			Subscriptions: "s",
+			Channels:      "c",
 			Playlists:     "p",
 			Search:        "S",
 			Downloading:   "d",
@@ -124,13 +146,14 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.HideVideo == ""     { kb.HideVideo = d.HideVideo }
 	if kb.HideChannel == ""   { kb.HideChannel = d.HideChannel }
 	if kb.CopyURL == ""       { kb.CopyURL = d.CopyURL }
-	if kb.WatchLater == ""    { kb.WatchLater = d.WatchLater }
 	if kb.AddToPlaylist == "" { kb.AddToPlaylist = d.AddToPlaylist }
 	if kb.NewPlaylist == ""   { kb.NewPlaylist = d.NewPlaylist }
 	if kb.ToggleMode == ""    { kb.ToggleMode = d.ToggleMode }
-	if kb.Subscribe == ""     { kb.Subscribe = d.Subscribe }
-	if kb.Unsubscribe == ""   { kb.Unsubscribe = d.Unsubscribe }
-	if kb.Help == ""          { kb.Help = d.Help }
+	if kb.Subscribe == ""      { kb.Subscribe = d.Subscribe }
+	if kb.Unsubscribe == ""    { kb.Unsubscribe = d.Unsubscribe }
+	if kb.RenameChannel == ""  { kb.RenameChannel = d.RenameChannel }
+	if kb.TagChannel == ""     { kb.TagChannel = d.TagChannel }
+	if kb.Help == ""           { kb.Help = d.Help }
 	if kb.Quit == ""          { kb.Quit = d.Quit }
 
 	if kb.Refresh == ""      { kb.Refresh = d.Refresh }
@@ -144,6 +167,12 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.SortChord == ""  { kb.SortChord = d.SortChord }
 	if kb.GotoPrefix == "" { kb.GotoPrefix = d.GotoPrefix }
 	if kb.GotoBottom == "" { kb.GotoBottom = d.GotoBottom }
+	if kb.GotoLine   == "" { kb.GotoLine   = d.GotoLine }
+
+	if kb.SubscribeKeys.Remote == "" { kb.SubscribeKeys.Remote = d.SubscribeKeys.Remote }
+	if kb.SubscribeKeys.Local == ""  { kb.SubscribeKeys.Local = d.SubscribeKeys.Local }
+	if kb.PlaylistKeys.Remote == ""  { kb.PlaylistKeys.Remote = d.PlaylistKeys.Remote }
+	if kb.PlaylistKeys.Local == ""   { kb.PlaylistKeys.Local = d.PlaylistKeys.Local }
 
 	if kb.SortKeys.Date == ""        { kb.SortKeys.Date = d.SortKeys.Date }
 	if kb.SortKeys.Views == ""       { kb.SortKeys.Views = d.SortKeys.Views }
@@ -151,9 +180,11 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.SortKeys.Channel == ""     { kb.SortKeys.Channel = d.SortKeys.Channel }
 	if kb.SortKeys.Duration == ""    { kb.SortKeys.Duration = d.SortKeys.Duration }
 	if kb.SortKeys.Subscribers == "" { kb.SortKeys.Subscribers = d.SortKeys.Subscribers }
+	if kb.SortKeys.Tags == ""        { kb.SortKeys.Tags = d.SortKeys.Tags }
 
 	if kb.TabKeys.Recommended == ""   { kb.TabKeys.Recommended = d.TabKeys.Recommended }
 	if kb.TabKeys.Subscriptions == "" { kb.TabKeys.Subscriptions = d.TabKeys.Subscriptions }
+	if kb.TabKeys.Channels == ""      { kb.TabKeys.Channels = d.TabKeys.Channels }
 	if kb.TabKeys.Playlists == ""     { kb.TabKeys.Playlists = d.TabKeys.Playlists }
 	if kb.TabKeys.Search == ""        { kb.TabKeys.Search = d.TabKeys.Search }
 	if kb.TabKeys.Downloading == ""   { kb.TabKeys.Downloading = d.TabKeys.Downloading }
@@ -192,7 +223,7 @@ type Config struct {
 }
 
 var DefaultTabs = []string{
-	"recommended", "subscriptions", "playlists",
+	"recommended", "subscriptions", "channels", "playlists",
 	"search", "downloading", "local", "history",
 }
 

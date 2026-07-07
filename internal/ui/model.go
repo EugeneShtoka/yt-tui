@@ -21,25 +21,27 @@ import (
 const (
 	tabRecommended   = 0
 	tabSubscriptions = 1
-	tabPlaylists     = 2
-	tabSearch        = 3
-	tabDownloading   = 4
-	tabLocal         = 5
-	tabHistory       = 6
-	numTabIDs        = 7
+	tabChannels      = 2
+	tabPlaylists     = 3
+	tabSearch        = 4
+	tabDownloading   = 5
+	tabLocal         = 6
+	tabHistory       = 7
+	numTabIDs        = 8
 )
 
 // ytWatchLaterID is YouTube's internal Watch Later playlist ID.
 const ytWatchLaterID = "WL"
 
 var tabNames = [numTabIDs]string{
-	"Recommended", "Subscriptions", "Playlists",
+	"Recommended", "Subscriptions", "Channels", "Playlists",
 	"Search", "Downloading", "Local", "History",
 }
 
 var tabIDByName = map[string]int{
 	"recommended":   tabRecommended,
 	"subscriptions": tabSubscriptions,
+	"channels":      tabChannels,
 	"playlists":     tabPlaylists,
 	"search":        tabSearch,
 	"downloading":   tabDownloading,
@@ -53,6 +55,7 @@ type ContextID int
 const (
 	CtxVideoList     ContextID = iota // rec, subs-all, channel drill-down vids, playlist vids
 	CtxChannelList                    // subscriptions channel pane (left)
+	CtxTagList                        // channels tab: tag list (tags-grouped view)
 	CtxSearchVideo                    // search: video rows
 	CtxSearchChannel                  // search: channel rows
 	CtxPlaylistList                   // playlists top level
@@ -60,6 +63,11 @@ const (
 	CtxDownloading                    // downloading tab
 	CtxHistoryVideo                   // history: video entry
 	CtxHistorySearch                  // history: search entry
+)
+
+const (
+	pseudoTagAll      = "\x00all"      // pseudo-tag: show all channels
+	pseudoTagUntagged = "\x00untagged" // pseudo-tag: show channels with no tags
 )
 
 // sortContextSupport maps sort-action names to the contexts that support them.
@@ -71,6 +79,7 @@ var sortContextSupport = map[string][]ContextID{
 	"channel":     {CtxVideoList, CtxChannelList, CtxSearchVideo, CtxLocal},
 	"duration":    {CtxVideoList, CtxChannelList, CtxSearchVideo, CtxLocal},
 	"subscribers": {CtxChannelList},
+	"tags":        {CtxChannelList},
 }
 
 func sortSupported(action string, ctx ContextID) bool {
@@ -82,14 +91,6 @@ func sortSupported(action string, ctx ContextID) bool {
 	return false
 }
 
-// subMode controls how the Subscriptions tab is displayed.
-type subMode int
-
-const (
-	subModeAll      subMode = 0
-	subModeChannels subMode = 1
-)
-
 const (
 	subChSortDate     = 0 // sort channels by latest video date (newest first)
 	subChSortName     = 1 // sort channels alphabetically by channel name
@@ -97,6 +98,7 @@ const (
 	subChSortViews    = 3 // sort channels by latest video view count (desc)
 	subChSortVidName  = 4 // sort channels by latest video title (asc)
 	subChSortDuration = 5 // sort channels by latest video duration (desc)
+	subChSortTags     = 6 // sort channels alphabetically by first tag (untagged last)
 )
 
 // Video list sort modes (used by recSort, subSort, searchSort, localSort).
@@ -131,12 +133,11 @@ type Model struct {
 	recRefreshing bool // true when background refresh is running over stale cache
 
 	// ── Subscriptions ────────────────────────────────────────────────────────
-	subMode subMode
-	// subModeAll — populated from channel_videos aggregate, not a separate API feed
+	// subVideos — all-channel feed (Subscriptions tab)
 	subVideos []youtube.Video
 	subCursor int
 	subVS     int
-	// subModeChannels
+	// ── Channels ─────────────────────────────────────────────────────────────
 	subChannels        []youtube.Channel
 	subChCursor        int
 	subChVS            int
@@ -152,6 +153,17 @@ type Model struct {
 	subChSort          int                      // subChSortDate or subChSortName
 	subChLatest        map[string]youtube.Video // channelID → latest known video
 
+	// ── Channels: alias/tag editing ───────────────────────────────────────────
+	subChEditMode  int              // 0=none, 1=editing alias, 2=editing tags
+	subChEditInput textinput.Model
+
+	// ── Channels: tags-grouped view ───────────────────────────────────────────
+	subChTagsMode  bool   // true = grouped-by-tags view
+	subChTagCursor int    // cursor in tag list (tags mode, pane 0)
+	subChTagVS     int    // viewStart for tag list
+	subChTagSel    string // selected tag name
+	subChTagSort   int    // video sort mode for tag video list
+
 	// ── Playlists ────────────────────────────────────────────────────────────
 	playlists         []db.Playlist        // local playlists (fallback when no YT)
 	ytPlaylists       []youtube.YTPlaylist // YouTube playlists (loaded from YT)
@@ -165,11 +177,18 @@ type Model struct {
 	playlistVidVS     int
 	playlistVidLoading bool
 	playlistPane      int
-	createMode        bool
-	createInput       textinput.Model
-	addOverlay        bool
-	addOverlaySel     int
-	addVideo          youtube.Video
+	createMode     bool
+	createModeYT   bool // true = creating a YouTube playlist (not local)
+	createTypeMode bool // true = in type-selection dialog before creating
+	createTypeSel  int  // 0 = local, 1 = YouTube
+	createInput    textinput.Model
+	addOverlay           bool
+	addOverlaySel        int
+	addVideo             youtube.Video
+	addAfterCreate       bool
+	addOverlayCreateMode bool
+	addOverlayCreateYT   bool
+	addOverlayInput      textinput.Model
 
 	// ── Search ────────────────────────────────────────────────────────────────
 	searchInput    textinput.Model
@@ -273,7 +292,7 @@ func buildTabs(cfg *config.Config) []int {
 		}
 	}
 	if len(tabs) == 0 {
-		tabs = []int{tabRecommended, tabSubscriptions, tabPlaylists,
+		tabs = []int{tabRecommended, tabSubscriptions, tabChannels, tabPlaylists,
 			tabSearch, tabDownloading, tabLocal, tabHistory}
 	}
 	return tabs
@@ -289,6 +308,14 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	ci.Placeholder = "Playlist name..."
 	ci.CharLimit = 80
 	ci.Width = 40
+
+	ei := textinput.New()
+	ei.CharLimit = 120
+	ei.Width = 50
+
+	oi := textinput.New()
+	oi.CharLimit = 80
+	oi.Width = 36
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -366,6 +393,9 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		subVideos:         subVideos,
 		searchInput:       si,
 		createInput:       ci,
+		subChEditInput:    ei,
+		addOverlayInput:   oi,
+		subChTagSort:      vidSortDate,
 		spinner:           sp,
 		localVideos:       localVideos,
 		localVideoIDs:     localIDMap,
@@ -392,10 +422,10 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	}
 }
 
-// sortedChannels returns subscribed channels in the current sort order.
-func (m Model) sortedChannels() []youtube.Channel {
-	out := make([]youtube.Channel, len(m.subChannels))
-	copy(out, m.subChannels)
+// sortChannelSlice returns a sorted copy of the given channel slice.
+func (m Model) sortChannelSlice(channels []youtube.Channel) []youtube.Channel {
+	out := make([]youtube.Channel, len(channels))
+	copy(out, channels)
 	switch m.subChSort {
 	case subChSortDate:
 		sort.SliceStable(out, func(i, j int) bool {
@@ -405,7 +435,7 @@ func (m Model) sortedChannels() []youtube.Channel {
 		})
 	case subChSortName:
 		sort.SliceStable(out, func(i, j int) bool {
-			return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+			return strings.ToLower(out[i].DisplayName()) < strings.ToLower(out[j].DisplayName())
 		})
 	case subChSortSubs:
 		sort.SliceStable(out, func(i, j int) bool {
@@ -425,7 +455,117 @@ func (m Model) sortedChannels() []youtube.Channel {
 		sort.SliceStable(out, func(i, j int) bool {
 			return m.subChLatest[out[i].ID].Duration > m.subChLatest[out[j].ID].Duration
 		})
+	case subChSortTags:
+		sort.SliceStable(out, func(i, j int) bool {
+			ti := firstTag(out[i].Tags)
+			tj := firstTag(out[j].Tags)
+			if ti != tj {
+				return ti < tj
+			}
+			return strings.ToLower(out[i].DisplayName()) < strings.ToLower(out[j].DisplayName())
+		})
 	}
+	return out
+}
+
+func firstTag(tags []string) string {
+	if len(tags) == 0 {
+		return "\xff" // untagged channels sort last
+	}
+	return strings.ToLower(tags[0])
+}
+
+// sortedChannels returns all subscribed channels in the current sort order.
+func (m Model) sortedChannels() []youtube.Channel {
+	return m.sortChannelSlice(m.subChannels)
+}
+
+// channelsInTag returns channels belonging to the given tag (supports pseudo-tags).
+func (m Model) channelsInTag(tag string) []youtube.Channel {
+	switch tag {
+	case pseudoTagAll:
+		return m.subChannels
+	case pseudoTagUntagged:
+		var out []youtube.Channel
+		for _, ch := range m.subChannels {
+			if len(ch.Tags) == 0 {
+				out = append(out, ch)
+			}
+		}
+		return out
+	default:
+		var out []youtube.Channel
+		for _, ch := range m.subChannels {
+			for _, t := range ch.Tags {
+				if t == tag {
+					out = append(out, ch)
+					break
+				}
+			}
+		}
+		return out
+	}
+}
+
+// sortedChannelsInTag returns channels for the given tag in the current sort order.
+func (m Model) sortedChannelsInTag(tag string) []youtube.Channel {
+	return m.sortChannelSlice(m.channelsInTag(tag))
+}
+
+// allTags returns all unique user-defined tags, sorted alphabetically.
+func (m Model) allTags() []string {
+	seen := map[string]bool{}
+	for _, ch := range m.subChannels {
+		for _, t := range ch.Tags {
+			if t != "" {
+				seen[t] = true
+			}
+		}
+	}
+	tags := make([]string, 0, len(seen))
+	for t := range seen {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+// tagListItems returns only real user-defined tags (no pseudo-tags) for the tag list pane.
+func (m Model) tagListItems() []string {
+	return m.allTags()
+}
+
+// tagDisplayName returns a human-readable label for a tag.
+func tagDisplayName(tag string) string {
+	switch tag {
+	case pseudoTagAll:
+		return "All channels"
+	case pseudoTagUntagged:
+		return "Untagged"
+	}
+	return tag
+}
+
+// tagVideos returns videos from subVideos that belong to channels in the selected tag,
+// sorted by subChTagSort. The returned slice is always a fresh copy.
+func (m Model) tagVideos() []youtube.Video {
+	chans := m.channelsInTag(m.subChTagSel)
+	if len(chans) == 0 {
+		return nil
+	}
+	idSet := make(map[string]bool, len(chans))
+	for _, ch := range chans {
+		if ch.ID != "" {
+			idSet[ch.ID] = true
+		}
+	}
+	var out []youtube.Video
+	for _, v := range m.subVideos {
+		if idSet[v.ChannelID] {
+			out = append(out, v)
+		}
+	}
+	sortVideos(out, m.subChTagSort)
 	return out
 }
 
@@ -475,42 +615,44 @@ func (m *Model) setStatus(msg string, isErr bool) {
 // playlistCount returns the total number of items in the playlist pane.
 func (m Model) playlistCount() int {
 	if m.ytPlLoaded {
-		return len(m.ytPlaylists)
+		return len(m.ytPlaylists) + len(m.playlists)
 	}
 	return len(m.playlists)
 }
 
 // selectedPlaylistKey returns the cache key for the currently highlighted playlist.
 func (m Model) selectedPlaylistKey() string {
-	if m.ytPlLoaded {
-		if m.playlistCursor < len(m.ytPlaylists) {
-			return m.ytPlaylists[m.playlistCursor].ID
-		}
-		return ""
+	if m.ytPlLoaded && m.playlistCursor < len(m.ytPlaylists) {
+		return m.ytPlaylists[m.playlistCursor].ID
 	}
-	if m.playlistCursor < len(m.playlists) {
-		return fmt.Sprintf("local:%d", m.playlists[m.playlistCursor].ID)
+	localIdx := m.playlistCursor
+	if m.ytPlLoaded {
+		localIdx -= len(m.ytPlaylists)
+	}
+	if localIdx >= 0 && localIdx < len(m.playlists) {
+		return fmt.Sprintf("local:%d", m.playlists[localIdx].ID)
 	}
 	return ""
 }
 
 // selectedPlaylistName returns the display name for the currently highlighted playlist entry.
 func (m Model) selectedPlaylistName() string {
-	if m.ytPlLoaded {
-		if m.playlistCursor < len(m.ytPlaylists) {
-			return m.ytPlaylists[m.playlistCursor].Title
-		}
-		return ""
+	if m.ytPlLoaded && m.playlistCursor < len(m.ytPlaylists) {
+		return m.ytPlaylists[m.playlistCursor].Title
 	}
-	if m.playlistCursor < len(m.playlists) {
-		return m.playlists[m.playlistCursor].Name
+	localIdx := m.playlistCursor
+	if m.ytPlLoaded {
+		localIdx -= len(m.ytPlaylists)
+	}
+	if localIdx >= 0 && localIdx < len(m.playlists) {
+		return m.playlists[localIdx].Name
 	}
 	return ""
 }
 
 // selectedPlaylistIsYT returns true when the selected playlist is YouTube-backed.
 func (m Model) selectedPlaylistIsYT() bool {
-	return m.ytPlLoaded && m.ytClient != nil
+	return m.ytPlLoaded && m.ytClient != nil && m.playlistCursor < len(m.ytPlaylists)
 }
 
 func (m *Model) currentTabIndex() int {
@@ -543,9 +685,11 @@ func (m *Model) localFilteredVideos() []youtube.Video {
 	case tabRecommended:
 		raw = m.recVideos
 	case tabSubscriptions:
-		if m.subMode == subModeAll {
-			raw = m.subVideos
-		} else if m.subChPane == 1 {
+		raw = m.subVideos
+	case tabChannels:
+		if m.subChTagsMode && m.subChPane == 1 {
+			raw = m.tagVideos()
+		} else if !m.subChTagsMode && m.subChPane == 1 {
 			raw = m.subChVideos
 		}
 	case tabSearch:
@@ -574,11 +718,16 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 			return m.recVideos[i], true
 		}
 	case tabSubscriptions:
-		if m.subMode == subModeAll {
-			if i := m.subCursor; i >= 0 && i < len(m.subVideos) {
-				return m.subVideos[i], true
+		if i := m.subCursor; i >= 0 && i < len(m.subVideos) {
+			return m.subVideos[i], true
+		}
+	case tabChannels:
+		if m.subChTagsMode && m.subChPane == 1 {
+			vids := m.tagVideos()
+			if i := m.subChCursor; i >= 0 && i < len(vids) {
+				return vids[i], true
 			}
-		} else if m.subChPane == 1 {
+		} else if !m.subChTagsMode && m.subChPane == 1 {
 			if i := m.subChVidCursor; i >= 0 && i < len(m.subChVideos) {
 				return m.subChVideos[i], true
 			}
@@ -638,8 +787,14 @@ func (m *Model) jumpToLine(idx int) {
 	case tabRecommended:
 		m.recCursor, m.recVS = vsJump(idx, len(m.recVideos), ps)
 	case tabSubscriptions:
-		if m.subMode == subModeAll {
-			m.subCursor, m.subVS = vsJump(idx, len(m.subVideos), ps)
+		m.subCursor, m.subVS = vsJump(idx, len(m.subVideos), ps)
+	case tabChannels:
+		if m.subChTagsMode {
+			if m.subChPane == 1 {
+				m.subChCursor, m.subChVS = vsJump(idx, len(m.tagVideos()), ps)
+			} else {
+				m.subChTagCursor, m.subChTagVS = vsJump(idx, len(m.tagListItems()), ps)
+			}
 		} else if m.subChPane == 0 {
 			m.subChCursor, m.subChVS = vsJump(idx, len(m.sortedChannels()), ps)
 		} else {
@@ -671,8 +826,16 @@ func (m *Model) jumpToLast() {
 	case tabRecommended:
 		m.recCursor, m.recVS = vsJump(len(m.recVideos)-1, len(m.recVideos), ps)
 	case tabSubscriptions:
-		if m.subMode == subModeAll {
-			m.subCursor, m.subVS = vsJump(len(m.subVideos)-1, len(m.subVideos), ps)
+		m.subCursor, m.subVS = vsJump(len(m.subVideos)-1, len(m.subVideos), ps)
+	case tabChannels:
+		if m.subChTagsMode {
+			if m.subChPane == 1 {
+				vids := m.tagVideos()
+				m.subChCursor, m.subChVS = vsJump(len(vids)-1, len(vids), ps)
+			} else {
+				n := len(m.tagListItems())
+				m.subChTagCursor, m.subChTagVS = vsJump(n-1, n, ps)
+			}
 		} else if m.subChPane == 0 {
 			sc := m.sortedChannels()
 			m.subChCursor, m.subChVS = vsJump(len(sc)-1, len(sc), ps)
@@ -811,7 +974,15 @@ func (m Model) currentContext() ContextID {
 	case tabRecommended:
 		return CtxVideoList
 	case tabSubscriptions:
-		if m.subMode == subModeChannels && m.subChPane == 0 {
+		return CtxVideoList
+	case tabChannels:
+		if m.subChTagsMode {
+			if m.subChPane == 1 {
+				return CtxVideoList
+			}
+			return CtxTagList
+		}
+		if m.subChPane == 0 {
 			return CtxChannelList
 		}
 		return CtxVideoList
@@ -842,6 +1013,17 @@ func (m Model) currentContext() ContextID {
 		return CtxHistoryVideo
 	}
 	return CtxVideoList
+}
+
+// contextSupportsNewPlaylist reports whether a new-playlist chord should activate.
+func (m Model) contextSupportsNewPlaylist() bool {
+	return m.activeTab == tabPlaylists && m.playlistPane == 0
+}
+
+// contextSupportsSubscribe reports whether the current focus has an identifiable channel to subscribe to.
+func (m Model) contextSupportsSubscribe() bool {
+	chID, _ := m.currentChannelInfo()
+	return chID != ""
 }
 
 // contextSupportsSorting reports whether the current context has any valid sort actions.
@@ -911,6 +1093,7 @@ func (m Model) chordDefs() []chordDef {
 	allTabs := []tabEntry{
 		{tk.Recommended, "recommended", tabRecommended},
 		{tk.Subscriptions, "subscriptions", tabSubscriptions},
+		{tk.Channels, "channels", tabChannels},
 		{tk.Playlists, "playlists", tabPlaylists},
 		{tk.Search, "search", tabSearch},
 		{tk.Downloading, "downloading", tabDownloading},
@@ -946,6 +1129,7 @@ func (m Model) chordDefs() []chordDef {
 		{sk.Channel, "channel", "channel", vidSortChannel},
 		{sk.Duration, "duration", "duration", vidSortDuration},
 		{sk.Subscribers, "subscribers", "subscribers", -1},
+		{sk.Tags, "tags", "tags", -1},
 	}
 	var sortActions []chordAction
 	for _, e := range allSorts {
@@ -961,9 +1145,108 @@ func (m Model) chordDefs() []chordDef {
 		})
 	}
 
+	// ── Subscribe chord ───────────────────────────────────────────────────────
+	subCtx := []ContextID{CtxVideoList, CtxSearchVideo, CtxSearchChannel, CtxHistoryVideo, CtxChannelList}
+	subsk := kb.SubscribeKeys
+	subscribeActions := []chordAction{
+		{
+			key:   subsk.Remote,
+			label: "remote",
+			ctx:   subCtx,
+			exec: func(m Model) (Model, tea.Cmd) {
+				if m.ytClient == nil {
+					m.setStatus("subscribe: configure 'browser' in config to enable", true)
+					return m, nil
+				}
+				chID, chName := m.currentChannelInfo()
+				if chID == "" {
+					m.setStatus("subscribe: no channel", true)
+					return m, nil
+				}
+				return m, youtube.SubscribeToChannel(m.ytClient, chID, chName)
+			},
+		},
+		{
+			key:   subsk.Local,
+			label: "local",
+			ctx:   subCtx,
+			exec: func(m Model) (Model, tea.Cmd) {
+				chID, chName := m.currentChannelInfo()
+				if chID == "" {
+					m.setStatus("local subscribe: no channel", true)
+					return m, nil
+				}
+				ch := youtube.Channel{
+					ID:      chID,
+					Name:    chName,
+					URL:     "https://www.youtube.com/channel/" + chID,
+					IsLocal: true,
+				}
+				if err := m.db.AddSubscribedChannel(ch); err != nil {
+					m.setStatus("local subscribe: "+err.Error(), true)
+					return m, nil
+				}
+				found := false
+				for _, c := range m.subChannels {
+					if c.ID == chID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					m.subChannels = append(m.subChannels, ch)
+					m.subscribedChannelIDs[chID] = true
+					if chName != "" {
+						m.subscribedChannelIDs["name:"+strings.ToLower(chName)] = true
+					}
+				}
+				m.setStatus("Locally subscribed: "+chName, false)
+				return m, nil
+			},
+		},
+	}
+
+	// ── New-playlist chord ────────────────────────────────────────────────────
+	plsk := kb.PlaylistKeys
+	plCtx := []ContextID{CtxPlaylistList}
+	newPlaylistActions := []chordAction{
+		{
+			key:   plsk.Remote,
+			label: "YouTube",
+			ctx:   plCtx,
+			exec: func(m Model) (Model, tea.Cmd) {
+				if m.ytClient == nil {
+					m.setStatus("new YouTube playlist: configure 'browser' in config to enable", true)
+					return m, nil
+				}
+				m.createModeYT = true
+				m.createInput.SetValue("")
+				m.createInput.Placeholder = "New YouTube playlist…"
+				m.createInput.Focus()
+				m.createMode = true
+				return m, textinput.Blink
+			},
+		},
+		{
+			key:   plsk.Local,
+			label: "local",
+			ctx:   plCtx,
+			exec: func(m Model) (Model, tea.Cmd) {
+				m.createModeYT = false
+				m.createInput.SetValue("")
+				m.createInput.Placeholder = "New local playlist…"
+				m.createInput.Focus()
+				m.createMode = true
+				return m, textinput.Blink
+			},
+		},
+	}
+
 	return []chordDef{
 		{trigger: kb.TabChord, name: "tab", actions: tabActions},
 		{trigger: kb.SortChord, name: "sort", actions: sortActions},
+		{trigger: kb.Subscribe, name: "subscribe", actions: subscribeActions},
+		{trigger: kb.NewPlaylist, name: "new playlist", actions: newPlaylistActions},
 	}
 }
 
@@ -987,7 +1270,7 @@ func vidSortLabel(mode int) string {
 // videoShowChannel returns false when the Channel column is redundant
 // (drilling into a specific channel's videos).
 func (m Model) videoShowChannel() bool {
-	if m.activeTab == tabSubscriptions && m.subMode == subModeChannels && m.subChPane == 1 {
+	if m.activeTab == tabChannels && !m.subChTagsMode && m.subChPane == 1 {
 		return false
 	}
 	if m.activeTab == tabSearch && m.searchChSel != nil {

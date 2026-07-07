@@ -140,6 +140,9 @@ func tryParseVideos(args []string) ([]Video, string, error) {
 		if e.IEKey == "YoutubeTab" || e.Type == "playlist" {
 			continue
 		}
+		if e.ViewCount == 0 {
+			continue
+		}
 		videos = append(videos, e.toVideo())
 	}
 	_ = cmd.Wait()
@@ -385,7 +388,7 @@ func tryParseMixed(args []string) (channels []Channel, videos []Video, stderrStr
 			if entry.Title != "" {
 				channels = append(channels, entry.toChannel())
 			}
-		} else if entry.Title != "" {
+		} else if entry.Title != "" && entry.ViewCount != 0 {
 			videos = append(videos, entry.toVideo())
 		}
 	}

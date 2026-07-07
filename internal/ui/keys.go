@@ -29,15 +29,17 @@ type keyMap struct {
 	Escape        key.Binding
 	Quit          key.Binding
 	ToggleMode    key.Binding
-	WatchLater    key.Binding
 	Subscribe     key.Binding
+	RenameChannel key.Binding
+	TagChannel    key.Binding
 	AddList       key.Binding
 	NewList       key.Binding
 	Refresh       key.Binding
 	ForceRefresh  key.Binding
 	Help          key.Binding
 	Filter        key.Binding // activate local filter input
-	GotoBottom    key.Binding // go to last row (or Nth with number prefix)
+	GotoBottom    key.Binding // go to last row
+	GotoLine      key.Binding // go to line N (with number prefix)
 	VideoInfo     key.Binding // open video details popup
 }
 
@@ -84,15 +86,17 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		Quit:          key.NewBinding(key.WithKeys(kb.Quit, "ctrl+c"), key.WithHelp(kb.Quit, "quit")),
 
 		ToggleMode: b(kb.ToggleMode,    "toggle mode"),
-		WatchLater: b(kb.WatchLater,    "watch later"),
-		Subscribe:  b(kb.Subscribe,     "subscribe"),
-		AddList:    b(kb.AddToPlaylist, "add to playlist"),
+		Subscribe:     b(kb.Subscribe,      "subscribe"),
+		RenameChannel: b(kb.RenameChannel, "rename channel"),
+		TagChannel:    b(kb.TagChannel,    "edit tags"),
+		AddList:       b(kb.AddToPlaylist, "add to playlist"),
 		NewList:    b(kb.NewPlaylist,   "new playlist"),
 		Refresh:      b(kb.Refresh,      "refresh"),
 		ForceRefresh: b(kb.ForceRefresh, "force refresh"),
 		Help:         b(kb.Help,         "help"),
 		Filter:     b(kb.Filter,        "filter"),
 		GotoBottom: b(kb.GotoBottom,    "go to bottom"),
+		GotoLine:   b(kb.GotoLine,      "go to line"),
 		VideoInfo:  b(kb.VideoInfo,     "video info"),
 	}
 }

@@ -99,8 +99,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.setStatus("Unsubscribed from: "+msg.ChannelName, false)
 			delete(m.subscribedChannelIDs, msg.ChannelID)
+			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
 			m.subChannels = removeChannelByID(m.subChannels, msg.ChannelID)
-			m.recVideos = filterSubscribed(m.recVideos, m.subscribedChannelIDs)
+			m.subVideos = removeChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
+			m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize())
+			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
+			m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize())
+			go m.db.DeleteChannelVideos(msg.ChannelID)
 		}
 		return m, nil
 
@@ -112,10 +117,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case youtube.CreatePlaylistMsg:
 		if msg.Err != nil {
+			m.addAfterCreate = false
 			m.setStatus("create playlist: "+msg.Err.Error(), true)
 		} else {
 			m.ytPlaylists = append(m.ytPlaylists, youtube.YTPlaylist{ID: msg.ID, Title: msg.Name})
-			m.setStatus("Created playlist: "+msg.Name, false)
+			if m.addAfterCreate {
+				m.addAfterCreate = false
+				v := m.addVideo
+				plID := msg.ID
+				go func() { _ = m.ytClient.AddToPlaylist(plID, v.ID) }()
+				delete(m.playlistVidCache, plID)
+				m.setStatus(fmt.Sprintf("Created '%s' and added video", msg.Name), false)
+			} else {
+				m.setStatus("Created playlist: "+msg.Name, false)
+			}
 		}
 		return m, nil
 
@@ -152,11 +167,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("channels: "+msg.Err.Error(), true)
 			}
 		} else {
-			// Update channel list only when membership changed (added or removed).
-			if channelSetChanged(m.subChannels, msg.Channels) {
-				m.subChannels = msg.Channels
-			}
+			// Preserve locally-added channels (those in current list but absent from YT result).
+			ytIDs := make(map[string]bool, len(msg.Channels))
 			for _, ch := range msg.Channels {
+				ytIDs[ch.ID] = true
+			}
+			var localOnly []youtube.Channel
+			for _, ch := range m.subChannels {
+				if !ytIDs[ch.ID] {
+					localOnly = append(localOnly, ch)
+				}
+			}
+			merged := append(msg.Channels, localOnly...)
+
+			// Update channel list only when membership changed (added or removed).
+			if channelSetChanged(m.subChannels, merged) {
+				// Preserve user-set alias and tags from the current in-memory list.
+				existing := make(map[string]youtube.Channel, len(m.subChannels))
+				for _, ch := range m.subChannels {
+					existing[ch.ID] = ch
+				}
+				m.subChannels = merged
+				for i, ch := range m.subChannels {
+					if old, ok := existing[ch.ID]; ok {
+						m.subChannels[i].Alias = old.Alias
+						m.subChannels[i].Tags = old.Tags
+					}
+				}
+			}
+			for _, ch := range m.subChannels {
 				if ch.ID != "" {
 					m.subscribedChannelIDs[ch.ID] = true
 				}
@@ -168,7 +207,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			go func(channels []youtube.Channel, videos []youtube.Video) {
 				_ = m.db.SaveSubscribedChannels(channels)
 				_ = m.db.SaveFeedCache("recommended", videos)
-			}(msg.Channels, m.recVideos)
+			}(m.subChannels, m.recVideos)
 			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
 			var bgCmds []tea.Cmd
 			for _, ch := range msg.Channels {
@@ -363,7 +402,7 @@ func (m Model) handleLocalFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 var tabDebugNames = [numTabIDs]string{
-	"recommended", "subscriptions", "playlists", "search", "downloading", "local", "history",
+	"recommended", "subscriptions", "channels", "playlists", "search", "downloading", "local", "history",
 }
 
 func tabName(id int) string {
@@ -386,9 +425,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		debug.Log("→ handleSearchInput (searchFocused=true)")
 		return m.handleSearchInput(msg)
 	}
+	if m.createTypeMode {
+		debug.Log("→ handleCreateTypeInput (createTypeMode=true)")
+		return m.handleCreateTypeInput(msg)
+	}
 	if m.createMode {
 		debug.Log("→ handleCreateInput (createMode=true)")
 		return m.handleCreateInput(msg)
+	}
+	if m.activeTab == tabChannels && m.subChEditMode != 0 {
+		debug.Log("→ handleChannelEditInput (subChEditMode=%d)", m.subChEditMode)
+		return m.handleChannelEditInput(msg)
 	}
 	if m.addOverlay {
 		debug.Log("→ handleAddOverlay (addOverlay=true)")
@@ -424,16 +471,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// ── GotoBottom (configurable; consumes numPrefix) ─────────────────────
-	if key.Matches(msg, m.keys.GotoBottom) {
+	// ── GotoLine / GotoBottom ────────────────────────────────────────────
+	// GotoLine fires first when a number prefix is pending; GotoBottom always goes to last.
+	// When both keys are the same, the number-prefix check disambiguates them.
+	if m.numPrefix != "" && key.Matches(msg, m.keys.GotoLine) {
 		n := m.parseNumPrefix()
 		m.numPrefix = ""
 		m.gPending = false
-		if n > 0 {
-			m.jumpToLine(n - 1)
-		} else {
-			m.jumpToLast()
-		}
+		m.jumpToLine(n - 1)
+		return m, nil
+	}
+	if key.Matches(msg, m.keys.GotoBottom) {
+		m.numPrefix = ""
+		m.gPending = false
+		m.jumpToLast()
 		return m, nil
 	}
 
@@ -464,6 +515,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingChord = kb.SortChord
 		m.chordBuffer = ""
 		debug.Log("→ sort chord pending")
+		return m, nil
+	}
+	if s == kb.Subscribe && m.contextSupportsSubscribe() {
+		m.pendingChord = kb.Subscribe
+		m.chordBuffer = ""
+		debug.Log("→ subscribe chord pending")
 		return m, nil
 	}
 
@@ -552,6 +609,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateRecommended(msg)
 	case tabSubscriptions:
 		return m.updateSubscriptions(msg)
+	case tabChannels:
+		return m.updateSubChannels(msg)
 	case tabPlaylists:
 		return m.updatePlaylists(msg)
 	case tabSearch:
@@ -615,10 +674,13 @@ func (m Model) resolveChord(s string) (tea.Model, tea.Cmd) {
 // applySortAction applies a sort to the appropriate state for the current tab/context.
 func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model, tea.Cmd) {
 	if ctx == CtxChannelList {
-		sorted := m.sortedChannels()
+		activeSorted := m.sortedChannels()
+		if m.subChTagsMode && m.subChPane == 1 {
+			activeSorted = m.sortedChannelsInTag(m.subChTagSel)
+		}
 		var selID string
-		if m.subChCursor < len(sorted) {
-			selID = sorted[m.subChCursor].ID
+		if m.subChCursor < len(activeSorted) {
+			selID = activeSorted[m.subChCursor].ID
 		}
 		switch action {
 		case "date":
@@ -633,9 +695,15 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 			m.subChSort = subChSortViews
 		case "duration":
 			m.subChSort = subChSortDuration
+		case "tags":
+			m.subChSort = subChSortTags
+		}
+		afterSort := m.sortedChannels()
+		if m.subChTagsMode && m.subChPane == 1 {
+			afterSort = m.sortedChannelsInTag(m.subChTagSel)
 		}
 		if selID != "" {
-			for i, ch := range m.sortedChannels() {
+			for i, ch := range afterSort {
 				if ch.ID == selID {
 					m.subChCursor = i
 					break
@@ -657,12 +725,14 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 		m.recSort = vidSort
 		sortVideos(m.recVideos, vidSort)
 	case tabSubscriptions:
-		if m.subMode == subModeChannels && m.subChPane == 1 {
+		m.subSort = vidSort
+		sortVideos(m.subVideos, vidSort)
+	case tabChannels:
+		if m.subChTagsMode && m.subChPane == 1 {
+			m.subChTagSort = vidSort
+		} else if !m.subChTagsMode && m.subChPane == 1 {
 			m.subChVidSort = vidSort
 			sortVideos(m.subChVideos, vidSort)
-		} else {
-			m.subSort = vidSort
-			sortVideos(m.subVideos, vidSort)
 		}
 	case tabSearch:
 		m.searchSort = vidSort
@@ -712,11 +782,10 @@ func (m *Model) onTabActivated() tea.Cmd {
 		}
 		m.searchHistIdx = -1
 		return textinput.Blink
-	case tabSubscriptions:
-		if m.subMode == subModeChannels && !m.subChLoading {
+	case tabChannels:
+		if !m.subChLoading {
 			m.subChLoading = true
 			if m.subChLoaded {
-				// Already have data — refresh silently in background.
 				return youtube.FetchSubscribedChannelsBackground(m.cfg)
 			}
 			return youtube.FetchSubscribedChannels(m.cfg)
@@ -758,11 +827,12 @@ func (m *Model) refresh() tea.Cmd {
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSubscriptions:
-		if m.subMode == subModeChannels && m.subChPane == 1 {
-			// Inside a channel's video pane: latest fetch for that channel.
+		m.subChLoading = true
+		return youtube.FetchSubscribedChannels(m.cfg)
+	case tabChannels:
+		if !m.subChTagsMode && m.subChPane == 1 {
 			return m.fetchChannelLatest(m.subChActiveID)
 		}
-		// Channel list or all-video: refresh channel list + per-channel latest/full.
 		m.subChLoading = true
 		return youtube.FetchSubscribedChannels(m.cfg)
 	case tabSearch:
@@ -798,11 +868,11 @@ func (m *Model) forceRefresh() tea.Cmd {
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSubscriptions:
-		if m.subMode == subModeChannels && m.subChPane == 1 {
-			// Full fetch for the open channel.
+		return m.forceRefreshAllChannels()
+	case tabChannels:
+		if !m.subChTagsMode && m.subChPane == 1 {
 			return youtube.FetchChannelVideos(m.cfg, m.channelURL(m.subChActiveID), m.subChActiveID, "subscriptions")
 		}
-		// Full fetch for all subscribed channels regardless of existing data.
 		return m.forceRefreshAllChannels()
 	case tabSearch:
 		if m.lastQuery != "" {
@@ -930,20 +1000,13 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, m.keys.WatchLater):
-		if v, ok := m.currentVideo(); ok {
-			m.addToWatchLater(v)
-			delete(m.playlistVidCache, ytWatchLaterID)
-			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
-		}
 	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
 	case key.Matches(msg, m.keys.CopyURL):
 		m.copyCurrentURL()
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
 	}
 	return m, nil
 }
@@ -951,33 +1014,7 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
 func (m Model) updateSubscriptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	toggleKey := m.cfg.Keybindings.ToggleMode
-	if toggleKey == "" {
-		toggleKey = "m"
-	}
-	debug.Log("updateSubscriptions: key=%q toggleKey=%q match=%v subMode=%d subChLoaded=%v subChLoading=%v",
-		msg.String(), toggleKey, msg.String() == toggleKey, m.subMode, m.subChLoaded, m.subChLoading)
-	switch {
-	case msg.String() == toggleKey:
-		if m.subMode == subModeAll {
-			debug.Log("→ toggle subModeAll→subModeChannels (chLoaded=%v chLoading=%v)", m.subChLoaded, m.subChLoading)
-			m.subMode = subModeChannels
-			if !m.subChLoaded && !m.subChLoading {
-				m.subChLoading = true
-				return m, youtube.FetchSubscribedChannels(m.cfg)
-			}
-		} else {
-			debug.Log("→ toggle subModeChannels→subModeAll")
-			m.subMode = subModeAll
-			m.subChPane = 0
-		}
-		return m, nil
-	}
-
-	if m.subMode == subModeAll {
-		return m.updateSubAll(msg)
-	}
-	return m.updateSubChannels(msg)
+	return m.updateSubAll(msg)
 }
 
 func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1011,12 +1048,6 @@ func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, m.keys.WatchLater):
-		if v, ok := m.currentVideo(); ok {
-			m.addToWatchLater(v)
-			delete(m.playlistVidCache, ytWatchLaterID)
-			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
-		}
 	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
@@ -1030,6 +1061,20 @@ func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// ToggleMode: switch between flat channel list and tags-grouped view.
+	if key.Matches(msg, m.keys.ToggleMode) {
+		m.subChTagsMode = !m.subChTagsMode
+		m.subChPane = 0
+		m.subChTagCursor = 0
+		m.subChTagVS = 0
+		return m, nil
+	}
+
+	if m.subChTagsMode {
+		return m.updateSubChannelsTags(msg)
+	}
+
+	// ── Flat mode ─────────────────────────────────────────────────────────────
 	if m.subChPane == 0 {
 		sorted := m.sortedChannels()
 		n := len(sorted)
@@ -1040,28 +1085,23 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize())
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 			if m.subChCursor < n {
+				return m, m.openChannelVideos(sorted[m.subChCursor], false)
+			}
+		case key.Matches(msg, m.keys.RenameChannel):
+			if m.subChCursor < n {
 				ch := sorted[m.subChCursor]
-				m.subChVidCursor = 0
-				m.subChPane = 1
-				if ch.ID == m.subChActiveID && len(m.subChVideos) > 0 {
-					// Re-entering same channel — reuse in-memory data, refresh in background.
-					m.subChVidLoading = false
-					m.subChVidRefreshing = true
-					return m, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount)
-				}
-				m.subChActiveID = ch.ID
-				if cached, err := m.db.GetChannelVideos(ch.ID); err == nil && len(cached) > 0 {
-					// Has cached data — show immediately, fetch latest in background.
-					m.subChVideos = cached
-					m.subChVidLoading = false
-					m.subChVidRefreshing = true
-					return m, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount)
-				}
-				// No data — full fetch.
-				m.subChVideos = nil
-				m.subChVidLoading = true
-				m.subChVidRefreshing = false
-				return m, youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "subscriptions")
+				m.subChEditInput.SetValue(ch.Alias)
+				m.subChEditInput.Placeholder = "alias (empty to clear)…"
+				m.subChEditInput.Focus()
+				m.subChEditMode = 1
+			}
+		case key.Matches(msg, m.keys.TagChannel):
+			if m.subChCursor < n {
+				ch := sorted[m.subChCursor]
+				m.subChEditInput.SetValue(strings.Join(ch.Tags, ", "))
+				m.subChEditInput.Placeholder = "comma-separated tags…"
+				m.subChEditInput.Focus()
+				m.subChEditMode = 2
 			}
 		case key.Matches(msg, m.keys.Unsubscribe):
 			if m.subChCursor < n {
@@ -1072,10 +1112,125 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// ── Flat mode: video pane ─────────────────────────────────────────────────
+	return m.updateSubChVideoPane(msg, 0)
+}
+
+// updateSubChannelsTags handles key events for the tags-grouped view.
+func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.subChPane {
+	case 0: // tag list
+		items := m.tagListItems()
+		n := len(items)
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, -1, m.pageSize())
+		case key.Matches(msg, m.keys.Down):
+			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, +1, m.pageSize())
+		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
+			if m.subChTagCursor < n {
+				m.subChTagSel = items[m.subChTagCursor]
+				m.subChCursor = 0
+				m.subChVS = 0
+				m.subChPane = 1
+			}
+		}
+
+	case 1: // video list for selected tag (reuses subChCursor/subChVS)
+		vids := m.tagVideos()
+		n := len(vids)
+		switch {
+		case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
+			m.subChPane = 0
+			m.subChCursor = 0
+			m.subChVS = 0
+		case key.Matches(msg, m.keys.Up):
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize())
+		case key.Matches(msg, m.keys.Down):
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize())
+		case key.Matches(msg, m.keys.PageUp):
+			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize())
+		case key.Matches(msg, m.keys.PageDown):
+			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize())
+		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Play):
+			if v, ok := m.currentVideo(); ok {
+				m.downloadAndPlay(v)
+			}
+		case key.Matches(msg, m.keys.PlayAudio):
+			if v, ok := m.currentVideo(); ok {
+				m.downloadAndPlayAudio(v)
+			}
+		case key.Matches(msg, m.keys.Download):
+			if v, ok := m.currentVideo(); ok {
+				m.startDownload(v, downloader.TypeVideo)
+			}
+		case key.Matches(msg, m.keys.DownloadAudio):
+			if v, ok := m.currentVideo(); ok {
+				m.startDownload(v, downloader.TypeAudio)
+			}
+		case key.Matches(msg, m.keys.AddList):
+			if v, ok := m.currentVideo(); ok {
+				m.openAddOverlay(v)
+			}
+		case key.Matches(msg, m.keys.CopyURL):
+			m.copyCurrentURL()
+		case key.Matches(msg, m.keys.VideoInfo):
+			if v, ok := m.currentVideo(); ok && v.URL != "" {
+				m.vidDetailOverlay = true
+				m.vidDetailLoading = true
+				m.vidDetailVideo = nil
+				m.vidDetailThumb = nil
+				m.vidDetailDescVS = 0
+				if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
+					details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
+					m.vidDetailVideo = &details
+					if cached.ThumbnailURL != "" {
+						return m, loadThumbnailCmd(cached.ThumbnailURL)
+					}
+					m.vidDetailLoading = false
+					return m, nil
+				}
+				return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+			}
+		}
+	}
+	return m, nil
+}
+
+// openChannelVideos loads videos for ch, setting subChPane to nextPane+1.
+// inTagsMode=true means we're going to pane 2; false means pane 1.
+func (m *Model) openChannelVideos(ch youtube.Channel, inTagsMode bool) tea.Cmd {
+	targetPane := 1
+	if inTagsMode {
+		targetPane = 2
+	}
+	m.subChVidCursor = 0
+	m.subChPane = targetPane
+	if ch.ID == m.subChActiveID && len(m.subChVideos) > 0 {
+		m.subChVidLoading = false
+		m.subChVidRefreshing = true
+		return youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount)
+	}
+	m.subChActiveID = ch.ID
+	if cached, err := m.db.GetChannelVideos(ch.ID); err == nil && len(cached) > 0 {
+		m.subChVideos = cached
+		m.subChVidLoading = false
+		m.subChVidRefreshing = true
+		return youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount)
+	}
+	m.subChVideos = nil
+	m.subChVidLoading = true
+	m.subChVidRefreshing = false
+	return youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "subscriptions")
+}
+
+// updateSubChVideoPane handles key events for the channel video pane.
+// backPane is the pane to return to on Back (0 for flat, 1 for tags mode).
+func (m Model) updateSubChVideoPane(msg tea.KeyMsg, backPane int) (tea.Model, tea.Cmd) {
 	n := len(m.subChVideos)
 	switch {
 	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
-		m.subChPane = 0
+		m.subChPane = backPane
 	case key.Matches(msg, m.keys.Up):
 		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize())
 	case key.Matches(msg, m.keys.Down):
@@ -1104,12 +1259,6 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, m.keys.WatchLater):
-		if v, ok := m.currentVideo(); ok {
-			m.addToWatchLater(v)
-			delete(m.playlistVidCache, ytWatchLaterID)
-			m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
-		}
 	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
@@ -1120,6 +1269,26 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.unsubscribeCurrentChannel()
 	}
 	return m, nil
+}
+
+// editTargetChannelID returns the channel ID of the channel being edited (flat mode only).
+func (m Model) editTargetChannelID() string {
+	sorted := m.sortedChannels()
+	if m.subChCursor < len(sorted) {
+		return sorted[m.subChCursor].ID
+	}
+	return ""
+}
+
+// parseTags splits a comma-separated tag string into a trimmed, non-empty slice.
+func parseTags(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
@@ -1180,10 +1349,17 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case key.Matches(msg, m.keys.NewList):
-			m.createMode = true
-			m.createInput.SetValue("")
-			m.createInput.Focus()
-			return m, textinput.Blink
+			if m.ytClient != nil {
+				m.createTypeMode = true
+				m.createTypeSel = 0
+			} else {
+				m.createModeYT = false
+				m.createInput.SetValue("")
+				m.createInput.Placeholder = "Playlist name…"
+				m.createInput.Focus()
+				m.createMode = true
+				return m, textinput.Blink
+			}
 		case key.Matches(msg, m.keys.Delete):
 			plKey := m.selectedPlaylistKey()
 			if plKey == ytWatchLaterID {
@@ -1195,16 +1371,20 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				go func() { _ = m.ytClient.DeletePlaylist(pl.ID) }()
 				delete(m.playlistVidCache, pl.ID)
 				m.ytPlaylists = append(m.ytPlaylists[:idx], m.ytPlaylists[idx+1:]...)
-			} else if idx < len(m.playlists) {
-				pl := m.playlists[idx]
-				_ = m.db.DeletePlaylist(pl.ID)
-				delete(m.playlistVidCache, fmt.Sprintf("local:%d", pl.ID))
-				playlists, _ := m.db.Playlists()
-				m.playlists = playlists
+			} else {
+				localIdx := idx
+				if m.ytPlLoaded {
+					localIdx -= len(m.ytPlaylists)
+				}
+				if localIdx >= 0 && localIdx < len(m.playlists) {
+					pl := m.playlists[localIdx]
+					_ = m.db.DeletePlaylist(pl.ID)
+					delete(m.playlistVidCache, fmt.Sprintf("local:%d", pl.ID))
+					playlists, _ := m.db.Playlists()
+					m.playlists = playlists
+				}
 			}
 			m.playlistCursor, m.playlistVS = vsMove(clamp(m.playlistCursor, m.playlistCount()), m.playlistVS, m.playlistCount(), 0, m.pageSize())
-		case key.Matches(msg, m.keys.Subscribe):
-			return m.subscribeCurrentChannel()
 		}
 		return m, nil
 	}
@@ -1261,8 +1441,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
 	}
 	return m, nil
 }
@@ -1308,11 +1487,6 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.DownloadAudio):
 			if v, ok := m.currentVideo(); ok {
 				m.startDownload(v, downloader.TypeAudio)
-			}
-		case key.Matches(msg, m.keys.WatchLater):
-			if v, ok := m.currentVideo(); ok {
-				m.addToWatchLater(v)
-				delete(m.playlistVidCache, ytWatchLaterID)
 			}
 		case key.Matches(msg, m.keys.CopyURL):
 			m.copyCurrentURL()
@@ -1367,19 +1541,57 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.startDownload(v, downloader.TypeAudio)
 		}
-	case key.Matches(msg, m.keys.WatchLater):
-		if v, ok := m.currentVideo(); ok {
-			m.addToWatchLater(v)
-			delete(m.playlistVidCache, ytWatchLaterID)
-		}
 	case key.Matches(msg, m.keys.AddList):
 		if v, ok := m.currentVideo(); ok {
 			m.openAddOverlay(v)
 		}
 	case key.Matches(msg, m.keys.CopyURL):
 		m.copyCurrentURL()
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
+	}
+	return m, nil
+}
+
+func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.subChEditMode = 0
+		m.subChEditInput.Blur()
+	case "enter":
+		val := strings.TrimSpace(m.subChEditInput.Value())
+		chID := m.editTargetChannelID()
+		if chID != "" {
+			if m.subChEditMode == 1 {
+				_ = m.db.SetChannelAlias(chID, val)
+				for i, ch := range m.subChannels {
+					if ch.ID == chID {
+						m.subChannels[i].Alias = val
+						break
+					}
+				}
+				if val == "" {
+					m.setStatus("Alias cleared", false)
+				} else {
+					m.setStatus("Alias set: "+val, false)
+				}
+			} else {
+				tags := parseTags(val)
+				_ = m.db.SetChannelTags(chID, tags)
+				for i, ch := range m.subChannels {
+					if ch.ID == chID {
+						m.subChannels[i].Tags = tags
+						break
+					}
+				}
+				m.setStatus("Tags updated", false)
+			}
+		}
+		m.subChEditMode = 0
+		m.subChEditInput.Blur()
+	default:
+		var cmd tea.Cmd
+		m.subChEditInput, cmd = m.subChEditInput.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -1528,8 +1740,7 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.CopyURL):
 		m.copyCurrentURL()
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
 	}
 	return m, nil
 }
@@ -1565,8 +1776,7 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.CopyURL):
 		m.copyCurrentURL()
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
 	}
 	return m, nil
 }
@@ -1649,8 +1859,29 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.hideChannel(e.ChannelID, e.Channel)
 			}
 		}
-	case key.Matches(msg, m.keys.Subscribe):
-		return m.subscribeCurrentChannel()
+
+	}
+	return m, nil
+}
+
+// ── Playlist create type selector ─────────────────────────────────────────────
+
+func (m Model) handleCreateTypeInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.createTypeMode = false
+	case "up", "k":
+		m.createTypeSel = 0
+	case "down", "j":
+		m.createTypeSel = 1
+	case "enter":
+		m.createTypeMode = false
+		m.createModeYT = m.createTypeSel == 1
+		m.createInput.SetValue("")
+		m.createInput.Placeholder = "Playlist name…"
+		m.createInput.Focus()
+		m.createMode = true
+		return m, textinput.Blink
 	}
 	return m, nil
 }
@@ -1661,22 +1892,36 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		name := m.createInput.Value()
+		isYT := m.createModeYT
 		m.createMode = false
+		m.createModeYT = false
 		m.createInput.Blur()
 		if name != "" {
-			if m.ytClient != nil {
+			if isYT && m.ytClient != nil {
 				return m, youtube.CreateYTPlaylist(m.ytClient, name)
 			}
-			if _, err := m.db.CreatePlaylist(name); err != nil {
+			if id, err := m.db.CreatePlaylist(name); err != nil {
+				m.addAfterCreate = false
 				m.setStatus("create playlist: "+err.Error(), true)
 			} else {
 				playlists, _ := m.db.Playlists()
 				m.playlists = playlists
-				m.setStatus("Created playlist: "+name, false)
+				if m.addAfterCreate {
+					m.addAfterCreate = false
+					_ = m.db.AddToPlaylist(id, m.addVideo.ID)
+					delete(m.playlistVidCache, fmt.Sprintf("local:%d", id))
+					m.setStatus(fmt.Sprintf("Created '%s' and added video", name), false)
+				} else {
+					m.setStatus("Created playlist: "+name, false)
+				}
 			}
+		} else {
+			m.addAfterCreate = false
 		}
 	case "esc":
+		m.addAfterCreate = false
 		m.createMode = false
+		m.createModeYT = false
 		m.createInput.Blur()
 	default:
 		var cmd tea.Cmd
@@ -1693,6 +1938,7 @@ func (m *Model) openAddOverlay(v youtube.Video) {
 	m.addVideo = v
 	m.addOverlay = true
 	m.addOverlaySel = 0
+	m.addOverlayCreateMode = false
 }
 
 func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1721,6 +1967,9 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.addOverlayCreateMode {
+		return m.handleAddOverlayCreate(msg)
+	}
 	n := m.overlayPlaylistCount()
 	switch msg.String() {
 	case "esc", "q":
@@ -1732,6 +1981,23 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		v := m.addVideo
 		idx := m.addOverlaySel
+		base := m.overlayCreateBase()
+		if idx == base { // "Create local list"
+			m.addOverlayCreateMode = true
+			m.addOverlayCreateYT = false
+			m.addOverlayInput.SetValue("")
+			m.addOverlayInput.Placeholder = "List name…"
+			m.addOverlayInput.Focus()
+			return m, textinput.Blink
+		}
+		if m.ytClient != nil && idx == base+1 { // "Create remote playlist"
+			m.addOverlayCreateMode = true
+			m.addOverlayCreateYT = true
+			m.addOverlayInput.SetValue("")
+			m.addOverlayInput.Placeholder = "Playlist name…"
+			m.addOverlayInput.Focus()
+			return m, textinput.Blink
+		}
 		if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
 			pl := m.ytPlaylists[idx]
 			go func() { _ = m.ytClient.AddToPlaylist(pl.ID, v.ID) }()
@@ -1748,8 +2014,50 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.addOverlayCreateMode = false
+		m.addOverlayInput.Blur()
+	case "enter":
+		name := m.addOverlayInput.Value()
+		m.addOverlayCreateMode = false
+		m.addOverlayInput.Blur()
+		m.addOverlay = false
+		if name != "" {
+			if m.addOverlayCreateYT && m.ytClient != nil {
+				m.addAfterCreate = true
+				return m, youtube.CreateYTPlaylist(m.ytClient, name)
+			}
+			if id, err := m.db.CreatePlaylist(name); err != nil {
+				m.setStatus("create playlist: "+err.Error(), true)
+			} else {
+				playlists, _ := m.db.Playlists()
+				m.playlists = playlists
+				_ = m.db.AddToPlaylist(id, m.addVideo.ID)
+				delete(m.playlistVidCache, fmt.Sprintf("local:%d", id))
+				m.setStatus(fmt.Sprintf("Created '%s' and added video", name), false)
+			}
+		}
+	default:
+		var cmd tea.Cmd
+		m.addOverlayInput, cmd = m.addOverlayInput.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
 // overlayPlaylistCount is the total selectable rows in the add-to-playlist overlay.
+// Includes create entries: 2 when YT client is present (local + remote), 1 otherwise (local only).
 func (m Model) overlayPlaylistCount() int {
+	if m.ytPlLoaded && m.ytClient != nil {
+		return len(m.ytPlaylists) + 2
+	}
+	return len(m.playlists) + 1
+}
+
+// overlayCreateBase returns the index of the first create entry in the overlay.
+func (m Model) overlayCreateBase() int {
 	if m.ytPlLoaded && m.ytClient != nil {
 		return len(m.ytPlaylists)
 	}
@@ -2094,17 +2402,6 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
-// addToWatchLater queues a video for YouTube Watch Later and updates status.
-func (m *Model) addToWatchLater(v youtube.Video) {
-	if m.ytClient == nil {
-		m.setStatus("Watch Later: browser not configured (set 'browser' in config)", true)
-		return
-	}
-	go func() { _ = m.ytClient.AddToPlaylist(ytWatchLaterID, v.ID) }()
-	delete(m.playlistVidCache, ytWatchLaterID)
-	m.setStatus("Added to Watch Later: "+truncate(v.Title, 50), false)
-}
-
 // subscribeCurrentChannel subscribes to the channel of the current video or selected channel.
 func (m Model) subscribeCurrentChannel() (tea.Model, tea.Cmd) {
 	if m.ytClient == nil {
@@ -2121,7 +2418,39 @@ func (m Model) subscribeCurrentChannel() (tea.Model, tea.Cmd) {
 
 func (m Model) unsubscribeCurrentChannel() (tea.Model, tea.Cmd) {
 	chID, chName := m.currentChannelInfo()
+	// Check if this is a local-only subscription.
+	for _, ch := range m.subChannels {
+		if ch.ID == chID {
+			if ch.IsLocal {
+				return m.unsubscribeLocal(chID, chName)
+			}
+			break
+		}
+	}
 	return m.unsubscribeChannel(chID, chName)
+}
+
+func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
+	if chID == "" {
+		m.setStatus("unsubscribe: no channel", true)
+		return m, nil
+	}
+	_ = m.db.RemoveSubscribedChannel(chID)
+	m.subChannels = removeChannelByID(m.subChannels, chID)
+	delete(m.subscribedChannelIDs, chID)
+	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
+	// Strip the channel's videos from subscription feeds and purge from DB.
+	m.subVideos = removeChannelVideos(m.subVideos, chID, chName)
+	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize())
+	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
+	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize())
+	go m.db.DeleteChannelVideos(chID)
+	m.setStatus("Removed local subscription: "+chName, false)
+	// Trigger a fresh recommended fetch so the channel's videos drip back in.
+	m.recPage = 0
+	m.recLoading = true
+	m.recRefreshing = m.recLoaded
+	return m, youtube.FetchRecommended(m.cfg)
 }
 
 func (m Model) unsubscribeChannel(chID, chName string) (tea.Model, tea.Cmd) {
@@ -2138,7 +2467,7 @@ func (m Model) unsubscribeChannel(chID, chName string) (tea.Model, tea.Cmd) {
 
 // currentChannelInfo returns the channel ID and name for the currently focused item.
 func (m Model) currentChannelInfo() (id, name string) {
-	if m.activeTab == tabSubscriptions && m.subMode == subModeChannels && m.subChPane == 0 {
+	if m.activeTab == tabChannels && !m.subChTagsMode && m.subChPane == 0 {
 		sorted := m.sortedChannels()
 		if m.subChCursor < len(sorted) {
 			ch := sorted[m.subChCursor]

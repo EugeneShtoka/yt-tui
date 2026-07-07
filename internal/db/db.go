@@ -77,6 +77,9 @@ func New(dataDir string, stripEmojis bool) (*DB, error) {
 			return nil, err
 		}
 	}
+	if err := d.deleteMemberVideos(); err != nil {
+		return nil, err
+	}
 	if err := d.pruneRecommendedFeed(); err != nil {
 		return nil, err
 	}
@@ -166,6 +169,9 @@ func (d *DB) migrate() error {
 		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE subscribed_channels ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err = d.sql.Exec(col); err != nil && !isColumnExists(err) {
 			return err
@@ -245,6 +251,25 @@ func (d *DB) cleanEmojiTitles() error {
 	return nil
 }
 
+// deleteMemberVideos removes member-only videos (view_count=0) from the DB.
+// Videos that have been downloaded (present in local_videos) are preserved.
+func (d *DB) deleteMemberVideos() error {
+	for _, stmt := range []string{
+		`DELETE FROM feed_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM channel_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM yt_playlist_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM playlist_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM hidden_rec_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM video_details_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
+		`DELETE FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos)`,
+	} {
+		if _, err := d.sql.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SaveChannelVideos upserts all videos for a channel and links them.
 func (d *DB) SaveChannelVideos(channelID string, videos []youtube.Video) error {
 	tx, err := d.sql.Begin()
@@ -300,33 +325,68 @@ func (d *DB) GetChannelVideos(channelID string) ([]youtube.Video, error) {
 	return result, rows.Err()
 }
 
-// SaveSubscribedChannels persists the full channel list so it survives restarts.
+// SaveSubscribedChannels persists the full channel list, preserving alias and tags for existing channels.
+// Only non-local (YT-subscribed) channels can be removed; local subscriptions are preserved.
 func (d *DB) SaveSubscribedChannels(channels []youtube.Channel) error {
+	if len(channels) == 0 {
+		return nil
+	}
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM subscribed_channels`); err != nil {
+	// Remove YT-managed channels that are no longer subscribed (preserve is_local=1 entries).
+	ph := make([]string, len(channels))
+	ids := make([]interface{}, len(channels))
+	for i, ch := range channels {
+		ph[i] = "?"
+		ids[i] = ch.ID
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM subscribed_channels WHERE is_local=0 AND channel_id NOT IN (`+strings.Join(ph, ",")+`)`,
+		ids...,
+	); err != nil {
 		return err
 	}
+	// Upsert — alias and tags are intentionally excluded from the UPDATE SET so they are preserved.
 	for _, ch := range channels {
 		if ch.ID == "" {
 			continue
 		}
-		if _, err := tx.Exec(
-			`INSERT INTO subscribed_channels (channel_id, name, url, subscribers) VALUES (?, ?, ?, ?)`,
-			ch.ID, ch.Name, ch.URL, ch.Subscribers,
-		); err != nil {
+		if _, err := tx.Exec(`
+			INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local)
+			VALUES (?, ?, ?, ?, 0)
+			ON CONFLICT(channel_id) DO UPDATE SET
+				name=excluded.name, url=excluded.url,
+				subscribers=excluded.subscribers,
+				is_local=0,
+				updated_at=CURRENT_TIMESTAMP
+		`, ch.ID, ch.Name, ch.URL, ch.Subscribers); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-// GetSubscribedChannels returns the persisted channel list.
+// RemoveSubscribedChannel removes a single channel from the local subscriptions DB.
+func (d *DB) RemoveSubscribedChannel(channelID string) error {
+	_, err := d.sql.Exec(`DELETE FROM subscribed_channels WHERE channel_id=?`, channelID)
+	return err
+}
+
+// DeleteChannelVideos removes all channel_videos rows for a given channel.
+func (d *DB) DeleteChannelVideos(channelID string) error {
+	_, err := d.sql.Exec(`DELETE FROM channel_videos WHERE channel_id=?`, channelID)
+	return err
+}
+
+// GetSubscribedChannels returns the persisted channel list including any user-set alias and tags.
 func (d *DB) GetSubscribedChannels() ([]youtube.Channel, error) {
-	rows, err := d.sql.Query(`SELECT channel_id, name, url, subscribers FROM subscribed_channels ORDER BY name`)
+	rows, err := d.sql.Query(`
+		SELECT channel_id, name, url, subscribers,
+		       COALESCE(alias,''), COALESCE(tags,''), COALESCE(is_local,0)
+		FROM subscribed_channels ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -334,12 +394,49 @@ func (d *DB) GetSubscribedChannels() ([]youtube.Channel, error) {
 	var out []youtube.Channel
 	for rows.Next() {
 		var ch youtube.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.URL, &ch.Subscribers); err != nil {
+		var tagsStr string
+		var isLocal int
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.URL, &ch.Subscribers, &ch.Alias, &tagsStr, &isLocal); err != nil {
 			return nil, err
 		}
+		if tagsStr != "" {
+			ch.Tags = strings.Split(tagsStr, ",")
+		}
+		ch.IsLocal = isLocal == 1
 		out = append(out, ch)
 	}
 	return out, rows.Err()
+}
+
+// AddSubscribedChannel upserts a single channel, preserving any existing alias and tags.
+func (d *DB) AddSubscribedChannel(ch youtube.Channel) error {
+	isLocal := 0
+	if ch.IsLocal {
+		isLocal = 1
+	}
+	_, err := d.sql.Exec(`
+		INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(channel_id) DO UPDATE SET
+			name=excluded.name, url=excluded.url,
+			subscribers=excluded.subscribers,
+			is_local=excluded.is_local,
+			updated_at=CURRENT_TIMESTAMP
+	`, ch.ID, ch.Name, ch.URL, ch.Subscribers, isLocal)
+	return err
+}
+
+// SetChannelAlias sets or clears the display-name alias for a subscribed channel.
+func (d *DB) SetChannelAlias(channelID, alias string) error {
+	_, err := d.sql.Exec(`UPDATE subscribed_channels SET alias=? WHERE channel_id=?`, alias, channelID)
+	return err
+}
+
+// SetChannelTags replaces the tag list for a subscribed channel.
+func (d *DB) SetChannelTags(channelID string, tags []string) error {
+	_, err := d.sql.Exec(`UPDATE subscribed_channels SET tags=? WHERE channel_id=?`,
+		strings.Join(tags, ","), channelID)
+	return err
 }
 
 func isColumnExists(err error) bool {
@@ -946,7 +1043,7 @@ func (d *DB) GetAllChannelVideos(channelIDs []string) ([]youtube.Video, error) {
 		args[i] = id
 	}
 	rows, err := d.sql.Query(`
-		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
+		SELECT v.id, v.title, COALESCE(v.channel,''), cv.channel_id,
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
 		       COALESCE(v.upload_date,''), COALESCE(v.url,'')
 		FROM channel_videos cv

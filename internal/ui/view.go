@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
@@ -218,21 +219,16 @@ func (m Model) fullHintRaw() string {
 	dl := kb.Download.Help().Key
 	dlA := kb.DownloadAudio.Help().Key
 	cp := kb.CopyURL.Help().Key
-	sub := kb.Subscribe.Help().Key
 	unsub := kb.Unsubscribe.Help().Key
-	mode := kb.ToggleMode.Help().Key
 	play := kb.Play.Help().Key
 	playA := kb.PlayAudio.Help().Key
 	del := kb.Delete.Help().Key
 	hide := kb.HideVideo.Help().Key
 	hideCh := kb.HideChannel.Help().Key
-	wl := kb.WatchLater.Help().Key
 	addPl := kb.AddList.Help().Key
 	newPl := kb.NewList.Help().Key
 	ref := kb.Refresh.Help().Key
 	drill := kb.DrillDown.Help().Key
-	yt := m.ytClient != nil
-
 	// Build chord trigger hints from the registry, filtered to current context.
 	ctx := m.currentContext()
 	var chordParts []string
@@ -247,28 +243,30 @@ func (m Model) fullHintRaw() string {
 
 	switch m.activeTab {
 	case tabRecommended:
-		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: download  %s: dl audio  %s: copy url  %s: info  %s: hide video  %s: block channel", chords, play, playA, dl, dlA, cp, info, hide, hideCh)
-		if yt {
-			h += fmt.Sprintf("  %s: subscribe  %s: watch later  %s: add to playlist", sub, wl, addPl)
-		}
-		return h
+		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: download  %s: dl audio  %s: copy url  %s: info  %s: hide video  %s: block channel  %s: add to playlist", chords, play, playA, dl, dlA, cp, info, hide, hideCh, addPl)
 	case tabSearch:
 		if m.searchChSel != nil {
 			return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  %s: filter  h/esc: back", info, dl, dlA, cp, cfg.Filter)
 		}
-		h := fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: open channel  %s: info  %s: download  %s: dl audio  %s: copy url", chords, play, playA, drill, info, dl, dlA, cp)
-		if yt {
-			h += fmt.Sprintf("  %s: subscribe", sub)
-		}
-		return h
+		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: open channel  %s: info  %s: download  %s: dl audio  %s: copy url", chords, play, playA, drill, info, dl, dlA, cp)
 	case tabSubscriptions:
-		if m.subMode == subModeChannels && m.subChPane == 0 {
-			return fmt.Sprintf("j/k: move  %s: open  %s: all videos  %s  %s: unsubscribe", drill, mode, chords, unsub)
+		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: info  %s: download  %s: dl audio  %s: copy url  %s: unsubscribe", chords, play, playA, info, dl, dlA, cp, unsub)
+	case tabChannels:
+		tog := kb.ToggleMode.Help().Key
+		ren := kb.RenameChannel.Help().Key
+		tag := kb.TagChannel.Help().Key
+		if m.subChTagsMode {
+			switch m.subChPane {
+			case 0:
+				return fmt.Sprintf("j/k: move  enter: open tag  %s: flat view", tog)
+			default: // pane 1: video list for tag
+				return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back  %s: flat view", chords, play, playA, info, dl, dlA, cp, tog)
+			}
 		}
-		if m.subMode == subModeChannels && m.subChPane == 1 {
-			return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back", info, dl, dlA, cp)
+		if m.subChPane == 0 {
+			return fmt.Sprintf("j/k: move  %s: open  %s  %s: rename  %s: tags  %s: unsubscribe  %s: tag view", drill, chords, ren, tag, unsub, tog)
 		}
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: channels  %s: info  %s: download  %s: dl audio  %s: copy url  %s: unsubscribe", chords, play, playA, mode, info, dl, dlA, cp, unsub)
+		return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back", info, dl, dlA, cp)
 	case tabPlaylists:
 		if m.playlistPane == 1 {
 			return fmt.Sprintf("j/k: move  %s: info  %s: open  %s: new playlist  %s: delete", info, drill, newPl, del)
@@ -284,10 +282,7 @@ func (m Model) fullHintRaw() string {
 		}
 		isSearchEntry := m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search"
 		if !isSearchEntry {
-			if yt {
-				return fmt.Sprintf("j/k: move  %s: play  %s: details  %s: block channel  %s: subscribe  %s: delete  %s: refresh", play, drill, hideCh, sub, del, ref)
-			}
-			return fmt.Sprintf("j/k: move  %s: play  %s: details  %s: block channel  %s: delete  %s: refresh", play, drill, hideCh, del, ref)
+			return fmt.Sprintf("j/k: move  %s  %s: play  %s: details  %s: block channel  %s: delete  %s: refresh", chords, play, drill, hideCh, del, ref)
 		}
 		return fmt.Sprintf("j/k: move  %s: search  %s: delete  %s: refresh", drill, del, ref)
 	}
@@ -310,6 +305,8 @@ func (m Model) renderContent(height int) string {
 		return m.renderVideoList(vids, cur, m.recVS, m.recLoading, m.recRefreshing, height, "Recommended for you")
 	case tabSubscriptions:
 		return m.renderSubscriptions(height)
+	case tabChannels:
+		return m.renderSubChannels(height)
 	case tabPlaylists:
 		return m.renderPlaylists(height)
 	case tabSearch:
@@ -492,18 +489,25 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
 func (m Model) renderSubscriptions(height int) string {
-	if m.subMode == subModeAll {
-		return m.renderVideoList(m.subVideos, m.subCursor, m.subVS, false, m.subChLoading && len(m.subVideos) == 0, height, "Subscriptions · All Videos")
-	}
+	return m.renderVideoList(m.subVideos, m.subCursor, m.subVS, false, m.subChLoading && len(m.subVideos) == 0, height, "Subscriptions")
+}
 
-	headerText := "Subscriptions · Channels"
+func (m Model) renderSubChannels(height int) string {
+	headerText := "Channels"
 	if m.subChLoading {
 		headerText += "  " + styleDim.Render(m.spinner.View()+" loading…")
+	}
+	if m.subChTagsMode {
+		headerText += "  " + styleDim.Render("[tags]")
 	}
 	header := styleSectionTitle.Render(headerText)
 	headerH := lipgloss.Height(header)
 
-	// Channel list pane
+	if m.subChTagsMode {
+		return m.renderSubChannelsTags(header, headerH, height)
+	}
+
+	// ── Flat mode ─────────────────────────────────────────────────────────────
 	if m.subChPane == 0 {
 		var body string
 		if m.subChLoading && len(m.subChannels) == 0 {
@@ -511,16 +515,53 @@ func (m Model) renderSubscriptions(height int) string {
 		} else if len(m.subChannels) == 0 {
 			body = styleDim.Render("No channels found.")
 		} else {
-			body = m.renderChannelList(height - headerH)
+			body = m.renderChannelList(m.sortedChannels(), height-headerH)
+		}
+		if m.subChEditMode != 0 {
+			body = m.appendEditInput(body)
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 	}
 
-	// Channel videos pane
-	sorted := m.sortedChannels()
+	// ── Flat mode: channel videos pane ────────────────────────────────────────
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.renderSubChannelsVideoPane(header, headerH, height, m.sortedChannels(), m.subChCursor)...)
+}
+
+func (m Model) renderSubChannelsTags(header string, headerH, height int) string {
+	switch m.subChPane {
+	case 0: // tag list
+		var body string
+		if m.subChLoading && len(m.subChannels) == 0 {
+			body = m.spinner.View() + " Loading channels…"
+		} else {
+			body = m.renderTagList(height - headerH)
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, header, body)
+
+	case 1: // video list for selected tag
+		tagHeader := styleSectionTitle.Render("← " + tagDisplayName(m.subChTagSel))
+		tagH := lipgloss.Height(tagHeader)
+		filterLine := m.filterBar()
+		filterH := 0
+		if filterLine != "" {
+			filterH = 1
+		}
+		vids, cur := m.contentVideos(m.tagVideos(), m.subChCursor)
+		body := m.renderVideoRows(vids, cur, m.subChVS, height-headerH-tagH-filterH)
+		parts := []string{header, tagHeader}
+		if filterLine != "" {
+			parts = append(parts, filterLine)
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, append(parts, body)...)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, header, m.renderTagList(height-headerH))
+}
+
+func (m Model) renderSubChannelsVideoPane(header string, headerH, height int, sorted []youtube.Channel, cursor int) []string {
 	chName := ""
-	if m.subChCursor < len(sorted) {
-		chName = sorted[m.subChCursor].Name
+	if cursor < len(sorted) {
+		chName = sorted[cursor].DisplayName()
 	}
 	subHeaderText := "← " + chName
 	if m.subChVidRefreshing {
@@ -545,28 +586,75 @@ func (m Model) renderSubscriptions(height int) string {
 	if filterLine != "" {
 		parts = append(parts, filterLine)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, append(parts, body)...)
+	return append(parts, body)
+}
+
+func (m Model) renderTagList(height int) string {
+	items := m.tagListItems()
+	labelW := m.width - colNum - 3
+
+	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
+		styleColHeader.Width(labelW).Render("Tag")
+
+	windowH := height - 1
+	if ps := m.pageSize(); ps < windowH {
+		windowH = ps
+	}
+	start, end := scrollWindowAt(m.subChTagVS, len(items), windowH)
+	rows := []string{colHeader}
+
+	for i := start; i < end && i < len(items); i++ {
+		tag := items[i]
+		count := len(m.channelsInTag(tag))
+		label := fmt.Sprintf("%s (%d)", tagDisplayName(tag), count)
+		selected := i == m.subChTagCursor
+
+		numStyle := styleRowNum
+		rowStyle := styleNormal.Width(labelW)
+		indicator := "  "
+
+		if selected {
+			indicator = styleSelected.Render("▶ ")
+			numStyle = numStyle.Background(colorBgSelect)
+			rowStyle = styleSelected.Width(labelW)
+		}
+
+		numStr := numStyle.Render(fmt.Sprintf("%*d ", colNum, i+1))
+		rows = append(rows, numStr+indicator+rowStyle.Render(label))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// appendEditInput adds the inline channel edit input below the channel list body.
+func (m Model) appendEditInput(body string) string {
+	label := "Alias: "
+	if m.subChEditMode == 2 {
+		label = "Tags (comma-separated): "
+	}
+	inputLine := "\n" + styleInputPrompt.Render(label) + m.subChEditInput.View()
+	return body + inputLine
 }
 
 const (
 	colChName = 22 // channel name column in channels-mode list
 	colSubs   = 8  // subscriber count column
+	colTags   = 14 // tags column in flat channel list
 )
 
-func (m Model) renderChannelList(height int) string {
-	channels := m.sortedChannels()
+func (m Model) renderChannelList(channels []youtube.Channel, height int) string {
 	if len(channels) == 0 {
 		return ""
 	}
 
-	// Row layout: numStr(colNum+1) + indicator(2) + chName(colChName) + sep + subs(colSubs) + sep + title(W) + sep + dur(colDuration) + sep + views(colViews) + sep + date(colDate)
-	titleW := m.width - colNum - 1 - 2 - colChName - 1 - colSubs - 1 - colDuration - 1 - colViews - 1 - colDate
+	// Row layout: num + indicator + chName + tags + subs + title(W) + dur + views + date
+	titleW := m.width - colNum - 1 - 2 - colChName - 1 - colTags - 1 - colSubs - 1 - colDuration - 1 - colViews - 1 - colDate
 	if titleW < 10 {
 		titleW = 10
 	}
 
 	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
 		styleColHeader.Width(colChName).Render("Channel") + " " +
+		styleColHeader.Width(colTags).Render("Tags") + " " +
 		styleColHeader.Width(colSubs).Render("Subs") + " " +
 		styleColHeader.Width(titleW).Render("Latest Video") + " " +
 		styleColHeader.Width(colDuration).Render("Duration") + " " +
@@ -585,7 +673,8 @@ func (m Model) renderChannelList(height int) string {
 		latest := m.subChLatest[ch.ID]
 		selected := i == m.subChCursor
 
-		chName := truncate(ch.Name, colChName-2)
+		chName := truncate(ch.DisplayName(), colChName-2)
+		tagsStr := truncate(strings.Join(ch.Tags, ", "), colTags)
 		subs := fmtViews(ch.Subscribers)
 		vidTitle := truncate(latest.Title, titleW)
 		dur := latest.DurationStr()
@@ -595,6 +684,7 @@ func (m Model) renderChannelList(height int) string {
 		sep := " "
 		numStyle := styleRowNum
 		chStyle := styleNormal.Width(colChName)
+		tagsStyle := styleDim.Width(colTags)
 		subsStyle := styleDuration.Width(colSubs)
 		titleStyle := styleNormal.Width(titleW)
 		durStyle := styleDuration.Width(colDuration)
@@ -607,6 +697,7 @@ func (m Model) renderChannelList(height int) string {
 			numStyle = numStyle.Background(colorBgSelect)
 			sep = lipgloss.NewStyle().Background(colorBgSelect).Render(" ")
 			chStyle = chStyle.Background(colorBgSelect)
+			tagsStyle = tagsStyle.Background(colorBgSelect)
 			subsStyle = subsStyle.Background(colorBgSelect)
 			titleStyle = styleSelected.Width(titleW)
 			durStyle = durStyle.Background(colorBgSelect)
@@ -617,6 +708,7 @@ func (m Model) renderChannelList(height int) string {
 		numStr := numStyle.Render(fmt.Sprintf("%*d ", colNum, i+1))
 		rows = append(rows, numStr+indicator+
 			chStyle.Render(chName)+sep+
+			tagsStyle.Render(tagsStr)+sep+
 			subsStyle.Render(subs)+sep+
 			titleStyle.Render(vidTitle)+sep+
 			durStyle.Render(dur)+sep+
@@ -632,8 +724,25 @@ func (m Model) renderPlaylists(height int) string {
 	header := styleSectionTitle.Render("Playlists")
 	headerH := lipgloss.Height(header)
 
+	if m.createTypeMode {
+		opt0 := "  Local playlist"
+		opt1 := "  YouTube playlist"
+		if m.createTypeSel == 0 {
+			opt0 = styleSelected.Render("▶ Local playlist")
+		} else {
+			opt1 = styleSelected.Render("▶ YouTube playlist")
+		}
+		prompt := styleInputPrompt.Render("New playlist: ") + "\n" + opt0 + "\n" + opt1
+		body := m.renderPlaylistRows(height-headerH-3) + "\n\n\n"
+		return lipgloss.JoinVertical(lipgloss.Left, header, body+prompt)
+	}
+
 	if m.createMode {
-		prompt := styleInputPrompt.Render("New playlist name: ") + m.createInput.View()
+		label := "New local playlist: "
+		if m.createModeYT {
+			label = "New YouTube playlist: "
+		}
+		prompt := styleInputPrompt.Render(label) + m.createInput.View()
 		body := m.renderPlaylistRows(height-headerH-2) + "\n\n"
 		return lipgloss.JoinVertical(lipgloss.Left, header, body+prompt)
 	}
@@ -670,8 +779,14 @@ func (m Model) renderPlaylistRows(height int) string {
 		var label string
 		if m.ytPlLoaded && i < len(m.ytPlaylists) {
 			label = m.ytPlaylists[i].Title
-		} else if i < len(m.playlists) {
-			label = m.playlists[i].Name
+		} else {
+			localIdx := i
+			if m.ytPlLoaded {
+				localIdx -= len(m.ytPlaylists)
+			}
+			if localIdx >= 0 && localIdx < len(m.playlists) {
+				label = m.playlists[localIdx].Name
+			}
 		}
 		label = truncate(label, labelW)
 		if i == m.playlistCursor {
@@ -1236,10 +1351,27 @@ func wordWrap(text string, width int) []string {
 // ── Add-to-playlist overlay ───────────────────────────────────────────────────
 
 func (m Model) renderAddOverlay(behind string) string {
+	if m.addOverlayCreateMode {
+		label := "New local list:"
+		if m.addOverlayCreateYT {
+			label = "New remote playlist:"
+		}
+		lines := []string{
+			styleHeader.Render("Create playlist"),
+			"",
+			styleInputPrompt.Render(label),
+			m.addOverlayInput.View(),
+			"",
+			styleHelp.Render("enter: confirm  esc: back"),
+		}
+		return m.placeOverlayBox(behind, strings.Join(lines, "\n"))
+	}
+
 	lines := []string{
 		styleHeader.Render("Add to playlist"),
 		"",
 	}
+	base := m.overlayCreateBase()
 	if m.ytPlLoaded && m.ytClient != nil {
 		for i, pl := range m.ytPlaylists {
 			label := "  " + pl.Title
@@ -1257,16 +1389,34 @@ func (m Model) renderAddOverlay(behind string) string {
 			lines = append(lines, label)
 		}
 	}
-	lines = append(lines, "", styleHelp.Render("j/k: move  enter: confirm  esc: cancel"))
+	localLabel := "  Create local list"
+	if m.addOverlaySel == base {
+		localLabel = styleSelected.Render("▶ + Create local list")
+	}
+	lines = append(lines, localLabel)
+	if m.ytClient != nil {
+		remoteLabel := "  Create remote playlist"
+		if m.addOverlaySel == base+1 {
+			remoteLabel = styleSelected.Render("▶ + Create remote playlist")
+		}
+		lines = append(lines, remoteLabel)
+	}
+	lines = append(lines, "",
+		styleHelp.Render("j/k: move  enter: confirm"),
+		styleHelp.Render("esc: cancel"))
 
+	return m.placeOverlayBox(behind, strings.Join(lines, "\n"))
+}
+
+// placeOverlayBox renders content inside a rounded box and overlays it centered on behind.
+func (m Model) placeOverlayBox(behind, content string) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 2).
 		Width(40).
-		Render(strings.Join(lines, "\n"))
+		Render(content)
 
-	// Center the overlay
 	bw := lipgloss.Width(box)
 	bh := lipgloss.Height(box)
 	x := (m.width - bw) / 2
@@ -1287,14 +1437,14 @@ func (m Model) renderAddOverlay(behind string) string {
 		if lineIdx >= len(behindLines) {
 			behindLines = append(behindLines, "")
 		}
-		base := behindLines[lineIdx]
-		baseRunes := []rune(base)
-		// Pad base to width x
-		for len(baseRunes) < x {
-			baseRunes = append(baseRunes, ' ')
+		row := behindLines[lineIdx]
+		// Pad row so there's content up to x+bw before slicing.
+		if visW := lipgloss.Width(row); visW < x {
+			row += strings.Repeat(" ", x-visW)
 		}
-		merged := string(baseRunes[:x]) + ol
-		behindLines[lineIdx] = merged
+		left := ansi.Truncate(row, x, "")
+		right := ansi.TruncateLeft(row, x+bw, "")
+		behindLines[lineIdx] = left + ol + right
 	}
 	return strings.Join(behindLines, "\n")
 }

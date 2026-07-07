@@ -286,7 +286,7 @@ func (c *YTClient) Subscribe(channelID string) error {
 
 func (c *YTClient) Unsubscribe(channelID string) error {
 	_, err := c.post("subscription/unsubscribe", map[string]any{
-		"channelIds": []string{channelID},
+		"externalChannelId": channelID,
 	})
 	return err
 }
