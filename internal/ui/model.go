@@ -282,7 +282,16 @@ type Model struct {
 	vidDetailVideo   *youtube.VideoDetails
 	vidDetailLoading bool
 	vidDetailDescVS  int         // description scroll start line
-	vidDetailThumb image.Image // nil until loaded; stays nil if fetch fails
+	vidDetailThumb   image.Image // nil until loaded; stays nil if fetch fails
+	vidDetailLinks        *[]db.Link // nil = not yet parsed; &[]db.Link{} = parsed, none found
+	vidDetailDescLines    []string  // pre-wrapped description lines; nil until video is set
+	vidDetailThumbB64     string    // pre-encoded PNG base64 for Kitty; empty until loaded
+	vidDetailThumbRendered string   // pre-rendered half-block string for non-Kitty terminals
+
+	// ── Link list overlay (opened from video detail) ───────────────────────
+	linkOverlay     bool
+	linkOverlaySel  int
+	linkOverlayURLs []db.Link
 }
 
 func buildTabs(cfg *config.Config) []int {

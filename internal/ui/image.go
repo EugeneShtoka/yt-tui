@@ -45,22 +45,27 @@ var kittyCapable = sync.OnceValue(func() bool {
 
 const thumbImageID = 42
 
+// encodeThumbB64 PNG-encodes img and returns the base64 string for use in
+// kittyImageOverlay. Called once when the thumbnail loads, not on every frame.
+func encodeThumbB64(img image.Image) string {
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+}
+
 // kittyImageOverlay returns a terminal sequence that:
 //  1. Saves the cursor (DECSC)
 //  2. Jumps to the absolute 1-indexed (row, col) position
 //  3. Deletes any previous placement of our image ID
-//  4. Transmits and displays img via the Kitty Graphics Protocol
+//  4. Transmits and displays the pre-encoded b64 via the Kitty Graphics Protocol
 //  5. Restores the cursor (DECRC)
 //
 // Appending this to the View() output causes BubbleTea to write it after the
 // full frame, placing the image in WezTerm's pixel layer without disturbing
 // the character-grid layout.
-func kittyImageOverlay(img image.Image, row, col, thumbW, thumbH int) string {
-	var pngBuf bytes.Buffer
-	if err := png.Encode(&pngBuf, img); err != nil {
-		return ""
-	}
-	b64 := base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+func kittyImageOverlay(b64 string, row, col, thumbW, thumbH int) string {
 
 	var sb strings.Builder
 	// Save cursor, jump to image top-left.

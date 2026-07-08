@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
@@ -37,12 +38,15 @@ func (m Model) View() string {
 		m.width += vidDetailPanelW
 		panel := m.renderVideoDetailPanel(vidDetailPanelW, contentH, thumbH)
 		content = lipgloss.JoinHorizontal(lipgloss.Top, left, panel)
+		if m.linkOverlay {
+			content = m.renderLinkOverlay(content)
+		}
 
-		if kittyCapable() && m.vidDetailThumb != nil {
+		if kittyCapable() && m.vidDetailThumbB64 != "" {
 			tabBarH := lipgloss.Height(tabBar)
-			thumbRow := tabBarH + 2                    // 1-indexed: past tabBar rows + top border
-			thumbCol := m.width - vidDetailPanelW + 2  // 1-indexed: past left panel + left border
-			kittyOverlay = kittyImageOverlay(m.vidDetailThumb, thumbRow, thumbCol, thumbW, thumbH)
+			thumbRow := tabBarH + 2                   // 1-indexed: past tabBar rows + top border
+			thumbCol := m.width - vidDetailPanelW + 2 // 1-indexed: past left panel + left border
+			kittyOverlay = kittyImageOverlay(m.vidDetailThumbB64, thumbRow, thumbCol, thumbW, thumbH)
 		}
 	} else {
 		content = m.renderContent(contentH)
@@ -213,82 +217,128 @@ func (m Model) minimalHintRaw() string {
 	return fmt.Sprintf("j/k: move  %s: tab  %s: play", kb.TabChord, play)
 }
 
-func (m Model) fullHintRaw() string {
-	kb := m.keys
-	cfg := m.cfg.Keybindings
-	dl := kb.Download.Help().Key
-	dlA := kb.DownloadAudio.Help().Key
-	cp := kb.CopyURL.Help().Key
-	unsub := kb.Unsubscribe.Help().Key
-	play := kb.Play.Help().Key
-	playA := kb.PlayAudio.Help().Key
-	del := kb.Delete.Help().Key
-	hide := kb.HideVideo.Help().Key
-	hideCh := kb.HideChannel.Help().Key
-	addPl := kb.AddList.Help().Key
-	newPl := kb.NewList.Help().Key
-	ref := kb.Refresh.Help().Key
-	drill := kb.DrillDown.Help().Key
-	// Build chord trigger hints from the registry, filtered to current context.
-	ctx := m.currentContext()
-	var chordParts []string
-	for _, chord := range m.chordDefs() {
-		if len(validActions(chord.actions, ctx)) > 0 {
-			chordParts = append(chordParts, chord.trigger+": "+chord.name)
-		}
-	}
-	chords := strings.Join(chordParts, "  ")
+// hintEntry is a single "key: label" pair for the status bar hint.
+type hintEntry struct{ key, label string }
 
-	info := kb.VideoInfo.Help().Key
+// hintFn resolves hint entries for the current model state.
+type hintFn func(m Model) []hintEntry
 
-	switch m.activeTab {
-	case tabRecommended:
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: download  %s: dl audio  %s: copy url  %s: info  %s: hide video  %s: block channel  %s: add to playlist", chords, play, playA, dl, dlA, cp, info, hide, hideCh, addPl)
-	case tabSearch:
-		if m.searchChSel != nil {
-			return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  %s: filter  h/esc: back", info, dl, dlA, cp, cfg.Filter)
-		}
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: open channel  %s: info  %s: download  %s: dl audio  %s: copy url", chords, play, playA, drill, info, dl, dlA, cp)
-	case tabSubscriptions:
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: info  %s: download  %s: dl audio  %s: copy url  %s: unsubscribe", chords, play, playA, info, dl, dlA, cp, unsub)
-	case tabChannels:
-		tog := kb.ToggleMode.Help().Key
-		ren := kb.RenameChannel.Help().Key
-		tag := kb.TagChannel.Help().Key
-		if m.subChTagsMode {
-			switch m.subChPane {
-			case 0:
-				return fmt.Sprintf("j/k: move  enter: open tag  %s: flat view", tog)
-			default: // pane 1: video list for tag
-				return fmt.Sprintf("j/k: move  %s  %s: play  %s: play audio  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back  %s: flat view", chords, play, playA, info, dl, dlA, cp, tog)
+func hintFixed(k, label string) hintFn {
+	return func(Model) []hintEntry { return []hintEntry{{k, label}} }
+}
+
+func hintK(fn func(km keyMap) key.Binding, label string) hintFn {
+	return func(m Model) []hintEntry { return []hintEntry{{fn(m.keys).Help().Key, label}} }
+}
+
+// hintRegistry defines every possible hint action exactly once.
+var hintRegistry = map[string]hintFn{
+	"move": func(m Model) []hintEntry {
+		return []hintEntry{{m.keys.Down.Help().Key + "/" + m.keys.Up.Help().Key, "move"}}
+	},
+	"back": func(m Model) []hintEntry {
+		return []hintEntry{{m.keys.Left.Help().Key, "back"}}
+	},
+	"chords": func(m Model) []hintEntry {
+		ctx := m.currentContext()
+		var out []hintEntry
+		for _, chord := range m.chordDefs() {
+			if len(validActions(chord.actions, ctx)) > 0 {
+				out = append(out, hintEntry{chord.trigger, chord.name})
 			}
 		}
-		if m.subChPane == 0 {
-			return fmt.Sprintf("j/k: move  %s: open  %s  %s: rename  %s: tags  %s: unsubscribe  %s: tag view", drill, chords, ren, tag, unsub, tog)
+		return out
+	},
+	"play":          hintK(func(km keyMap) key.Binding { return km.Play }, "play video"),
+	"play_audio":    hintK(func(km keyMap) key.Binding { return km.PlayAudio }, "play audio"),
+	"download":      hintK(func(km keyMap) key.Binding { return km.Download }, "download video"),
+	"download_audio": hintK(func(km keyMap) key.Binding { return km.DownloadAudio }, "download audio"),
+	"copy_url":      hintK(func(km keyMap) key.Binding { return km.CopyURL }, "copy url"),
+	"info":          hintK(func(km keyMap) key.Binding { return km.VideoInfo }, "info"),
+	"hide_video":    hintK(func(km keyMap) key.Binding { return km.HideVideo }, "hide video"),
+	"hide_channel":  hintK(func(km keyMap) key.Binding { return km.HideChannel }, "block channel"),
+	"add_playlist":  hintK(func(km keyMap) key.Binding { return km.AddList }, "add to playlist"),
+	"new_playlist":  hintK(func(km keyMap) key.Binding { return km.NewList }, "new playlist"),
+	"delete":        hintK(func(km keyMap) key.Binding { return km.Delete }, "delete"),
+	"refresh":       hintK(func(km keyMap) key.Binding { return km.Refresh }, "refresh"),
+	"open":          hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open"),
+	"open_channel":  hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open channel"),
+	"open_tag":      hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open tag"),
+	"search_again":  hintK(func(km keyMap) key.Binding { return km.DrillDown }, "search"),
+	"details":       hintK(func(km keyMap) key.Binding { return km.DrillDown }, "details"),
+	"filter":        func(m Model) []hintEntry { return []hintEntry{{m.cfg.Keybindings.Filter, "filter"}} },
+	"unsubscribe":   hintK(func(km keyMap) key.Binding { return km.Unsubscribe }, "unsubscribe"),
+	"rename":        hintK(func(km keyMap) key.Binding { return km.RenameChannel }, "rename"),
+	"edit_tags":     hintK(func(km keyMap) key.Binding { return km.TagChannel }, "tags"),
+	"open_links":    hintK(func(km keyMap) key.Binding { return km.OpenLinks }, "links"),
+	"toggle_mode": func(m Model) []hintEntry {
+		label := "tag view"
+		if m.subChTagsMode {
+			label = "flat view"
 		}
-		return fmt.Sprintf("j/k: move  %s: info  %s: download  %s: dl audio  %s: copy url  h/esc: back", info, dl, dlA, cp)
+		return []hintEntry{{m.keys.ToggleMode.Help().Key, label}}
+	},
+}
+
+// tabHintIDs returns the ordered action IDs to display for the current tab and UI state.
+func (m Model) tabHintIDs() []string {
+	videoBase := []string{"move", "chords", "play", "play_audio", "download", "download_audio", "copy_url", "info", "open_links"}
+	switch m.activeTab {
+	case tabRecommended:
+		return append(videoBase, "hide_video", "hide_channel", "add_playlist")
+	case tabSubscriptions:
+		return append(videoBase, "unsubscribe")
+	case tabChannels:
+		if m.subChTagsMode {
+			if m.subChPane == 0 {
+				return []string{"move", "open_tag", "toggle_mode"}
+			}
+			return append(videoBase, "back", "toggle_mode")
+		}
+		if m.subChPane == 0 {
+			return []string{"move", "open", "chords", "rename", "edit_tags", "unsubscribe", "toggle_mode"}
+		}
+		return []string{"move", "info", "download", "download_audio", "copy_url", "back"}
 	case tabPlaylists:
 		if m.playlistPane == 1 {
-			return fmt.Sprintf("j/k: move  %s: info  %s: open  %s: new playlist  %s: delete", info, drill, newPl, del)
+			return []string{"move", "info", "open", "new_playlist", "delete"}
 		}
-		return fmt.Sprintf("j/k: move  %s: open  %s: new playlist  %s: delete", drill, newPl, del)
+		return []string{"move", "open", "new_playlist", "delete"}
+	case tabSearch:
+		if m.searchChSel != nil {
+			return []string{"move", "info", "download", "download_audio", "copy_url", "filter", "back"}
+		}
+		return []string{"move", "chords", "play", "play_audio", "open_channel", "info", "download", "download_audio", "copy_url", "open_links"}
 	case tabDownloading:
-		return fmt.Sprintf("j/k: move  %s: play  %s: play audio  %s: info  %s: block channel  %s: delete", play, playA, info, hideCh, del)
+		return []string{"move", "play", "play_audio", "info", "hide_channel", "delete"}
 	case tabLocal:
-		return fmt.Sprintf("j/k: move  %s  %s: play  %s: delete", chords, play, del)
+		return []string{"move", "chords", "play", "delete"}
 	case tabHistory:
 		if m.histDetailVideoID != "" {
-			return "esc/h: back"
+			return []string{"back"}
 		}
-		isSearchEntry := m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search"
-		if !isSearchEntry {
-			return fmt.Sprintf("j/k: move  %s  %s: play  %s: details  %s: block channel  %s: delete  %s: refresh", chords, play, drill, hideCh, del, ref)
+		if m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search" {
+			return []string{"move", "search_again", "delete", "refresh"}
 		}
-		return fmt.Sprintf("j/k: move  %s: search  %s: delete  %s: refresh", drill, del, ref)
+		return []string{"move", "chords", "play", "details", "hide_channel", "delete", "refresh"}
 	case tabActivity:
-		return fmt.Sprintf("j/k: move  %s: open  %s: refresh", drill, ref)
+		return []string{"move", "open", "refresh"}
 	}
-	return ""
+	return []string{"move"}
+}
+
+func (m Model) fullHintRaw() string {
+	var parts []string
+	for _, id := range m.tabHintIDs() {
+		fn, ok := hintRegistry[id]
+		if !ok {
+			continue
+		}
+		for _, e := range fn(m) {
+			parts = append(parts, e.key+": "+e.label)
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 // ── Content router ────────────────────────────────────────────────────────────
@@ -1259,8 +1309,8 @@ func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 			}
 		} else {
 			var thumbLines []string
-			if rendered := renderThumbnail(m.vidDetailThumb, thumbW, thumbH); rendered != "" {
-				thumbLines = strings.Split(rendered, "\n")
+			if m.vidDetailThumbRendered != "" {
+				thumbLines = strings.Split(m.vidDetailThumbRendered, "\n")
 			}
 			for len(thumbLines) < thumbH {
 				thumbLines = append(thumbLines, strings.Repeat("░", thumbW))
@@ -1299,7 +1349,7 @@ func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 			lines = append(lines, styleColHeader.Width(innerW).Render("Description"))
 			available := contentRows - len(lines)
 			if available > 0 {
-				descLines := wordWrap(v.Description, innerW)
+				descLines := m.vidDetailDescLines
 				needsScroll = len(descLines) > available
 				maxVS := len(descLines) - 1
 				if maxVS < 0 {
@@ -1428,7 +1478,7 @@ func (m Model) renderAddOverlay(behind string) string {
 			"",
 			styleHelp.Render("enter: confirm  esc: back"),
 		}
-		return m.placeOverlayBox(behind, strings.Join(lines, "\n"))
+		return m.placeOverlayBox(behind, strings.Join(lines, "\n"), 40)
 	}
 
 	lines := []string{
@@ -1469,16 +1519,46 @@ func (m Model) renderAddOverlay(behind string) string {
 		styleHelp.Render("j/k: move  enter: confirm"),
 		styleHelp.Render("esc: cancel"))
 
-	return m.placeOverlayBox(behind, strings.Join(lines, "\n"))
+	return m.placeOverlayBox(behind, strings.Join(lines, "\n"), 40)
+}
+
+func (m Model) renderLinkOverlay(behind string) string {
+	links := m.linkOverlayURLs
+	lines := []string{
+		styleHeader.Render("Links in description"),
+		"",
+	}
+	innerW := 56
+	for i, lnk := range links {
+		num := fmt.Sprintf("%2d. ", i+1)
+		text := lnk.Label
+		if text == "" {
+			text = lnk.URL
+		}
+		text = truncate(text, innerW-len(num)-2)
+		row := num + text
+		if i == m.linkOverlaySel {
+			lines = append(lines, styleSelected.Render("▶ "+row))
+		} else {
+			lines = append(lines, "  "+row)
+		}
+	}
+	if len(links) > 0 {
+		lines = append(lines, "", styleHelp.Render(truncate(links[m.linkOverlaySel].URL, innerW)))
+	}
+	lines = append(lines, "",
+		styleHelp.Render("enter: open  y: copy"),
+		styleHelp.Render("esc/q: close"))
+	return m.placeOverlayBox(behind, strings.Join(lines, "\n"), innerW+6)
 }
 
 // placeOverlayBox renders content inside a rounded box and overlays it centered on behind.
-func (m Model) placeOverlayBox(behind, content string) string {
+func (m Model) placeOverlayBox(behind, content string, width int) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 2).
-		Width(40).
+		Width(width).
 		Render(content)
 
 	bw := lipgloss.Width(box)

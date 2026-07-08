@@ -41,6 +41,7 @@ type keyMap struct {
 	GotoBottom    key.Binding // go to last row
 	GotoLine      key.Binding // go to line N (with number prefix)
 	VideoInfo     key.Binding // open video details popup
+	OpenLinks     key.Binding // open link list from video description
 }
 
 func buildKeyMap(kb config.KeyBindings) keyMap {
@@ -53,21 +54,13 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		return key.NewBinding(key.WithKeys(parts...), key.WithHelp(parts[0], help))
 	}
 
-	// Back: configurable keys ("h,backspace" default) always also includes ← arrow.
-	backParts := strings.Split(kb.Back, ",")
-	for i := range backParts {
-		backParts[i] = strings.TrimSpace(backParts[i])
-	}
-	backKeys := append(backParts, "left")
-	backHelp := backParts[0] + "/←/⌫"
-
 	return keyMap{
-		Up:       key.NewBinding(key.WithKeys("k", "up"),        key.WithHelp("k/↑", "up")),
-		Down:     key.NewBinding(key.WithKeys("j", "down"),      key.WithHelp("j/↓", "down")),
-		Left:     key.NewBinding(key.WithKeys(backKeys...),      key.WithHelp(backHelp, "back")),
-		Right:    key.NewBinding(key.WithKeys("l", "right"),     key.WithHelp("l/→", "right")),
-		PageUp:   key.NewBinding(key.WithKeys("ctrl+u", "pgup"), key.WithHelp("^u", "page up")),
-		PageDown: key.NewBinding(key.WithKeys("ctrl+d", "pgdn"), key.WithHelp("^d", "page down")),
+		Up:       b(kb.Up,       "up"),
+		Down:     b(kb.Down,     "down"),
+		Left:     b(kb.Back,     "back"),
+		Right:    b(kb.Right,    "right"),
+		PageUp:   b(kb.PageUp,   "page up"),
+		PageDown: b(kb.PageDown, "page down"),
 
 		Tab:      key.NewBinding(key.WithKeys("tab"),       key.WithHelp("tab", "next tab")),
 		ShiftTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev tab")),
@@ -98,5 +91,6 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		GotoBottom: b(kb.GotoBottom,    "go to bottom"),
 		GotoLine:   b(kb.GotoLine,      "go to line"),
 		VideoInfo:  b(kb.VideoInfo,     "video info"),
+		OpenLinks:  b(kb.OpenLinks,     "open links"),
 	}
 }

@@ -48,6 +48,7 @@ type KeyBindings struct {
 	HideVideo     string `toml:"hide_video"`
 	HideChannel   string `toml:"hide_channel"`
 	CopyURL       string `toml:"copy_url"`
+	OpenLinks     string `toml:"open_links"`
 	AddToPlaylist string `toml:"add_to_playlist"`
 	NewPlaylist   string `toml:"new_playlist"`
 	ToggleMode    string `toml:"toggle_mode"`
@@ -62,6 +63,11 @@ type KeyBindings struct {
 	ForceRefresh string `toml:"force_refresh"` // full fetch for all channels
 	VideoInfo    string `toml:"video_info"`    // open video details popup
 
+	Up         string `toml:"up"`          // move cursor up (always includes ↑ arrow)
+	Down       string `toml:"down"`        // move cursor down (always includes ↓ arrow)
+	Right      string `toml:"right"`       // move right / forward (always includes → arrow)
+	PageUp     string `toml:"page_up"`     // page up (always includes pgup)
+	PageDown   string `toml:"page_down"`   // page down (always includes pgdn)
 	DrillDown  string `toml:"drill_down"`  // open/select; plays video in video contexts
 	Back       string `toml:"back"`        // go back / close pane (always includes ← arrow)
 	Filter     string `toml:"filter"`      // activate local filter input
@@ -86,7 +92,8 @@ func defaultKeyBindings() KeyBindings {
 		PlayAudio:     "P",
 		HideVideo:     "b",
 		HideChannel:   "B",
-		CopyURL:       "c",
+		CopyURL:       "y",
+		OpenLinks:     "L",
 		AddToPlaylist: "a",
 		NewPlaylist:   "n",
 		ToggleMode:    "m",
@@ -101,8 +108,13 @@ func defaultKeyBindings() KeyBindings {
 		ForceRefresh: "R",
 		VideoInfo:    "i",
 
+		Up:         "k,up",
+		Down:       "j,down",
+		Right:      "l,right",
+		PageUp:     "ctrl+u,pgup",
+		PageDown:   "ctrl+d,pgdn",
 		DrillDown:  "enter",
-		Back:       "h,backspace",
+		Back:       "h,backspace,left",
 		Filter:     "/",
 		TabChord:   "t",
 		SortChord:  "s",
@@ -146,6 +158,7 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.HideVideo == ""     { kb.HideVideo = d.HideVideo }
 	if kb.HideChannel == ""   { kb.HideChannel = d.HideChannel }
 	if kb.CopyURL == ""       { kb.CopyURL = d.CopyURL }
+	if kb.OpenLinks == ""     { kb.OpenLinks = d.OpenLinks }
 	if kb.AddToPlaylist == "" { kb.AddToPlaylist = d.AddToPlaylist }
 	if kb.NewPlaylist == ""   { kb.NewPlaylist = d.NewPlaylist }
 	if kb.ToggleMode == ""    { kb.ToggleMode = d.ToggleMode }
@@ -160,6 +173,11 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.ForceRefresh == "" { kb.ForceRefresh = d.ForceRefresh }
 	if kb.VideoInfo == ""    { kb.VideoInfo = d.VideoInfo }
 
+	if kb.Up == ""         { kb.Up = d.Up }
+	if kb.Down == ""       { kb.Down = d.Down }
+	if kb.Right == ""      { kb.Right = d.Right }
+	if kb.PageUp == ""     { kb.PageUp = d.PageUp }
+	if kb.PageDown == ""   { kb.PageDown = d.PageDown }
 	if kb.DrillDown == ""  { kb.DrillDown = d.DrillDown }
 	if kb.Back == ""       { kb.Back = d.Back }
 	if kb.Filter == ""     { kb.Filter = d.Filter }
@@ -215,6 +233,8 @@ type Config struct {
 	ChannelLatestCount    int                  `toml:"channel_latest_count"`
 	ChannelStrikes        int                  `toml:"channel_strikes"`
 	StripEmojis           bool                 `toml:"strip_emojis"`
+	CloseOnLinkOpen       bool                 `toml:"close_on_link_open"`
+	CircularNav           bool                 `toml:"circular_nav"`
 	Subtitles             bool                 `toml:"subtitles"`
 	SubtitleLangs         []string             `toml:"subtitle_langs"`
 	Keybindings           KeyBindings          `toml:"keybindings"`
@@ -245,6 +265,7 @@ func defaultConfig() *Config {
 		ChannelLatestCount:    3,
 		ChannelStrikes:        2,
 		StripEmojis:           true,
+		CloseOnLinkOpen:       true,
 		Subtitles:             true,
 		SubtitleLangs:         []string{"en.*"},
 		Keybindings:           defaultKeyBindings(),

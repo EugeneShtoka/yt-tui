@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -106,9 +108,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
 			m.subChannels = removeChannelByID(m.subChannels, msg.ChannelID)
 			m.subVideos = removeChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
-			m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize())
+			m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
 			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
-			m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize())
+			m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 			go m.db.DeleteChannelVideos(msg.ChannelID)
 		}
 		return m, nil
@@ -156,6 +158,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		details := msg.Details
 		m.vidDetailVideo = &details
+		m.vidDetailLinks = nil
+		m.vidDetailDescLines = wordWrap(details.Description, vidDetailPanelW-2)
 		_ = m.db.SaveVideoDetailsCache(details.Video.ID, details.Description, details.ThumbnailURL, details.Subscribers)
 		if details.ThumbnailURL != "" {
 			// Keep loading=true until thumbnail arrives so panel renders once with image.
@@ -167,6 +171,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case thumbnailLoadedMsg:
 		m.vidDetailLoading = false
 		m.vidDetailThumb = msg.img
+		if msg.img != nil {
+			if kittyCapable() {
+				m.vidDetailThumbB64 = encodeThumbB64(msg.img)
+			} else {
+				thumbW, thumbH := m.thumbDimensions()
+				m.vidDetailThumbRendered = renderThumbnail(msg.img, thumbW, thumbH)
+			}
+		}
 		return m, nil
 
 	case youtube.FetchResultMsg:
@@ -453,6 +465,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.addOverlay {
 		debug.Log("→ handleAddOverlay (addOverlay=true)")
 		return m.handleAddOverlay(msg)
+	}
+	if m.linkOverlay {
+		debug.Log("→ handleLinkOverlay (linkOverlay=true)")
+		return m.handleLinkOverlay(msg)
 	}
 	if m.vidDetailOverlay {
 		debug.Log("→ handleVideoDetailKey (vidDetailOverlay=true)")
@@ -848,13 +864,13 @@ func (m Model) updateActivity(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.actEntries)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, -1, m.pageSize())
+		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, +1, m.pageSize())
+		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, -1, m.pageSize())
+		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, +1, m.pageSize())
+		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 		if m.actCursor < n {
 			return m.navigateToActivity(m.actEntries[m.actCursor])
@@ -1052,19 +1068,19 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		msg.String(), m.cfg.Keybindings.HideVideo, m.cfg.Keybindings.HideChannel)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, -1, m.pageSize())
+		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, +1, m.pageSize())
+		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, -1, m.pageSize())
+		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, +1, m.pageSize())
+		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.HideVideo):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.HideRecVideo(v.ID)
 			m.recHidden[v.ID] = true
 			m.recVideos = removeVideoByID(m.recVideos, v.ID)
-			m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize())
+			m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize(), false)
 			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
 			m.checkVideoHideAutoBlacklist(v.ChannelID, v.Channel)
 		}
@@ -1114,13 +1130,13 @@ func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.subVideos)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, -1, m.pageSize())
+		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, +1, m.pageSize())
+		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, -1, m.pageSize())
+		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, +1, m.pageSize())
+		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.DrillDown):
 		if v, ok := m.currentVideo(); ok {
 			m.downloadAndPlay(v)
@@ -1173,9 +1189,9 @@ func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		n := len(sorted)
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize())
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Down):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize())
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 			if m.subChCursor < n {
 				return m, m.openChannelVideos(sorted[m.subChCursor], false)
@@ -1217,9 +1233,9 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		n := len(items)
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, -1, m.pageSize())
+			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Down):
-			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, +1, m.pageSize())
+			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 			if m.subChTagCursor < n {
 				m.subChTagSel = items[m.subChTagCursor]
@@ -1238,13 +1254,13 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subChCursor = 0
 			m.subChVS = 0
 		case key.Matches(msg, m.keys.Up):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize())
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Down):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize())
+			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageUp):
-			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize())
+			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageDown):
-			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize())
+			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Play):
 			if v, ok := m.currentVideo(); ok {
 				m.downloadAndPlay(v)
@@ -1274,9 +1290,15 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.vidDetailVideo = nil
 				m.vidDetailThumb = nil
 				m.vidDetailDescVS = 0
+				m.vidDetailLinks = nil
+				m.vidDetailDescLines = nil
+				m.vidDetailThumbB64 = ""
+				m.vidDetailThumbRendered = ""
 				if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
 					details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
 					m.vidDetailVideo = &details
+					m.vidDetailLinks = cached.Links
+					m.vidDetailDescLines = wordWrap(cached.Description, vidDetailPanelW-2)
 					if cached.ThumbnailURL != "" {
 						return m, loadThumbnailCmd(cached.ThumbnailURL)
 					}
@@ -1325,13 +1347,13 @@ func (m Model) updateSubChVideoPane(msg tea.KeyMsg, backPane int) (tea.Model, te
 	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
 		m.subChPane = backPane
 	case key.Matches(msg, m.keys.Up):
-		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize())
+		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize())
+		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize())
+		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize())
+		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.DrillDown):
 		if v, ok := m.currentVideo(); ok {
 			m.downloadAndPlay(v)
@@ -1431,9 +1453,9 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		n := m.playlistCount()
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, -1, m.pageSize())
+			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Down):
-			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, +1, m.pageSize())
+			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
 			if m.playlistCursor < n {
 				cmd := m.loadCurrentPlaylistVideos()
@@ -1477,7 +1499,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.playlists = playlists
 				}
 			}
-			m.playlistCursor, m.playlistVS = vsMove(clamp(m.playlistCursor, m.playlistCount()), m.playlistVS, m.playlistCount(), 0, m.pageSize())
+			m.playlistCursor, m.playlistVS = vsMove(clamp(m.playlistCursor, m.playlistCount()), m.playlistVS, m.playlistCount(), 0, m.pageSize(), false)
 		}
 		return m, nil
 	}
@@ -1494,13 +1516,13 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
 		m.playlistPane = 0
 	case key.Matches(msg, m.keys.Up):
-		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize())
+		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize())
+		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize())
+		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize())
+		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.DrillDown):
 		if v, ok := m.currentVideo(); ok {
 			m.downloadAndPlay(v)
@@ -1523,7 +1545,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.playlistVidCache[plKey] = updated
-			m.playlistVidCursor, m.playlistVidVS = vsMove(clamp(m.playlistVidCursor, len(updated)), m.playlistVidVS, len(updated), 0, m.pageSize())
+			m.playlistVidCursor, m.playlistVidVS = vsMove(clamp(m.playlistVidCursor, len(updated)), m.playlistVidVS, len(updated), 0, m.pageSize(), false)
 			return m, cmd
 		}
 	case key.Matches(msg, m.keys.Download):
@@ -1558,13 +1580,13 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.localFilter = ""
 			m.localFilterInput.SetValue("")
 		case key.Matches(msg, m.keys.Up):
-			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize())
+			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Down):
-			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize())
+			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageUp):
-			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize())
+			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageDown):
-			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize())
+			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Play):
 			if v, ok := m.currentVideo(); ok {
 				m.downloadAndPlay(v)
@@ -1791,9 +1813,9 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(items)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, -1, m.pageSize())
+		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, +1, m.pageSize())
+		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Play):
 		if m.dlCursor < n {
 			item := items[m.dlCursor]
@@ -1828,7 +1850,7 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if lv, err := m.db.LocalVideos(); err == nil {
 				m.localVideos = lv
 			}
-			m.dlCursor, m.dlVS = vsMove(clamp(m.dlCursor, len(m.downloader.Items())), m.dlVS, len(m.downloader.Items()), 0, m.pageSize())
+			m.dlCursor, m.dlVS = vsMove(clamp(m.dlCursor, len(m.downloader.Items())), m.dlVS, len(m.downloader.Items()), 0, m.pageSize(), false)
 			m.setStatus("Deleted: "+truncate(item.Video.Title, 50), false)
 		}
 	case key.Matches(msg, m.keys.CopyURL):
@@ -1844,13 +1866,13 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.localVideos)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, -1, m.pageSize())
+		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, +1, m.pageSize())
+		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, -1, m.pageSize())
+		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, +1, m.pageSize())
+		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Play):
 		if m.localCursor < n {
 			m.launchVideo(m.localVideos[m.localCursor])
@@ -1864,7 +1886,7 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if lv2, err := m.db.LocalVideos(); err == nil {
 				m.localVideos = lv2
 			}
-			m.localCursor, m.localVS = vsMove(clamp(m.localCursor, len(m.localVideos)), m.localVS, len(m.localVideos), 0, m.pageSize())
+			m.localCursor, m.localVS = vsMove(clamp(m.localCursor, len(m.localVideos)), m.localVS, len(m.localVideos), 0, m.pageSize(), false)
 			m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
 		}
 	case key.Matches(msg, m.keys.CopyURL):
@@ -1888,13 +1910,13 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.histEntries)
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, -1, m.pageSize())
+		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Down):
-		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, +1, m.pageSize())
+		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageUp):
-		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, -1, m.pageSize())
+		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
-		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, +1, m.pageSize())
+		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.Play):
 		if m.histCursor < n {
 			e := m.histEntries[m.histCursor]
@@ -2050,6 +2072,10 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vidDetailVideo = nil
 		m.vidDetailThumb = nil
 		m.vidDetailDescVS = 0
+		m.vidDetailLinks = nil
+		m.vidDetailDescLines = nil
+		m.vidDetailThumbB64 = ""
+		m.vidDetailThumbRendered = ""
 		m.vidDetailLoading = false
 	case key.Matches(msg, m.keys.Down):
 		m.vidDetailDescVS++
@@ -2064,8 +2090,81 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.vidDetailDescVS < 0 {
 			m.vidDetailDescVS = 0
 		}
+	case key.Matches(msg, m.keys.OpenLinks):
+		if m.vidDetailVideo != nil {
+			if m.vidDetailLinks == nil {
+				urls := extractLinks(m.vidDetailVideo.Description)
+				m.vidDetailLinks = &urls
+				_ = m.db.SaveVideoLinks(m.vidDetailVideo.Video.ID, urls)
+			}
+			if len(*m.vidDetailLinks) == 0 {
+				m.setStatus("no links in description", false)
+			} else {
+				m.linkOverlayURLs = *m.vidDetailLinks
+				m.linkOverlaySel = 0
+				m.linkOverlay = true
+			}
+		}
 	}
 	return m, nil
+}
+
+func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.linkOverlayURLs)
+	switch {
+	case key.Matches(msg, m.keys.Up):
+		if m.linkOverlaySel > 0 {
+			m.linkOverlaySel--
+		} else if m.cfg.CircularNav && n > 0 {
+			m.linkOverlaySel = n - 1
+		}
+	case key.Matches(msg, m.keys.Down):
+		if m.linkOverlaySel < n-1 {
+			m.linkOverlaySel++
+		} else if m.cfg.CircularNav {
+			m.linkOverlaySel = 0
+		}
+	case key.Matches(msg, m.keys.DrillDown):
+		if n > 0 {
+			if err := exec.Command("xdg-open", m.linkOverlayURLs[m.linkOverlaySel].URL).Start(); err != nil {
+				m.setStatus("open URL: "+err.Error(), true)
+			} else if m.cfg.CloseOnLinkOpen {
+				m.linkOverlay = false
+			}
+		}
+	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
+		m.linkOverlay = false
+	case key.Matches(msg, m.keys.CopyURL):
+		if n > 0 {
+			u := m.linkOverlayURLs[m.linkOverlaySel].URL
+			if err := clipboard.WriteAll(u); err != nil {
+				m.setStatus("clipboard: "+err.Error(), true)
+			} else {
+				m.setStatus("copied: "+u, false)
+			}
+		}
+	}
+	return m, nil
+}
+
+var linkRe = regexp.MustCompile(`https?://[^\s\]>)"']+`)
+
+func extractLinks(desc string) []db.Link {
+	seen := make(map[string]bool)
+	var out []db.Link
+	for _, line := range strings.Split(desc, "\n") {
+		for _, loc := range linkRe.FindAllStringIndex(line, -1) {
+			url := strings.TrimRight(line[loc[0]:loc[1]], ".,;:!?)'\"")
+			if seen[url] {
+				continue
+			}
+			seen[url] = true
+			label := strings.TrimRight(strings.TrimSpace(line[:loc[0]]), ":,;-–—•►▶→")
+			label = strings.TrimSpace(label)
+			out = append(out, db.Link{Label: label, URL: url})
+		}
+	}
+	return out
 }
 
 func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2073,14 +2172,14 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddOverlayCreate(msg)
 	}
 	n := m.overlayPlaylistCount()
-	switch msg.String() {
-	case "esc", "q":
+	switch {
+	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
 		m.addOverlay = false
-	case "k", "up":
+	case key.Matches(msg, m.keys.Up):
 		m.addOverlaySel = clamp(m.addOverlaySel-1, n)
-	case "j", "down":
+	case key.Matches(msg, m.keys.Down):
 		m.addOverlaySel = clamp(m.addOverlaySel+1, n)
-	case "enter":
+	case key.Matches(msg, m.keys.DrillDown):
 		v := m.addVideo
 		idx := m.addOverlaySel
 		base := m.overlayCreateBase()
@@ -2210,13 +2309,20 @@ func (m *Model) startDownload(v youtube.Video, dlType downloader.DownloadType) {
 
 // vsMove moves cursor by delta and adjusts viewStart only when cursor leaves
 // the visible window (scrolloff=0, like nvim default).
-func vsMove(cursor, vs, n, delta, height int) (newCursor, newVS int) {
-	c := cursor + delta
-	if c < 0 {
-		c = 0
+func vsMove(cursor, vs, n, delta, height int, circular bool) (newCursor, newVS int) {
+	if n <= 0 {
+		return 0, 0
 	}
-	if c >= n {
-		c = n - 1
+	c := cursor + delta
+	if circular {
+		c = ((c % n) + n) % n
+	} else {
+		if c < 0 {
+			c = 0
+		}
+		if c >= n {
+			c = n - 1
+		}
 	}
 	if c < vs {
 		vs = c
@@ -2232,16 +2338,24 @@ func vsMove(cursor, vs, n, delta, height int) (newCursor, newVS int) {
 
 // vsPage advances one full page in direction (+1 down, -1 up), preserving the
 // cursor's relative position within the viewport.
-func vsPage(cursor, vs, n, direction, height int) (newCursor, newVS int) {
+func vsPage(cursor, vs, n, direction, height int, circular bool) (newCursor, newVS int) {
 	relPos := cursor - vs
 	newVS = vs + direction*height
 	if newVS < 0 {
-		newVS = 0
+		if circular && n > 0 {
+			newVS = max(0, n-height)
+		} else {
+			newVS = 0
+		}
 	}
 	if newVS+height > n {
-		newVS = n - height
-		if newVS < 0 {
+		if circular {
 			newVS = 0
+		} else {
+			newVS = n - height
+			if newVS < 0 {
+				newVS = 0
+			}
 		}
 	}
 	newCursor = newVS + relPos
@@ -2258,7 +2372,7 @@ func vsPage(cursor, vs, n, direction, height int) (newCursor, newVS int) {
 // Channels are always fully visible; VS only applies to the video sub-list.
 func (m *Model) updateSearchVS(nCh, nVid int) {
 	if m.searchCursor >= nCh && nVid > 0 {
-		_, m.searchVS = vsMove(m.searchCursor-nCh, m.searchVS, nVid, 0, m.pageSize())
+		_, m.searchVS = vsMove(m.searchCursor-nCh, m.searchVS, nVid, 0, m.pageSize(), false)
 	} else {
 		m.searchVS = 0
 	}
@@ -2562,9 +2676,9 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
 	// Strip the channel's videos from subscription feeds and purge from DB.
 	m.subVideos = removeChannelVideos(m.subVideos, chID, chName)
-	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize())
+	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
 	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
-	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize())
+	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	go m.db.DeleteChannelVideos(chID)
 	m.setStatus("Removed local subscription: "+chName, false)
 	// Trigger a fresh recommended fetch so the channel's videos drip back in.
@@ -2655,9 +2769,9 @@ func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
 // removeChannelFromFeeds strips a channel's videos from all in-memory video lists.
 func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
 	m.recVideos = removeChannelVideos(m.recVideos, channelID, channelName)
-	m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize())
+	m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize(), false)
 	m.subVideos = removeChannelVideos(m.subVideos, channelID, channelName)
-	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize())
+	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
 	m.subChVideos = removeChannelVideos(m.subChVideos, channelID, channelName)
-	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize())
+	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 }

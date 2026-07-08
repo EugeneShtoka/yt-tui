@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"time"
@@ -180,6 +181,7 @@ func (d *DB) migrate() error {
 	// Columns added after initial schema; safe to ignore "duplicate column" errors.
 	for _, col := range []string{
 		`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE video_details_cache ADD COLUMN links TEXT`,
 		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
@@ -1001,22 +1003,51 @@ func (d *DB) SaveVideoDetailsCache(videoID, description, thumbnailURL string, su
 	return err
 }
 
+// Link is a URL extracted from a video description, with optional label text
+// that appeared before the URL on the same line.
+type Link struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
 type CachedDetails struct {
 	Description  string
 	ThumbnailURL string
 	Subscribers  int64
+	Links        *[]Link // nil = never parsed; &[]Link{} = parsed, none found
 }
 
 // GetVideoDetailsCache returns cached details for a video, false if not cached.
 func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 	var c CachedDetails
+	var linksJSON *string
 	err := d.sql.QueryRow(`
-		SELECT description, thumbnail_url, subscribers FROM video_details_cache WHERE video_id=?
-	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers)
+		SELECT description, thumbnail_url, subscribers, links FROM video_details_cache WHERE video_id=?
+	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON)
 	if err == sql.ErrNoRows {
 		return c, false, nil
 	}
-	return c, err == nil, err
+	if err != nil {
+		return c, false, err
+	}
+	if linksJSON != nil {
+		var links []Link
+		if json.Unmarshal([]byte(*linksJSON), &links) == nil {
+			c.Links = &links
+		}
+	}
+	return c, true, nil
+}
+
+// SaveVideoLinks stores the parsed link list for a video. An empty slice means
+// the description was parsed and contained no links (distinct from NULL = not parsed).
+func (d *DB) SaveVideoLinks(videoID string, links []Link) error {
+	data, err := json.Marshal(links)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`UPDATE video_details_cache SET links=? WHERE video_id=?`, string(data), videoID)
+	return err
 }
 
 // pruneRecommendedFeed removes recommended feed entries and their cached details for videos
