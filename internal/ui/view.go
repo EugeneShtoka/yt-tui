@@ -1540,13 +1540,13 @@ func (m Model) renderAddOverlay(behind string) string {
 	}
 	localLabel := "  Create local list"
 	if m.addOverlaySel == base {
-		localLabel = styleSelected.Render("▶ + Create local list")
+		localLabel = styleSelected.Render("▶ Create local list")
 	}
 	lines = append(lines, localLabel)
 	if m.ytClient != nil {
 		remoteLabel := "  Create remote playlist"
 		if m.addOverlaySel == base+1 {
-			remoteLabel = styleSelected.Render("▶ + Create remote playlist")
+			remoteLabel = styleSelected.Render("▶ Create remote playlist")
 		}
 		lines = append(lines, remoteLabel)
 	}
