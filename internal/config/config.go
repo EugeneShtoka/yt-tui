@@ -49,6 +49,7 @@ type KeyBindings struct {
 	HideChannel   string `toml:"hide_channel"`
 	CopyURL       string `toml:"copy_url"`
 	OpenLinks     string `toml:"open_links"`
+	OpenChapters  string `toml:"open_chapters"`
 	AddToPlaylist string `toml:"add_to_playlist"`
 	NewPlaylist   string `toml:"new_playlist"`
 	ToggleMode    string `toml:"toggle_mode"`
@@ -58,6 +59,7 @@ type KeyBindings struct {
 	TagChannel     string `toml:"tag_channel"`
 	Help           string `toml:"help"`
 	Quit          string `toml:"quit"`
+	Close         string `toml:"close"` // close/cancel overlays (always includes esc)
 
 	Refresh      string `toml:"refresh"`       // re-query / latest fetch
 	ForceRefresh string `toml:"force_refresh"` // full fetch for all channels
@@ -94,6 +96,7 @@ func defaultKeyBindings() KeyBindings {
 		HideChannel:   "B",
 		CopyURL:       "y",
 		OpenLinks:     "L",
+		OpenChapters:  "C",
 		AddToPlaylist: "a",
 		NewPlaylist:   "n",
 		ToggleMode:    "m",
@@ -103,6 +106,7 @@ func defaultKeyBindings() KeyBindings {
 		TagChannel:    "T",
 		Help:          "?",
 		Quit:          "q",
+		Close:         "esc",
 
 		Refresh:      "r",
 		ForceRefresh: "R",
@@ -159,6 +163,7 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.HideChannel == ""   { kb.HideChannel = d.HideChannel }
 	if kb.CopyURL == ""       { kb.CopyURL = d.CopyURL }
 	if kb.OpenLinks == ""     { kb.OpenLinks = d.OpenLinks }
+	if kb.OpenChapters == "" { kb.OpenChapters = d.OpenChapters }
 	if kb.AddToPlaylist == "" { kb.AddToPlaylist = d.AddToPlaylist }
 	if kb.NewPlaylist == ""   { kb.NewPlaylist = d.NewPlaylist }
 	if kb.ToggleMode == ""    { kb.ToggleMode = d.ToggleMode }
@@ -168,6 +173,7 @@ func (kb *KeyBindings) fillDefaults() {
 	if kb.TagChannel == ""     { kb.TagChannel = d.TagChannel }
 	if kb.Help == ""           { kb.Help = d.Help }
 	if kb.Quit == ""          { kb.Quit = d.Quit }
+	if kb.Close == ""         { kb.Close = d.Close }
 
 	if kb.Refresh == ""      { kb.Refresh = d.Refresh }
 	if kb.ForceRefresh == "" { kb.ForceRefresh = d.ForceRefresh }

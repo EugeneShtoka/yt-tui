@@ -83,9 +83,16 @@ func (ch Channel) DisplayName() string {
 	return ch.Name
 }
 
+type Chapter struct {
+	Title     string
+	StartTime float64
+	EndTime   float64
+}
+
 type VideoDetails struct {
 	Video
 	Description  string
 	ThumbnailURL string
 	Subscribers  int64
+	Chapters     []Chapter
 }

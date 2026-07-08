@@ -28,7 +28,7 @@ func (m Model) View() string {
 	if m.showHelp {
 		content = m.renderHelp(contentH)
 	} else if m.vidDetailOverlay {
-		thumbW, thumbH := m.thumbDimensions()
+		_, thumbH := m.thumbDimensions()
 
 		m.width -= vidDetailPanelW
 		left := m.renderContent(contentH)
@@ -41,12 +41,12 @@ func (m Model) View() string {
 		if m.linkOverlay {
 			content = m.renderLinkOverlay(content)
 		}
+		if m.chapterOverlay {
+			content = m.renderChapterOverlay(content)
+		}
 
-		if kittyCapable() && m.vidDetailThumbB64 != "" {
-			tabBarH := lipgloss.Height(tabBar)
-			thumbRow := tabBarH + 2                   // 1-indexed: past tabBar rows + top border
-			thumbCol := m.width - vidDetailPanelW + 2 // 1-indexed: past left panel + left border
-			kittyOverlay = kittyImageOverlay(m.vidDetailThumbB64, thumbRow, thumbCol, thumbW, thumbH)
+		if m.vidDetailKittyOverlay != "" {
+			kittyOverlay = m.vidDetailKittyOverlay
 		}
 	} else {
 		content = m.renderContent(contentH)
@@ -98,8 +98,8 @@ func (m Model) renderStatusBar() string {
 	switch {
 	case m.pendingChord != "":
 		fixed = styleWarning.Render(m.chordHint())
-	case m.gPending:
-		fixed = styleWarning.Render(kb.GotoPrefix + " → " + kb.GotoPrefix + ": top  " + kb.GotoBottom + ": bottom")
+	case m.gPending && !m.vidDetailOverlay && !m.linkOverlay && !m.chapterOverlay && !m.addOverlay:
+		fixed = styleWarning.Render(kb.GotoPrefix + " → " + kb.GotoPrefix + ": top")
 	case m.numPrefix != "":
 		fixed = styleWarning.Render(m.numPrefix + "G: jump to row")
 	case m.status != "" && time.Since(m.statusAt) < 5*time.Second:
@@ -129,6 +129,18 @@ func (m Model) renderStatusBar() string {
 	rightSingle := styleHelp.Render(kh + ": help  " + kq + ": quit")
 
 	if lipgloss.Width(styleHelp.Render(helpRaw))+1+lipgloss.Width(rightSingle) <= m.width {
+		left := styleHelp.Render(helpRaw)
+		space := m.width - lipgloss.Width(left) - lipgloss.Width(rightSingle)
+		if space < 1 {
+			space = 1
+		}
+		return left + strings.Repeat(" ", space) + rightSingle
+	}
+
+	// When the Kitty thumbnail is visible, keep the status bar at exactly one row.
+	// A height change (2→1 rows) causes BubbleTea to repaint cells that overlap
+	// the Kitty image, producing a one-frame flicker before the overlay re-sends it.
+	if m.vidDetailOverlay {
 		left := styleHelp.Render(helpRaw)
 		space := m.width - lipgloss.Width(left) - lipgloss.Width(rightSingle)
 		if space < 1 {
@@ -1377,12 +1389,35 @@ func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 	lines = lines[:contentRows]
 
 	// Footer — always pinned to the last two rows of the panel.
-	footerText := "esc: close"
-	if needsScroll {
-		footerText = "j/k: scroll  esc: close"
+	var footerLine func(string) string
+	kb := m.cfg.Keybindings
+	closeKey := m.keys.Escape.Help().Key
+	closeHint := closeKey + ": close"
+	if m.gPending && !m.linkOverlay {
+		footerLine = func(_ string) string {
+			return styleWarning.Width(innerW).Render(kb.GotoPrefix + "→" + kb.GotoPrefix + ": top")
+		}
+		lines = append(lines, footerLine(""))
+		lines = append(lines, footerLine(""))
+	} else {
+		var footerText string
+		if needsScroll {
+			scrollHint := m.keys.Down.Help().Key + "/" + m.keys.Up.Help().Key + ": scroll"
+			space := innerW - lipgloss.Width(scrollHint) - lipgloss.Width(closeHint)
+			if space < 1 {
+				space = 1
+			}
+			footerText = scrollHint + strings.Repeat(" ", space) + closeHint
+		} else {
+			space := innerW - lipgloss.Width(closeHint)
+			if space < 1 {
+				space = 1
+			}
+			footerText = strings.Repeat(" ", space) + closeHint
+		}
+		lines = append(lines, styleHelp.Width(innerW).Render(""))
+		lines = append(lines, styleHelp.Width(innerW).Render(footerText))
 	}
-	lines = append(lines, styleHelp.Width(innerW).Render(""))
-	lines = append(lines, styleHelp.Width(innerW).Render(footerText))
 
 	// Assemble bordered box.
 	top := accent.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
@@ -1515,9 +1550,19 @@ func (m Model) renderAddOverlay(behind string) string {
 		}
 		lines = append(lines, remoteLabel)
 	}
-	lines = append(lines, "",
-		styleHelp.Render("j/k: move  enter: confirm"),
-		styleHelp.Render("esc: cancel"))
+	kb := m.cfg.Keybindings
+	const addW = 36
+	if m.gPending {
+		lines = append(lines, "", styleWarning.Render(kb.GotoPrefix+"→"+kb.GotoPrefix+": top"))
+	} else {
+		actionHint := "j/k: move  enter: confirm"
+		cancelHint := m.keys.Escape.Help().Key + ": cancel"
+		space := addW - lipgloss.Width(actionHint) - lipgloss.Width(cancelHint)
+		if space < 1 {
+			space = 1
+		}
+		lines = append(lines, "", styleHelp.Render(actionHint+strings.Repeat(" ", space)+cancelHint))
+	}
 
 	return m.placeOverlayBox(behind, strings.Join(lines, "\n"), 40)
 }
@@ -1546,9 +1591,58 @@ func (m Model) renderLinkOverlay(behind string) string {
 	if len(links) > 0 {
 		lines = append(lines, "", styleHelp.Render(truncate(links[m.linkOverlaySel].URL, innerW)))
 	}
-	lines = append(lines, "",
-		styleHelp.Render("enter: open  y: copy"),
-		styleHelp.Render("esc/q: close"))
+	kb := m.cfg.Keybindings
+	if m.gPending {
+		lines = append(lines, "", styleWarning.Render(kb.GotoPrefix+"→"+kb.GotoPrefix+": top"))
+	} else {
+		actionHint := "enter: open  y: copy"
+		closeHint := m.keys.Escape.Help().Key + ": close"
+		space := innerW - lipgloss.Width(actionHint) - lipgloss.Width(closeHint)
+		if space < 1 {
+			space = 1
+		}
+		lines = append(lines, "", styleHelp.Render(actionHint+strings.Repeat(" ", space)+closeHint))
+	}
+	return m.placeOverlayBox(behind, strings.Join(lines, "\n"), innerW+6)
+}
+
+func fmtChapterTime(secs float64) string {
+	s := int(secs)
+	h, min, sec := s/3600, (s%3600)/60, s%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, min, sec)
+	}
+	return fmt.Sprintf("%d:%02d", min, sec)
+}
+
+func (m Model) renderChapterOverlay(behind string) string {
+	chapters := m.chapterOverlayItems
+	const innerW = 58
+	lines := []string{
+		styleHeader.Render("Chapters"),
+		"",
+	}
+	for i, ch := range chapters {
+		ts := fmtChapterTime(ch.StartTime)
+		label := fmt.Sprintf("%-7s  %s", ts, truncate(ch.Title, innerW-11))
+		if i == m.chapterOverlaySel {
+			lines = append(lines, styleSelected.Render("▶ "+label))
+		} else {
+			lines = append(lines, "  "+label)
+		}
+	}
+	kb := m.cfg.Keybindings
+	if m.gPending {
+		lines = append(lines, "", styleWarning.Render(kb.GotoPrefix+"→"+kb.GotoPrefix+": top"))
+	} else {
+		actionHint := "y: copy timestamp"
+		closeHint := m.keys.Escape.Help().Key + ": close"
+		space := innerW - lipgloss.Width(actionHint) - lipgloss.Width(closeHint)
+		if space < 1 {
+			space = 1
+		}
+		lines = append(lines, "", styleHelp.Render(actionHint+strings.Repeat(" ", space)+closeHint))
+	}
 	return m.placeOverlayBox(behind, strings.Join(lines, "\n"), innerW+6)
 }
 

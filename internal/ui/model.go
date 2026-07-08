@@ -283,15 +283,22 @@ type Model struct {
 	vidDetailLoading bool
 	vidDetailDescVS  int         // description scroll start line
 	vidDetailThumb   image.Image // nil until loaded; stays nil if fetch fails
-	vidDetailLinks        *[]db.Link // nil = not yet parsed; &[]db.Link{} = parsed, none found
+	vidDetailLinks        *[]db.Link    // nil = not yet parsed; &[]db.Link{} = parsed, none found
+	vidDetailChapters     *[]db.Chapter // nil = not available; populated from yt-dlp metadata
 	vidDetailDescLines    []string  // pre-wrapped description lines; nil until video is set
-	vidDetailThumbB64     string    // pre-encoded PNG base64 for Kitty; empty until loaded
-	vidDetailThumbRendered string   // pre-rendered half-block string for non-Kitty terminals
+	vidDetailThumbB64      string // pre-encoded PNG base64 for Kitty; empty until loaded
+	vidDetailThumbRendered string // pre-rendered half-block string for non-Kitty terminals
+	vidDetailKittyOverlay  string // full Kitty sequence; recomputed only on thumbnail load or resize
 
 	// ── Link list overlay (opened from video detail) ───────────────────────
 	linkOverlay     bool
 	linkOverlaySel  int
 	linkOverlayURLs []db.Link
+
+	// ── Chapter list overlay (opened from video detail) ────────────────────
+	chapterOverlay     bool
+	chapterOverlaySel  int
+	chapterOverlayItems []db.Chapter
 }
 
 func buildTabs(cfg *config.Config) []int {

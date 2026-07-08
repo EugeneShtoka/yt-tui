@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,6 +88,12 @@ func New(dataDir string, stripEmojis bool) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
+	if err := d.runVersionedMigrations(); err != nil {
+		return nil, err
+	}
+	if err := d.checkAndClearCacheIfChanged(); err != nil {
+		return nil, err
+	}
 	if stripEmojis {
 		if err := d.cleanEmojiTitles(); err != nil {
 			return nil, err
@@ -103,6 +110,73 @@ func New(dataDir string, stripEmojis bool) (*DB, error) {
 
 func (d *DB) Close() error {
 	return d.sql.Close()
+}
+
+// versionedMigrations is an ordered list of one-time data migrations. To add a new
+// migration, append an entry — the version number must be strictly increasing.
+// user_version is advanced automatically after each migration runs.
+// Use this for non-schema one-time actions; schema changes to video_details_cache
+// are detected automatically by checkAndClearCacheIfChanged.
+var versionedMigrations = []struct {
+	version int
+	run     func(db *sql.DB) error
+}{}
+
+func (d *DB) runVersionedMigrations() error {
+	var current int
+	if err := d.sql.QueryRow(`PRAGMA user_version`).Scan(&current); err != nil {
+		return err
+	}
+	for _, m := range versionedMigrations {
+		if m.version <= current {
+			continue
+		}
+		if err := m.run(d.sql); err != nil {
+			return err
+		}
+		if _, err := d.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, m.version)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkAndClearCacheIfChanged computes a fingerprint of video_details_cache columns
+// and clears the table whenever the schema changes. This means adding or removing
+// a column automatically invalidates all cached entries on next startup.
+func (d *DB) checkAndClearCacheIfChanged() error {
+	rows, err := d.sql.Query(`PRAGMA table_info(video_details_cache)`)
+	if err != nil {
+		return err
+	}
+	var parts []string
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		parts = append(parts, name+":"+colType)
+	}
+	rows.Close()
+	fingerprint := strings.Join(parts, ",")
+
+	var stored string
+	err = d.sql.QueryRow(`SELECT value FROM meta WHERE key='cache_schema'`).Scan(&stored)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if fingerprint == stored {
+		return nil
+	}
+	if _, err := d.sql.Exec(`DELETE FROM video_details_cache`); err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('cache_schema', ?)`, fingerprint)
+	return err
 }
 
 func (d *DB) migrate() error {
@@ -182,6 +256,7 @@ func (d *DB) migrate() error {
 	for _, col := range []string{
 		`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE video_details_cache ADD COLUMN links TEXT`,
+		`ALTER TABLE video_details_cache ADD COLUMN chapters TEXT`,
 		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
@@ -237,6 +312,10 @@ func (d *DB) migrate() error {
 			video_id         TEXT,
 			video_title      TEXT,
 			timestamp        DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS meta (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT ''
 		)`,
 	} {
 		if _, err = d.sql.Exec(stmt); err != nil {
@@ -1010,20 +1089,28 @@ type Link struct {
 	URL   string `json:"url"`
 }
 
+// Chapter is a timed section from a video's chapter list.
+type Chapter struct {
+	Title     string  `json:"title"`
+	StartTime float64 `json:"start_time"`
+	EndTime   float64 `json:"end_time"`
+}
+
 type CachedDetails struct {
 	Description  string
 	ThumbnailURL string
 	Subscribers  int64
-	Links        *[]Link // nil = never parsed; &[]Link{} = parsed, none found
+	Links        *[]Link    // nil = never parsed; &[]Link{} = parsed, none found
+	Chapters     *[]Chapter // nil = none available; populated from yt-dlp metadata
 }
 
 // GetVideoDetailsCache returns cached details for a video, false if not cached.
 func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 	var c CachedDetails
-	var linksJSON *string
+	var linksJSON, chaptersJSON *string
 	err := d.sql.QueryRow(`
-		SELECT description, thumbnail_url, subscribers, links FROM video_details_cache WHERE video_id=?
-	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON)
+		SELECT description, thumbnail_url, subscribers, links, chapters FROM video_details_cache WHERE video_id=?
+	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON, &chaptersJSON)
 	if err == sql.ErrNoRows {
 		return c, false, nil
 	}
@@ -1036,7 +1123,23 @@ func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 			c.Links = &links
 		}
 	}
+	if chaptersJSON != nil {
+		var chapters []Chapter
+		if json.Unmarshal([]byte(*chaptersJSON), &chapters) == nil {
+			c.Chapters = &chapters
+		}
+	}
 	return c, true, nil
+}
+
+// SaveVideoChapters stores the chapter list for a video.
+func (d *DB) SaveVideoChapters(videoID string, chapters []Chapter) error {
+	data, err := json.Marshal(chapters)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`UPDATE video_details_cache SET chapters=? WHERE video_id=?`, string(data), videoID)
+	return err
 }
 
 // SaveVideoLinks stores the parsed link list for a video. An empty slice means
@@ -1059,6 +1162,10 @@ func (d *DB) pruneRecommendedFeed() error {
 			SELECT fc.video_id FROM feed_cache fc
 			JOIN videos v ON v.id = fc.video_id
 			WHERE v.upload_date != '' AND v.upload_date < ?
+			AND fc.video_id NOT IN (SELECT video_id FROM channel_videos)
+			AND fc.video_id NOT IN (SELECT video_id FROM playlist_videos)
+			AND fc.video_id NOT IN (SELECT video_id FROM yt_playlist_videos)
+			AND fc.video_id NOT IN (SELECT id FROM local_videos)
 		)
 	`, cutoff); err != nil {
 		return err

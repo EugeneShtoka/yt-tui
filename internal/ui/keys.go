@@ -42,6 +42,7 @@ type keyMap struct {
 	GotoLine      key.Binding // go to line N (with number prefix)
 	VideoInfo     key.Binding // open video details popup
 	OpenLinks     key.Binding // open link list from video description
+	OpenChapters  key.Binding // open chapter list from video metadata
 }
 
 func buildKeyMap(kb config.KeyBindings) keyMap {
@@ -75,7 +76,7 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		Unsubscribe:   b(kb.Unsubscribe,   "unsubscribe"),
 		CopyURL:       b(kb.CopyURL,       "copy URL"),
 		DrillDown:     b(kb.DrillDown,     "open"),
-		Escape:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+		Escape:        b(kb.Close, "close"),
 		Quit:          key.NewBinding(key.WithKeys(kb.Quit, "ctrl+c"), key.WithHelp(kb.Quit, "quit")),
 
 		ToggleMode: b(kb.ToggleMode,    "toggle mode"),
@@ -91,6 +92,7 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 		GotoBottom: b(kb.GotoBottom,    "go to bottom"),
 		GotoLine:   b(kb.GotoLine,      "go to line"),
 		VideoInfo:  b(kb.VideoInfo,     "video info"),
-		OpenLinks:  b(kb.OpenLinks,     "open links"),
+		OpenLinks:    b(kb.OpenLinks,    "open links"),
+		OpenChapters: b(kb.OpenChapters, "chapters"),
 	}
 }

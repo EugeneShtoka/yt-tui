@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
@@ -27,6 +28,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if kittyCapable() && m.vidDetailThumbB64 != "" {
+			thumbW, thumbH := m.thumbDimensions()
+			tabBarH := lipgloss.Height(m.renderTabBar())
+			thumbRow := tabBarH + 2
+			thumbCol := m.width - vidDetailPanelW + 2
+			m.vidDetailKittyOverlay = kittyImageOverlay(m.vidDetailThumbB64, thumbRow, thumbCol, thumbW, thumbH)
+		}
 		return m, nil
 
 	case positionTickMsg:
@@ -161,6 +169,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vidDetailLinks = nil
 		m.vidDetailDescLines = wordWrap(details.Description, vidDetailPanelW-2)
 		_ = m.db.SaveVideoDetailsCache(details.Video.ID, details.Description, details.ThumbnailURL, details.Subscribers)
+		if len(details.Chapters) > 0 {
+			dbChapters := make([]db.Chapter, len(details.Chapters))
+			for i, c := range details.Chapters {
+				dbChapters[i] = db.Chapter{Title: c.Title, StartTime: c.StartTime, EndTime: c.EndTime}
+			}
+			ch := dbChapters
+			m.vidDetailChapters = &ch
+			_ = m.db.SaveVideoChapters(details.Video.ID, dbChapters)
+		} else {
+			m.vidDetailChapters = nil
+		}
 		if details.ThumbnailURL != "" {
 			// Keep loading=true until thumbnail arrives so panel renders once with image.
 			return m, loadThumbnailCmd(details.ThumbnailURL)
@@ -174,6 +193,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.img != nil {
 			if kittyCapable() {
 				m.vidDetailThumbB64 = encodeThumbB64(msg.img)
+				thumbW, thumbH := m.thumbDimensions()
+				tabBarH := lipgloss.Height(m.renderTabBar())
+				thumbRow := tabBarH + 2
+				thumbCol := m.width - vidDetailPanelW + 2
+				m.vidDetailKittyOverlay = kittyImageOverlay(m.vidDetailThumbB64, thumbRow, thumbCol, thumbW, thumbH)
 			} else {
 				thumbW, thumbH := m.thumbDimensions()
 				m.vidDetailThumbRendered = renderThumbnail(msg.img, thumbW, thumbH)
@@ -470,6 +494,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		debug.Log("→ handleLinkOverlay (linkOverlay=true)")
 		return m.handleLinkOverlay(msg)
 	}
+	if m.chapterOverlay {
+		debug.Log("→ handleChapterOverlay (chapterOverlay=true)")
+		return m.handleChapterOverlay(msg)
+	}
 	if m.vidDetailOverlay {
 		debug.Log("→ handleVideoDetailKey (vidDetailOverlay=true)")
 		return m.handleVideoDetailKey(msg)
@@ -582,9 +610,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.vidDetailVideo = nil
 			m.vidDetailThumb = nil
 			m.vidDetailDescVS = 0
+			m.vidDetailLinks = nil
+			m.vidDetailDescLines = nil
+			m.vidDetailThumbB64 = ""
+			m.vidDetailThumbRendered = ""
+			m.vidDetailKittyOverlay = ""
 			if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
 				details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
 				m.vidDetailVideo = &details
+				m.vidDetailLinks = cached.Links
+				m.vidDetailChapters = cached.Chapters
+				m.vidDetailDescLines = wordWrap(cached.Description, vidDetailPanelW-2)
 				if cached.ThumbnailURL != "" {
 					return m, loadThumbnailCmd(cached.ThumbnailURL)
 				}
@@ -1294,6 +1330,7 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.vidDetailDescLines = nil
 				m.vidDetailThumbB64 = ""
 				m.vidDetailThumbRendered = ""
+				m.vidDetailKittyOverlay = ""
 				if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
 					details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
 					m.vidDetailVideo = &details
@@ -2065,18 +2102,57 @@ func (m *Model) openAddOverlay(v youtube.Video) {
 	m.addOverlayCreateMode = false
 }
 
+func (m Model) closeVideoDetail() Model {
+	m.vidDetailOverlay = false
+	m.vidDetailVideo = nil
+	m.vidDetailThumb = nil
+	m.vidDetailLinks = nil
+	m.vidDetailChapters = nil
+	m.vidDetailDescLines = nil
+	m.vidDetailThumbB64 = ""
+	m.vidDetailThumbRendered = ""
+	m.vidDetailKittyOverlay = ""
+	m.vidDetailLoading = false
+	m.chapterOverlay = false
+	return m
+}
+
 func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	kb := m.cfg.Keybindings
+	// Resolve pending chords without closing the panel — unless a tab switch
+	// actually happened, in which case close the panel.
+	if m.pendingChord != "" {
+		prevTab := m.activeTab
+		result, cmd := m.resolveChord(msg.String())
+		nm := result.(Model)
+		if nm.activeTab != prevTab {
+			nm = nm.closeVideoDetail()
+			nm.vidDetailDescVS = 0
+		}
+		return nm, cmd
+	}
+	// Tab chord: initiate — second key resolves above.
+	if msg.String() == kb.TabChord {
+		m.pendingChord = kb.TabChord
+		m.chordBuffer = ""
+		return m, nil
+	}
+	if msg.String() == kb.GotoPrefix {
+		if m.gPending {
+			m.gPending = false
+			m.vidDetailDescVS = 0
+		} else {
+			m.gPending = true
+		}
+		return m, nil
+	}
+	m.gPending = false
 	switch {
+	case key.Matches(msg, m.keys.GotoBottom):
+		m.vidDetailDescVS = len(m.vidDetailDescLines) // clamped to maxVS in renderVideoDetailPanel
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Quit):
-		m.vidDetailOverlay = false
-		m.vidDetailVideo = nil
-		m.vidDetailThumb = nil
+		m = m.closeVideoDetail()
 		m.vidDetailDescVS = 0
-		m.vidDetailLinks = nil
-		m.vidDetailDescLines = nil
-		m.vidDetailThumbB64 = ""
-		m.vidDetailThumbRendered = ""
-		m.vidDetailLoading = false
 	case key.Matches(msg, m.keys.Down):
 		m.vidDetailDescVS++
 	case key.Matches(msg, m.keys.Up):
@@ -2105,13 +2181,35 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.linkOverlay = true
 			}
 		}
+	case key.Matches(msg, m.keys.OpenChapters):
+		if m.vidDetailChapters != nil && len(*m.vidDetailChapters) > 0 {
+			m.chapterOverlayItems = *m.vidDetailChapters
+			m.chapterOverlaySel = 0
+			m.chapterOverlay = true
+		} else {
+			m.setStatus("no chapters available", false)
+		}
 	}
 	return m, nil
 }
 
 func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.linkOverlayURLs)
+	if msg.String() == m.cfg.Keybindings.GotoPrefix {
+		if m.gPending {
+			m.gPending = false
+			m.linkOverlaySel = 0
+		} else {
+			m.gPending = true
+		}
+		return m, nil
+	}
+	m.gPending = false
 	switch {
+	case key.Matches(msg, m.keys.GotoBottom):
+		if n > 0 {
+			m.linkOverlaySel = n - 1
+		}
 	case key.Matches(msg, m.keys.Up):
 		if m.linkOverlaySel > 0 {
 			m.linkOverlaySel--
@@ -2147,6 +2245,50 @@ func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleChapterOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.chapterOverlayItems)
+	if msg.String() == m.cfg.Keybindings.GotoPrefix {
+		if m.gPending {
+			m.gPending = false
+			m.chapterOverlaySel = 0
+		} else {
+			m.gPending = true
+		}
+		return m, nil
+	}
+	m.gPending = false
+	switch {
+	case key.Matches(msg, m.keys.GotoBottom):
+		if n > 0 {
+			m.chapterOverlaySel = n - 1
+		}
+	case key.Matches(msg, m.keys.Up):
+		if m.chapterOverlaySel > 0 {
+			m.chapterOverlaySel--
+		} else if m.cfg.CircularNav && n > 0 {
+			m.chapterOverlaySel = n - 1
+		}
+	case key.Matches(msg, m.keys.Down):
+		if m.chapterOverlaySel < n-1 {
+			m.chapterOverlaySel++
+		} else if m.cfg.CircularNav {
+			m.chapterOverlaySel = 0
+		}
+	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
+		m.chapterOverlay = false
+	case key.Matches(msg, m.keys.CopyURL):
+		if n > 0 {
+			ts := fmtChapterTime(m.chapterOverlayItems[m.chapterOverlaySel].StartTime) // defined in view.go
+			if err := clipboard.WriteAll(ts); err != nil {
+				m.setStatus("clipboard: "+err.Error(), true)
+			} else {
+				m.setStatus("copied: "+ts, false)
+			}
+		}
+	}
+	return m, nil
+}
+
 var linkRe = regexp.MustCompile(`https?://[^\s\]>)"']+`)
 
 func extractLinks(desc string) []db.Link {
@@ -2172,7 +2314,21 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddOverlayCreate(msg)
 	}
 	n := m.overlayPlaylistCount()
+	if msg.String() == m.cfg.Keybindings.GotoPrefix {
+		if m.gPending {
+			m.gPending = false
+			m.addOverlaySel = 0
+		} else {
+			m.gPending = true
+		}
+		return m, nil
+	}
+	m.gPending = false
 	switch {
+	case key.Matches(msg, m.keys.GotoBottom):
+		if n > 0 {
+			m.addOverlaySel = n - 1
+		}
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
 		m.addOverlay = false
 	case key.Matches(msg, m.keys.Up):
@@ -2226,11 +2382,11 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, m.keys.Escape):
 		m.addOverlayCreateMode = false
 		m.addOverlayInput.Blur()
-	case "enter":
+	case msg.String() == "enter":
 		name := m.addOverlayInput.Value()
 		m.addOverlayCreateMode = false
 		m.addOverlayInput.Blur()

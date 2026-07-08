@@ -477,18 +477,25 @@ func FetchPlaylistVideos(cfg *config.Config, playlistID string) tea.Cmd {
 	}
 }
 
+type ytdlpDetailChapter struct {
+	Title     string  `json:"title"`
+	StartTime float64 `json:"start_time"`
+	EndTime   float64 `json:"end_time"`
+}
+
 type ytdlpDetailEntry struct {
-	ID                   string  `json:"id"`
-	Title                string  `json:"title"`
-	Channel              string  `json:"channel"`
-	ChannelID            string  `json:"channel_id"`
-	Duration             float64 `json:"duration"`
-	ViewCount            int64   `json:"view_count"`
-	UploadDate           string  `json:"upload_date"`
-	WebpageURL           string  `json:"webpage_url"`
-	Description          string  `json:"description"`
-	Thumbnail            string  `json:"thumbnail"`
-	ChannelFollowerCount int64   `json:"channel_follower_count"`
+	ID                   string               `json:"id"`
+	Title                string               `json:"title"`
+	Channel              string               `json:"channel"`
+	ChannelID            string               `json:"channel_id"`
+	Duration             float64              `json:"duration"`
+	ViewCount            int64                `json:"view_count"`
+	UploadDate           string               `json:"upload_date"`
+	WebpageURL           string               `json:"webpage_url"`
+	Description          string               `json:"description"`
+	Thumbnail            string               `json:"thumbnail"`
+	ChannelFollowerCount int64                `json:"channel_follower_count"`
+	Chapters             []ytdlpDetailChapter `json:"chapters"`
 }
 
 func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
@@ -516,6 +523,10 @@ func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
 		if cfg.StripEmojis {
 			title = StripEmojis(title)
 		}
+		chapters := make([]Chapter, len(e.Chapters))
+		for i, c := range e.Chapters {
+			chapters[i] = Chapter{Title: c.Title, StartTime: c.StartTime, EndTime: c.EndTime}
+		}
 		return VideoDetailsMsg{Details: VideoDetails{
 			Video: Video{
 				ID:         e.ID,
@@ -530,6 +541,7 @@ func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
 			Description:  e.Description,
 			ThumbnailURL: e.Thumbnail,
 			Subscribers:  e.ChannelFollowerCount,
+			Chapters:     chapters,
 		}}
 	}
 }
