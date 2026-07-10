@@ -2922,7 +2922,7 @@ func filterByAge(videos []youtube.Video, maxDays int) []youtube.Video {
 		return videos
 	}
 	cutoff := time.Now().AddDate(0, 0, -maxDays)
-	out := videos[:0]
+	out := make([]youtube.Video, 0, len(videos))
 	for _, v := range videos {
 		if len(v.UploadDate) != 8 {
 			out = append(out, v)
@@ -2954,7 +2954,7 @@ func mergeVideos(existing, incoming []youtube.Video) []youtube.Video {
 
 // filterDownloaded removes videos that are already in the local library.
 func filterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []youtube.Video {
-	out := videos[:0]
+	out := make([]youtube.Video, 0, len(videos))
 	for _, v := range videos {
 		if _, ok := local[v.ID]; !ok {
 			out = append(out, v)
@@ -2965,7 +2965,7 @@ func filterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []
 
 // filterHidden removes videos the user has explicitly hidden from recommended.
 func filterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Video {
-	out := videos[:0]
+	out := make([]youtube.Video, 0, len(videos))
 	for _, v := range videos {
 		if !hidden[v.ID] {
 			out = append(out, v)
@@ -2977,7 +2977,7 @@ func filterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Vide
 // filterBlacklisted removes videos whose channel is blacklisted.
 // As a side effect it enriches name-only blacklist entries with the channel ID.
 func filterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel, cfg *config.Config) []youtube.Video {
-	out := videos[:0]
+	out := make([]youtube.Video, 0, len(videos))
 	for _, v := range videos {
 		if bl, matched := matchBlacklisted(v, list); matched {
 			if bl >= 0 && cfg.BlacklistedChannels[bl].ID == "" && v.ChannelID != "" {
