@@ -43,7 +43,7 @@ Each task is self-contained and written to be executed by a model with the recom
 | P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — | ✅ **DONE** |
 | P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — | ✅ **DONE** |
 | P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | ✅ **DONE** (scaffold: 22 tests + edge cases complete) |
-| P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 | - |
+| P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 | ✅ **DONE** |
 | P2.1 | Extract shared video-action key helper (6 sites) | Med-High | Med | **Sonnet** | P1.1 | |
 | P2.2 | Extract shared overlay-nav helper (3 sites) | Med | Low-Med | **Sonnet** | — | |
 | P2.3 | Extract shared "open video detail" helper (2 sites) | Med | Low | **Sonnet** | — | |
@@ -272,4 +272,5 @@ Each wave ends green (`go build`, `go vet`, `go test -race`). Do not begin Wave 
 ## Progress log
 - **2026-07-10 9:51pm — P0.1a + P0.1b landed (Opus).** Atomic config write + serialized/coalesced saves + `SetBlacklistID`; call sites in `update.go` updated. Seeded the test suite with `internal/config/config_test.go` (race-clean).
 - **2026-07-10 10:25pm — P0.3 + P1.1 scaffold landed (Haiku).** Filter de-aliasing applied to all four filter functions. Test scaffold complete: 22 tests for pure functions (no edge cases). Formatting committed separately. All tests pass under `-race`.
-- **2026-07-10 10:45pm — P0.2 + P1.1 edge cases landed (Sonnet).** MPRIS race fixed: `poll` now takes `stopCh` as parameter (captured under lock in `exec`); `Close` also captures `stopCh` under lock. P1.1 edge cases added: `vs*` boundary invariants (n=0, clamp, circular wrap, viewport) and SponsorBlock round-trip/monotonicity. 34+ tests total, all passing under `-race`. Wave 1 complete. Next: Wave 2 structural work — P1.2 (`Store` interface) then P2.x.
+- **2026-07-10 10:45pm — P0.2 + P1.1 edge cases landed (Sonnet).** MPRIS race fixed: `poll` now takes `stopCh` as parameter (captured under lock in `exec`); `Close` also captures `stopCh` under lock. P1.1 edge cases added: `vs*` boundary invariants (n=0, clamp, circular wrap, viewport) and SponsorBlock round-trip/monotonicity. 34+ tests total, all passing under `-race`. Wave 1 complete.
+- **2026-07-10 11:00pm — P1.2 landed (Sonnet).** `Store` interface (52 methods) declared in `internal/ui/store.go`. `Model.db`, `mustWatchedIDs`, `mustVideoPositions` widened to `Store`. `NewModel` signature unchanged. Compile-time assertions for both `*db.DB` and `fakeStore` in `store_test.go`. Next: Wave 3 — P2.1 shared video-action helper.
