@@ -41,8 +41,8 @@ Each task is self-contained and written to be executed by a model with the recom
 | P0.1a | Atomic config write (temp+rename) | High | Low | **Haiku** | — | ✅ **DONE** |
 | P0.1b | Serialize config saves (single writer + mutex) | High | Med | **Opus** (design) → Sonnet | P0.1a | ✅ **DONE** |
 | P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — | |
-| P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — | |
-| P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | _seeded: `internal/config/config_test.go` exists_ |
+| P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — | ✅ **DONE** |
+| P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | ✅ **DONE** (scaffold: 22 tests, edge cases TODO) |
 | P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 | - |
 | P2.1 | Extract shared video-action key helper (6 sites) | Med-High | Med | **Sonnet** | P1.1 | |
 | P2.2 | Extract shared overlay-nav helper (3 sites) | Med | Low-Med | **Sonnet** | — | |
