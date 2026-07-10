@@ -116,7 +116,7 @@ const (
 // Model is the root bubbletea model.
 type Model struct {
 	cfg        *config.Config
-	db         *db.DB
+	db         Store
 	downloader *downloader.Downloader
 
 	width  int
@@ -616,7 +616,7 @@ func buildLocalIDMap(lvs []db.LocalVideo) map[string]db.LocalVideo {
 	return m
 }
 
-func mustWatchedIDs(d *db.DB) map[string]bool {
+func mustWatchedIDs(d Store) map[string]bool {
 	ids, _ := d.WatchedVideoIDs()
 	if ids == nil {
 		return make(map[string]bool)
@@ -624,7 +624,7 @@ func mustWatchedIDs(d *db.DB) map[string]bool {
 	return ids
 }
 
-func mustVideoPositions(d *db.DB) map[string]int64 {
+func mustVideoPositions(d Store) map[string]int64 {
 	pos, _ := d.AllVideoPositions()
 	if pos == nil {
 		return make(map[string]int64)
