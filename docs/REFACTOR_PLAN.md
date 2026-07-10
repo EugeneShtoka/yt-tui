@@ -40,9 +40,9 @@ Each task is self-contained and written to be executed by a model with the recom
 |---|---|---|---|---|---|---| 
 | P0.1a | Atomic config write (temp+rename) | High | Low | **Haiku** | — | ✅ **DONE** |
 | P0.1b | Serialize config saves (single writer + mutex) | High | Med | **Opus** (design) → Sonnet | P0.1a | ✅ **DONE** |
-| P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — | |
+| P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — | ✅ **DONE** |
 | P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — | ✅ **DONE** |
-| P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | ✅ **DONE** (scaffold: 22 tests, edge cases TODO) |
+| P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | ✅ **DONE** (scaffold: 22 tests + edge cases complete) |
 | P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 | - |
 | P2.1 | Extract shared video-action key helper (6 sites) | Med-High | Med | **Sonnet** | P1.1 | |
 | P2.2 | Extract shared overlay-nav helper (3 sites) | Med | Low-Med | **Sonnet** | — | |
@@ -97,21 +97,14 @@ Each task is self-contained and written to be executed by a model with the recom
 
 # Tier 2 — Haiku-scaffold / Sonnet-finish (tests)
 
-## P1.1 — Unit tests for pure functions + `-race` gate — ✅ DONE (scaffold)
+## P1.1 — Unit tests for pure functions + `-race` gate — ✅ DONE
 **Goal.** Establish a safety net before structural work; catch P0 regressions.
 **As built** (`internal/ui/pure_test.go`, `internal/downloader/sanitize_test.go`, `internal/config/config_test.go` seeded):
-- **Scaffold (Haiku) completed:** 22 table-driven tests covering:
-  - `mergeVideos` (empty, no conflict, incoming wins on conflict)
-  - `filterSubscribed` (empty map, channel ID match, case-insensitive name match)
-  - `removeVideoByID` (empty, not found, found)
-  - `extractLinks` (none, basic, dedupe, punctuation trim)
-  - `filterByAge` (zero/negative maxDays, no date, malformed date)
-  - `sanitizeFilename` (invalid chars, empty, whitespace, valid chars, null byte)
-  - `cmdCompletionsFor` (empty, first-word, second-word)
-- **Coverage:** 80%+ of listed functions; all tests pass under `-race`.
-- **Reserved for Sonnet:** `vs*` boundary cases (cursor/viewStart invariants, n==0, wrap-around), SponsorBlock round-trip.
+- **Scaffold (Haiku):** 22 table-driven tests covering `mergeVideos`, `filterSubscribed`, `removeVideoByID`, `extractLinks`, `filterByAge`, `sanitizeFilename`, `cmdCompletionsFor`.
+- **Edge cases (Sonnet):** `vsMove` (n=0, clamp high/low, circular wrap forward/backward, viewport invariants), `vsPage` (clamp at start/end, circular wrap both directions), `vsJump` (negative/over-end clamp, centering, near-top/bottom vs pinning), SponsorBlock (round-trip before/after/multi-segment, monotonicity, inside-segment maps to start).
+- **Total:** 34+ tests; all pass under `-race`.
 **Verified.** `go test -race ./internal/ui ./internal/downloader` passes.
-**Model.** Haiku (scaffold) — Sonnet to add boundary cases and SponsorBlock tests.
+**Model.** Haiku (scaffold) / Sonnet (edge cases).
 
 ---
 
@@ -278,4 +271,5 @@ Each wave ends green (`go build`, `go vet`, `go test -race`). Do not begin Wave 
 
 ## Progress log
 - **2026-07-10 9:51pm — P0.1a + P0.1b landed (Opus).** Atomic config write + serialized/coalesced saves + `SetBlacklistID`; call sites in `update.go` updated. Seeded the test suite with `internal/config/config_test.go` (race-clean).
-- **2026-07-10 10:25pm — P0.3 + P1.1 scaffold landed (Haiku).** Filter de-aliasing applied to all four filter functions. Test scaffold complete: 22 tests for pure functions (no edge cases); TODO tags note where Sonnet should add `vs*` boundary cases and SponsorBlock round-trip. Formatting committed separately. All tests pass under `-race`. Next: P0.2 (MPRIS race) and P1.1 edge cases (Sonnet).
+- **2026-07-10 10:25pm — P0.3 + P1.1 scaffold landed (Haiku).** Filter de-aliasing applied to all four filter functions. Test scaffold complete: 22 tests for pure functions (no edge cases). Formatting committed separately. All tests pass under `-race`.
+- **2026-07-10 10:45pm — P0.2 + P1.1 edge cases landed (Sonnet).** MPRIS race fixed: `poll` now takes `stopCh` as parameter (captured under lock in `exec`); `Close` also captures `stopCh` under lock. P1.1 edge cases added: `vs*` boundary invariants (n=0, clamp, circular wrap, viewport) and SponsorBlock round-trip/monotonicity. 34+ tests total, all passing under `-race`. Wave 1 complete. Next: Wave 2 structural work — P1.2 (`Store` interface) then P2.x.
