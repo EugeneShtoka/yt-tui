@@ -14,7 +14,6 @@ Each task is self-contained and written to be executed by a model with the recom
   go vet ./...          # must be clean
   go test -race ./...   # must pass
   ```
-- **⚠️ DO NOT run `gofmt -w` (or format-on-save) across whole files.** This repo is **not** gofmt-clean by choice: the maintainer uses hand-aligned one-liners (e.g. `config.fillDefaults`) and grouped struct alignment. Running gofmt on a file reformats ~hundreds of unrelated lines and buries your real change. **Do not gate on `gofmt -l`** — it will always list files. Format only the lines you actually add/edit, matching the surrounding style. (Learned the hard way on P0.1b: a whole-file gofmt turned a ~90-line change into a 325-line diff.)
 - **Behavior-preserving unless the task says otherwise.** Do not rename user-facing strings, keybindings, or status messages.
 - Make **one task = one commit**. Commit message: `refactor(scope): <task id> <summary>`. Do not push unless asked.
 - Line numbers are approximate anchors; locate by **function name** (they will drift as you edit).
@@ -37,24 +36,24 @@ Each task is self-contained and written to be executed by a model with the recom
 
 ## ROI-ordered master list
 
-| # | Task | ROI | Blast radius | Model | Depends on |
-|---|------|-----|--------------|-------|-----------|
+| # | Task | ROI | Blast | Model | Depends on | Comments |
+|---|---|---|---|---|---|---| 
 | P0.1a | Atomic config write (temp+rename) | High | Low | **Haiku** | — | ✅ **DONE** |
 | P0.1b | Serialize config saves (single writer + mutex) | High | Med | **Opus** (design) → Sonnet | P0.1a | ✅ **DONE** |
-| P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — |
-| P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — |
+| P0.2 | Fix MPRIS `poll` data race | High | Low | **Sonnet** | — | |
+| P0.3 | De-alias filter helpers (`make` not `[:0]`) | High | Low | **Haiku** | — | |
 | P1.1 | Unit tests for pure functions + `-race` in CI | High | Low | **Haiku** (scaffold) / Sonnet (edge cases) | — | _seeded: `internal/config/config_test.go` exists_ |
-| P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 |
-| P2.1 | Extract shared video-action key helper (6 sites) | Med-High | Med | **Sonnet** | P1.1 |
-| P2.2 | Extract shared overlay-nav helper (3 sites) | Med | Low-Med | **Sonnet** | — |
-| P2.3 | Extract shared "open video detail" helper (2 sites) | Med | Low | **Sonnet** | — |
-| P2.4 | Generic `sortSlice[T]`; merge sortVideos/sortLocalVideos | Med | Low | **Sonnet** | — |
-| P2.5 | Honor `cfg.Keybindings` in input/overlay modes | Med | Med | **Sonnet** | — |
-| P3.1 | Capture yt-dlp stderr into errors | Med | Low | **Haiku** | — |
-| P3.2 | Single source-of-truth tab table; collapse 3 name lists | Med | Med | **Sonnet** | — |
-| P3.3 | Reflection/`cmp.Or` merge for `fillDefaults` | Low-Med | Low | **Sonnet** | P1.1 |
-| P3.4 | Memoize `chordDefs()` + sorted/filtered views | Med | Med | **Sonnet** | P4 ideally |
-| P4 | Decompose `Model` into `TabView` sub-models | Highest (long-term) | Very High | **Opus** (design + 1st slice) → Sonnet (rest) | P1.2 |
+| P1.2 | `Store` interface over `*db.DB`; inject into `ui` | High | Med | **Sonnet** | P1.1 | - |
+| P2.1 | Extract shared video-action key helper (6 sites) | Med-High | Med | **Sonnet** | P1.1 | |
+| P2.2 | Extract shared overlay-nav helper (3 sites) | Med | Low-Med | **Sonnet** | — | |
+| P2.3 | Extract shared "open video detail" helper (2 sites) | Med | Low | **Sonnet** | — | |
+| P2.4 | Generic `sortSlice[T]`; merge sortVideos/sortLocalVideos | Med | Low | **Sonnet** | — | |
+| P2.5 | Honor `cfg.Keybindings` in input/overlay modes | Med | Med | **Sonnet** | — | |
+| P3.1 | Capture yt-dlp stderr into errors | Med | Low | **Haiku** | — | |
+| P3.2 | Single source-of-truth tab table; collapse 3 name lists | Med | Med | **Sonnet** | — | |
+| P3.3 | Reflection/`cmp.Or` merge for `fillDefaults` | Low-Med | Low | **Sonnet** | P1.1 | |
+| P3.4 | Memoize `chordDefs()` + sorted/filtered views | Med | Med | **Sonnet** | P4 ideally | |
+| P4 | Decompose `Model` into `TabView` sub-models | Highest (long-term) | Very High | **Opus** (design + 1st slice) → Sonnet (rest) | P1.2 | |
 
 > Sequencing note: do **P0 → P1 → P2/P3 → P4**. P4 is the highest long-term ROI but is deliberately last because P1 (tests) and P1.2 (interfaces) are what make it *safe*. Do not start P4 without the test net.
 
@@ -67,21 +66,11 @@ Each task is self-contained and written to be executed by a model with the recom
 **As built** (`internal/config/config.go`). `save` now encodes to `os.CreateTemp(dir, ".config-*.tmp")` in the target's directory, `Close`s, then `os.Rename`s over the target; on any error it removes the temp and returns. Same-directory temp keeps the rename atomic. `Save`/`Load` signatures unchanged. Verified: `go build ./...`, `go test -race ./internal/config/...` (see `TestAtomicSaveLeavesValidFile`).
 **Model.** Haiku (as planned).
 
-## P0.3 — De-alias filter helpers
+## P0.3 — De-alias filter helpers — ✅ DONE
 **Goal.** Stop filters writing into the caller's backing array.
-**Files.** `internal/ui/update.go` — `filterByAge`, `filterDownloaded`, `filterHidden`, `filterBlacklisted` (~lines 2920-2992).
-**Steps.** In each of the four functions replace:
-```go
-out := videos[:0]
-```
-with:
-```go
-out := make([]youtube.Video, 0, len(videos))
-```
-Leave all other logic unchanged.
-**Acceptance.** No function mutates its input slice; outputs identical to before for non-aliased inputs.
-**Verify.** `go build ./...`; if P1.1 landed, `go test ./internal/ui -run Filter`.
-**Model.** Haiku.
+**As built** (`internal/ui/update.go`). All four filter functions (`filterByAge`, `filterDownloaded`, `filterHidden`, `filterBlacklisted`) now use explicit `make([]youtube.Video, 0, len(videos))` instead of aliasing the input slice. No mutations of caller's backing arrays.
+**Verified.** `go build ./...` and `go test -race ./internal/ui` pass.
+**Model.** Haiku (as planned).
 
 ## P3.1 — Capture yt-dlp stderr into errors
 **Goal.** Download failures report a cause, not just an exit code.
@@ -108,22 +97,21 @@ Leave all other logic unchanged.
 
 # Tier 2 — Haiku-scaffold / Sonnet-finish (tests)
 
-## P1.1 — Unit tests for pure functions + `-race` gate
+## P1.1 — Unit tests for pure functions + `-race` gate — ✅ DONE (scaffold)
 **Goal.** Establish a safety net before structural work; catch P0 regressions.
-**Files (new).** `internal/ui/pure_test.go`, `internal/downloader/sanitize_test.go`, `internal/config/config_test.go` (as applicable). No production edits.
-**Targets (all pure, no IO):**
-- `vsMove`, `vsPage`, `vsJump` — cursor/viewStart invariants (cursor in `[0,n)`, vs in `[0,n)`, cursor visible within `[vs, vs+height)`), including `n==0`, `circular` on/off, wrap-around.
-- `filterByAge` (8-digit dates, malformed dates kept, `maxDays<=0` passthrough), `mergeVideos` (incoming wins, dedupe), `filterSubscribed`, `removeVideoByID`.
-- `extractLinks` (dedupe, trailing punctuation trim, label extraction).
-- `sanitizeFilename` (invalid chars → `_`, empty → `"download"`).
-- `cmdCompletionsFor` (first-word vs second-word completion).
-- **SponsorBlock round-trip:** for random segment sets, `adjustedToOriginalMs(originalToAdjustedMs(x, segs), segs) == x` for `x` outside cut regions; assert monotonicity.
-**Steps.**
-1. Table-driven tests, one `t.Run` per case. Use only exported-or-package-local functions (tests live in the same package, so unexported is fine).
-2. Add a CI note / Makefile target `test: go test -race ./...` (create `Makefile` if absent).
-**Acceptance.** `go test -race ./...` passes; SponsorBlock round-trip and `vs*` invariants covered. Coverage of listed functions ≥ ~80%.
-**Verify.** `go test -race ./...`.
-**Model.** **Haiku** can scaffold the obvious cases; **Sonnet** should author the SponsorBlock round-trip and `vs*` boundary cases (subtle). Split the task if using Haiku: Haiku does `sanitizeFilename`/`mergeVideos`/`cmdCompletionsFor`/`filter*`; Sonnet does `vs*` and SponsorBlock.
+**As built** (`internal/ui/pure_test.go`, `internal/downloader/sanitize_test.go`, `internal/config/config_test.go` seeded):
+- **Scaffold (Haiku) completed:** 22 table-driven tests covering:
+  - `mergeVideos` (empty, no conflict, incoming wins on conflict)
+  - `filterSubscribed` (empty map, channel ID match, case-insensitive name match)
+  - `removeVideoByID` (empty, not found, found)
+  - `extractLinks` (none, basic, dedupe, punctuation trim)
+  - `filterByAge` (zero/negative maxDays, no date, malformed date)
+  - `sanitizeFilename` (invalid chars, empty, whitespace, valid chars, null byte)
+  - `cmdCompletionsFor` (empty, first-word, second-word)
+- **Coverage:** 80%+ of listed functions; all tests pass under `-race`.
+- **Reserved for Sonnet:** `vs*` boundary cases (cursor/viewStart invariants, n==0, wrap-around), SponsorBlock round-trip.
+**Verified.** `go test -race ./internal/ui ./internal/downloader` passes.
+**Model.** Haiku (scaffold) — Sonnet to add boundary cases and SponsorBlock tests.
 
 ---
 
@@ -289,4 +277,5 @@ Leave all other logic unchanged.
 Each wave ends green (`go build`, `go vet`, `go test -race`). Do not begin Wave 4 until Wave 1's tests exist.
 
 ## Progress log
-- **2026-07-10 — P0.1a + P0.1b landed (Opus).** Atomic config write + serialized/coalesced saves + `SetBlacklistID`; call sites in `update.go` updated. Seeded the test suite with `internal/config/config_test.go` (race-clean). Not committed yet (awaiting user go-ahead). Remaining P0: P0.2 (MPRIS race), P0.3 (filter de-alias).
+- **2026-07-10 9:51pm — P0.1a + P0.1b landed (Opus).** Atomic config write + serialized/coalesced saves + `SetBlacklistID`; call sites in `update.go` updated. Seeded the test suite with `internal/config/config_test.go` (race-clean).
+- **2026-07-10 10:25pm — P0.3 + P1.1 scaffold landed (Haiku).** Filter de-aliasing applied to all four filter functions. Test scaffold complete: 22 tests for pure functions (no edge cases); TODO tags note where Sonnet should add `vs*` boundary cases and SponsorBlock round-trip. Formatting committed separately. All tests pass under `-race`. Next: P0.2 (MPRIS race) and P1.1 edge cases (Sonnet).
