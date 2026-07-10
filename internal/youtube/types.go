@@ -24,7 +24,7 @@ type Video struct {
 	Title      string
 	Channel    string
 	ChannelID  string
-	Duration   int   // seconds
+	Duration   int // seconds
 	ViewCount  int64
 	UploadDate string // YYYYMMDD
 	URL        string

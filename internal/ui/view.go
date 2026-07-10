@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 func (m Model) View() string {
@@ -213,29 +213,29 @@ var hintRegistry = map[string]hintFn{
 		}
 		return out
 	},
-	"play":          hintK(func(km keyMap) key.Binding { return km.Play }, "stream video"),
-	"play_audio":    hintK(func(km keyMap) key.Binding { return km.PlayAudio }, "stream audio"),
-	"download":      hintK(func(km keyMap) key.Binding { return km.Download }, "download video"),
+	"play":           hintK(func(km keyMap) key.Binding { return km.Play }, "stream video"),
+	"play_audio":     hintK(func(km keyMap) key.Binding { return km.PlayAudio }, "stream audio"),
+	"download":       hintK(func(km keyMap) key.Binding { return km.Download }, "download video"),
 	"download_audio": hintK(func(km keyMap) key.Binding { return km.DownloadAudio }, "download audio"),
-	"copy_url":      hintK(func(km keyMap) key.Binding { return km.CopyURL }, "copy url"),
-	"info":          hintK(func(km keyMap) key.Binding { return km.VideoInfo }, "info"),
-	"hide_video":    hintK(func(km keyMap) key.Binding { return km.HideVideo }, "hide video"),
-	"hide_channel":  hintK(func(km keyMap) key.Binding { return km.HideChannel }, "block channel"),
-	"add_playlist":  hintK(func(km keyMap) key.Binding { return km.AddList }, "add to playlist"),
-	"new_playlist":  hintK(func(km keyMap) key.Binding { return km.NewList }, "new playlist"),
-	"delete":        hintK(func(km keyMap) key.Binding { return km.Delete }, "delete"),
-	"refresh":       hintK(func(km keyMap) key.Binding { return km.Refresh }, "refresh"),
-	"open":          hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open"),
-	"open_channel":  hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open channel"),
-	"open_tag":      hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open tag"),
-	"search_again":  hintK(func(km keyMap) key.Binding { return km.DrillDown }, "search"),
-	"details":       hintK(func(km keyMap) key.Binding { return km.DrillDown }, "details"),
-	"filter":        func(m Model) []hintEntry { return []hintEntry{{m.cfg.Keybindings.Filter, "filter"}} },
-	"unsubscribe":   hintK(func(km keyMap) key.Binding { return km.Unsubscribe }, "unsubscribe"),
-	"rename":        hintK(func(km keyMap) key.Binding { return km.RenameChannel }, "rename"),
-	"edit_tags":     hintK(func(km keyMap) key.Binding { return km.TagChannel }, "tags"),
-	"open_links":    hintK(func(km keyMap) key.Binding { return km.OpenLinks }, "links"),
-	"open_chapters": hintK(func(km keyMap) key.Binding { return km.OpenChapters }, "chapters"),
+	"copy_url":       hintK(func(km keyMap) key.Binding { return km.CopyURL }, "copy url"),
+	"info":           hintK(func(km keyMap) key.Binding { return km.VideoInfo }, "info"),
+	"hide_video":     hintK(func(km keyMap) key.Binding { return km.HideVideo }, "hide video"),
+	"hide_channel":   hintK(func(km keyMap) key.Binding { return km.HideChannel }, "block channel"),
+	"add_playlist":   hintK(func(km keyMap) key.Binding { return km.AddList }, "add to playlist"),
+	"new_playlist":   hintK(func(km keyMap) key.Binding { return km.NewList }, "new playlist"),
+	"delete":         hintK(func(km keyMap) key.Binding { return km.Delete }, "delete"),
+	"refresh":        hintK(func(km keyMap) key.Binding { return km.Refresh }, "refresh"),
+	"open":           hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open"),
+	"open_channel":   hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open channel"),
+	"open_tag":       hintK(func(km keyMap) key.Binding { return km.DrillDown }, "open tag"),
+	"search_again":   hintK(func(km keyMap) key.Binding { return km.DrillDown }, "search"),
+	"details":        hintK(func(km keyMap) key.Binding { return km.DrillDown }, "details"),
+	"filter":         func(m Model) []hintEntry { return []hintEntry{{m.cfg.Keybindings.Filter, "filter"}} },
+	"unsubscribe":    hintK(func(km keyMap) key.Binding { return km.Unsubscribe }, "unsubscribe"),
+	"rename":         hintK(func(km keyMap) key.Binding { return km.RenameChannel }, "rename"),
+	"edit_tags":      hintK(func(km keyMap) key.Binding { return km.TagChannel }, "tags"),
+	"open_links":     hintK(func(km keyMap) key.Binding { return km.OpenLinks }, "links"),
+	"open_chapters":  hintK(func(km keyMap) key.Binding { return km.OpenChapters }, "chapters"),
 	"toggle_mode": func(m Model) []hintEntry {
 		label := "tag view"
 		if m.subChTagsMode {

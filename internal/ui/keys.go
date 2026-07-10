@@ -3,8 +3,8 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/charmbracelet/bubbles/key"
 )
 
 type keyMap struct {
@@ -56,43 +56,43 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 	}
 
 	return keyMap{
-		Up:       b(kb.Up,       "up"),
-		Down:     b(kb.Down,     "down"),
-		Left:     b(kb.Back,     "back"),
-		Right:    b(kb.Right,    "right"),
-		PageUp:   b(kb.PageUp,   "page up"),
+		Up:       b(kb.Up, "up"),
+		Down:     b(kb.Down, "down"),
+		Left:     b(kb.Back, "back"),
+		Right:    b(kb.Right, "right"),
+		PageUp:   b(kb.PageUp, "page up"),
 		PageDown: b(kb.PageDown, "page down"),
 
-		Tab:      key.NewBinding(key.WithKeys("tab"),       key.WithHelp("tab", "next tab")),
+		Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next tab")),
 		ShiftTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev tab")),
 
-		Download:      b(kb.Download,      "download video"),
+		Download:      b(kb.Download, "download video"),
 		DownloadAudio: b(kb.DownloadAudio, "download audio"),
-		Play:          b(kb.Play,          "stream video"),
-		PlayAudio:     b(kb.PlayAudio,     "stream audio"),
-		Delete:        b(kb.Delete,        "delete"),
-		HideVideo:     b(kb.HideVideo,     "hide video"),
-		HideChannel:   b(kb.HideChannel,   "hide channel"),
-		Unsubscribe:   b(kb.Unsubscribe,   "unsubscribe"),
-		CopyURL:       b(kb.CopyURL,       "copy URL"),
-		DrillDown:     b(kb.DrillDown,     "open"),
+		Play:          b(kb.Play, "stream video"),
+		PlayAudio:     b(kb.PlayAudio, "stream audio"),
+		Delete:        b(kb.Delete, "delete"),
+		HideVideo:     b(kb.HideVideo, "hide video"),
+		HideChannel:   b(kb.HideChannel, "hide channel"),
+		Unsubscribe:   b(kb.Unsubscribe, "unsubscribe"),
+		CopyURL:       b(kb.CopyURL, "copy URL"),
+		DrillDown:     b(kb.DrillDown, "open"),
 		Escape:        b(kb.Close, "close"),
 		Quit:          key.NewBinding(key.WithKeys(kb.Quit, "ctrl+c"), key.WithHelp(kb.Quit, "quit")),
 
-		ToggleMode: b(kb.ToggleMode,    "toggle mode"),
-		Subscribe:     b(kb.Subscribe,      "subscribe"),
+		ToggleMode:    b(kb.ToggleMode, "toggle mode"),
+		Subscribe:     b(kb.Subscribe, "subscribe"),
 		RenameChannel: b(kb.RenameChannel, "rename channel"),
-		TagChannel:    b(kb.TagChannel,    "edit tags"),
+		TagChannel:    b(kb.TagChannel, "edit tags"),
 		AddList:       b(kb.AddToPlaylist, "add to playlist"),
-		NewList:    b(kb.NewPlaylist,   "new playlist"),
-		Refresh:      b(kb.Refresh,      "refresh"),
-		ForceRefresh: b(kb.ForceRefresh, "force refresh"),
-		Help:         b(kb.Help,         "help"),
-		Filter:     b(kb.Filter,        "filter"),
-		GotoBottom: b(kb.GotoBottom,    "go to bottom"),
-		GotoLine:   b(kb.GotoLine,      "go to line"),
-		VideoInfo:  b(kb.VideoInfo,     "video info"),
-		OpenLinks:    b(kb.OpenLinks,    "open links"),
-		OpenChapters: b(kb.OpenChapters, "chapters"),
+		NewList:       b(kb.NewPlaylist, "new playlist"),
+		Refresh:       b(kb.Refresh, "refresh"),
+		ForceRefresh:  b(kb.ForceRefresh, "force refresh"),
+		Help:          b(kb.Help, "help"),
+		Filter:        b(kb.Filter, "filter"),
+		GotoBottom:    b(kb.GotoBottom, "go to bottom"),
+		GotoLine:      b(kb.GotoLine, "go to line"),
+		VideoInfo:     b(kb.VideoInfo, "video info"),
+		OpenLinks:     b(kb.OpenLinks, "open links"),
+		OpenChapters:  b(kb.OpenChapters, "chapters"),
 	}
 }

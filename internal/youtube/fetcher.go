@@ -10,23 +10,23 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ytdlpEntry is the raw JSON from yt-dlp --flat-playlist --dump-json.
 type ytdlpEntry struct {
-	ID               string  `json:"id"`
-	Title            string  `json:"title"`
-	Uploader         string  `json:"uploader"`
-	Channel          string  `json:"channel"`
-	ChannelID        string  `json:"channel_id"`
-	PlaylistChannel  string  `json:"playlist_channel"`
-	PlaylistUploader string  `json:"playlist_uploader"`
-	Duration         float64 `json:"duration"`
-	ViewCount        int64   `json:"view_count"`
-	UploadDate       string  `json:"upload_date"`
+	ID                   string  `json:"id"`
+	Title                string  `json:"title"`
+	Uploader             string  `json:"uploader"`
+	Channel              string  `json:"channel"`
+	ChannelID            string  `json:"channel_id"`
+	PlaylistChannel      string  `json:"playlist_channel"`
+	PlaylistUploader     string  `json:"playlist_uploader"`
+	Duration             float64 `json:"duration"`
+	ViewCount            int64   `json:"view_count"`
+	UploadDate           string  `json:"upload_date"`
 	WebpageURL           string  `json:"webpage_url"`
 	URL                  string  `json:"url"`
 	ChannelURL           string  `json:"channel_url"`

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // YTClient holds browser-extracted cookies and can make YouTube innertube API calls.
@@ -74,7 +74,6 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 
 	return &YTClient{cookieHeader: cookieHeader, sapisid: sapisid}, nil
 }
-
 
 func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 	data, err := os.ReadFile(path)

@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/mattn/go-runewidth"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -156,7 +156,7 @@ type Model struct {
 	subChLatest        map[string]youtube.Video // channelID → latest known video
 
 	// ── Channels: alias/tag editing ───────────────────────────────────────────
-	subChEditMode  int              // 0=none, 1=editing alias, 2=editing tags
+	subChEditMode  int // 0=none, 1=editing alias, 2=editing tags
 	subChEditInput textinput.Model
 
 	// ── Channels: tags-grouped view ───────────────────────────────────────────
@@ -167,23 +167,23 @@ type Model struct {
 	subChTagSort   int    // video sort mode for tag video list
 
 	// ── Playlists ────────────────────────────────────────────────────────────
-	playlists         []db.Playlist        // local playlists (fallback when no YT)
-	ytPlaylists       []youtube.YTPlaylist // YouTube playlists (loaded from YT)
-	ytPlLoading       bool
-	ytPlLoaded        bool
-	ytClient          *youtube.YTClient // nil until browser cookies extracted
-	playlistCursor    int
-	playlistVS        int
-	playlistVidCache  map[string][]youtube.Video
-	playlistVidCursor int
-	playlistVidVS     int
-	playlistVidLoading bool
-	playlistPane      int
-	createMode     bool
-	createModeYT   bool // true = creating a YouTube playlist (not local)
-	createTypeMode bool // true = in type-selection dialog before creating
-	createTypeSel  int  // 0 = local, 1 = YouTube
-	createInput    textinput.Model
+	playlists            []db.Playlist        // local playlists (fallback when no YT)
+	ytPlaylists          []youtube.YTPlaylist // YouTube playlists (loaded from YT)
+	ytPlLoading          bool
+	ytPlLoaded           bool
+	ytClient             *youtube.YTClient // nil until browser cookies extracted
+	playlistCursor       int
+	playlistVS           int
+	playlistVidCache     map[string][]youtube.Video
+	playlistVidCursor    int
+	playlistVidVS        int
+	playlistVidLoading   bool
+	playlistPane         int
+	createMode           bool
+	createModeYT         bool // true = creating a YouTube playlist (not local)
+	createTypeMode       bool // true = in type-selection dialog before creating
+	createTypeSel        int  // 0 = local, 1 = YouTube
+	createInput          textinput.Model
 	addOverlay           bool
 	addOverlaySel        int
 	addVideo             youtube.Video
@@ -193,16 +193,16 @@ type Model struct {
 	addOverlayInput      textinput.Model
 
 	// ── Search ────────────────────────────────────────────────────────────────
-	searchInput    textinput.Model
-	searchFocused  bool
-	searchVideos   []youtube.Video
-	searchCursor   int
-	searchVS       int
-	searchLoading  bool
-	lastQuery      string
-	searchHistory  []string // past queries, newest first
-	searchHistIdx  int      // -1 = not navigating; 0+ = index into searchHistory
-	searchDraft    string   // saved current input text when history nav starts
+	searchInput   textinput.Model
+	searchFocused bool
+	searchVideos  []youtube.Video
+	searchCursor  int
+	searchVS      int
+	searchLoading bool
+	lastQuery     string
+	searchHistory []string // past queries, newest first
+	searchHistIdx int      // -1 = not navigating; 0+ = index into searchHistory
+	searchDraft   string   // saved current input text when history nav starts
 
 	// ── Downloading ───────────────────────────────────────────────────────────
 	dlCursor int
@@ -283,25 +283,25 @@ type Model struct {
 	playAfterDownload map[string]bool
 
 	// ── Playback resume ───────────────────────────────────────────────────
-	playerBackend    player.Backend
-	playingVideoID   string        // ID of the video currently playing (for position saves)
+	playerBackend     player.Backend
+	playingVideoID    string         // ID of the video currently playing (for position saves)
 	playingSBSegments []db.SBSegment // SponsorBlock segments for the current local file (empty = no conversion)
 
 	// ── Pending direct overlay (chapters/links opened without info panel) ──
 	pendingDirectOverlay string // "links" or "chapters"; cleared after VideoDetailsMsg handled
 
 	// ── Video detail overlay ──────────────────────────────────────────────
-	vidDetailOverlay bool
-	vidDetailVideo   *youtube.VideoDetails
-	vidDetailLoading bool
-	vidDetailDescVS  int         // description scroll start line
-	vidDetailThumb   image.Image // nil until loaded; stays nil if fetch fails
-	vidDetailLinks        *[]db.Link    // nil = not yet parsed; &[]db.Link{} = parsed, none found
-	vidDetailChapters     *[]db.Chapter // nil = not available; populated from yt-dlp metadata
-	vidDetailDescLines    []string  // pre-wrapped description lines; nil until video is set
-	vidDetailThumbB64      string // pre-encoded PNG base64 for Kitty; empty until loaded
-	vidDetailThumbRendered string // pre-rendered half-block string for non-Kitty terminals
-	vidDetailKittyOverlay  string // full Kitty sequence; recomputed only on thumbnail load or resize
+	vidDetailOverlay       bool
+	vidDetailVideo         *youtube.VideoDetails
+	vidDetailLoading       bool
+	vidDetailDescVS        int           // description scroll start line
+	vidDetailThumb         image.Image   // nil until loaded; stays nil if fetch fails
+	vidDetailLinks         *[]db.Link    // nil = not yet parsed; &[]db.Link{} = parsed, none found
+	vidDetailChapters      *[]db.Chapter // nil = not available; populated from yt-dlp metadata
+	vidDetailDescLines     []string      // pre-wrapped description lines; nil until video is set
+	vidDetailThumbB64      string        // pre-encoded PNG base64 for Kitty; empty until loaded
+	vidDetailThumbRendered string        // pre-rendered half-block string for non-Kitty terminals
+	vidDetailKittyOverlay  string        // full Kitty sequence; recomputed only on thumbnail load or resize
 
 	// ── Link list overlay (opened from video detail) ───────────────────────
 	linkOverlay     bool
@@ -309,8 +309,8 @@ type Model struct {
 	linkOverlayURLs []db.Link
 
 	// ── Chapter list overlay (opened from video detail) ────────────────────
-	chapterOverlay     bool
-	chapterOverlaySel  int
+	chapterOverlay      bool
+	chapterOverlaySel   int
 	chapterOverlayItems []db.Chapter
 }
 
@@ -417,26 +417,26 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	backend, _ := player.New(cfg)
 
 	return Model{
-		cfg:               cfg,
-		db:                database,
-		downloader:        dl,
-		tabs:              tabs,
-		activeTab:         firstTab,
-		recVideos:         recCache,
-		recLoaded:         len(recCache) > 0,
-		recLoading:        true,
-		recRefreshing:     len(recCache) > 0,
-		subVideos:         subVideos,
-		searchInput:       si,
-		createInput:       ci,
-		subChEditInput:    ei,
-		addOverlayInput:   oi,
-		subChTagSort:      vidSortDate,
-		spinner:           sp,
-		localVideos:       localVideos,
-		localVideoIDs:     localIDMap,
-		streamedVideoIDs:  mustWatchedIDs(database),
-		videoPositions:    mustVideoPositions(database),
+		cfg:                  cfg,
+		db:                   database,
+		downloader:           dl,
+		tabs:                 tabs,
+		activeTab:            firstTab,
+		recVideos:            recCache,
+		recLoaded:            len(recCache) > 0,
+		recLoading:           true,
+		recRefreshing:        len(recCache) > 0,
+		subVideos:            subVideos,
+		searchInput:          si,
+		createInput:          ci,
+		subChEditInput:       ei,
+		addOverlayInput:      oi,
+		subChTagSort:         vidSortDate,
+		spinner:              sp,
+		localVideos:          localVideos,
+		localVideoIDs:        localIDMap,
+		streamedVideoIDs:     mustWatchedIDs(database),
+		videoPositions:       mustVideoPositions(database),
 		recHidden:            recHidden,
 		subscribedChannelIDs: subscribedIDs,
 		subChannels:          cachedChannels,
@@ -445,19 +445,19 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		localFilterInput:     textinput.New(),
 		cmdInput:             func() textinput.Model { t := textinput.New(); t.Prompt = ""; return t }(),
 		playAfterDownload:    make(map[string]bool),
-		playlists:         playlists,
-		ytPlaylists:       cachedYTPlaylists,
-		ytPlLoaded:        len(cachedYTPlaylists) > 0,
-		playlistVidCache:  make(map[string][]youtube.Video),
-		keys:              buildKeyMap(cfg.Keybindings),
-		playerBackend:     backend,
-		recSort:      vidSortViews,
-		subSort:      vidSortDate,
-		subChVidSort: vidSortDate,
-		searchSort:   vidSortNone,
-		localSort:    vidSortNone,
-		playlistSort: vidSortNone,
-		searchHistIdx:     -1,
+		playlists:            playlists,
+		ytPlaylists:          cachedYTPlaylists,
+		ytPlLoaded:           len(cachedYTPlaylists) > 0,
+		playlistVidCache:     make(map[string][]youtube.Video),
+		keys:                 buildKeyMap(cfg.Keybindings),
+		playerBackend:        backend,
+		recSort:              vidSortViews,
+		subSort:              vidSortDate,
+		subChVidSort:         vidSortDate,
+		searchSort:           vidSortNone,
+		localSort:            vidSortNone,
+		playlistSort:         vidSortNone,
+		searchHistIdx:        -1,
 	}
 }
 
@@ -994,7 +994,7 @@ func sortVideos(videos []youtube.Video, mode int) {
 		sort.SliceStable(videos, func(i, j int) bool {
 			return videos[i].Duration > videos[j].Duration
 		})
-	// vidSortNone: no-op — keep current order
+		// vidSortNone: no-op — keep current order
 	}
 }
 

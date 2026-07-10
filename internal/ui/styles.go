@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"github.com/charmbracelet/lipgloss"
 	"github.com/EugeneShtoka/yt-tui/internal/theme"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // colorAccent and colorBgSelect are kept as package vars so inline styles in view.go can reference them.
 var (
-	colorAccent  lipgloss.Color
+	colorAccent   lipgloss.Color
 	colorBgSelect lipgloss.Color
 )
 
@@ -46,15 +46,15 @@ func init() {
 // InitStyles rebuilds all UI styles from the given theme.
 // Call this once at startup after loading the user's theme file.
 func InitStyles(t theme.Theme) {
-	colorAccent   = lipgloss.Color(t.Accent)
+	colorAccent = lipgloss.Color(t.Accent)
 	colorBgSelect = lipgloss.Color(t.BgSelect)
-	accent    := colorAccent
-	muted     := lipgloss.Color(t.Muted)
-	subtle    := lipgloss.Color(t.Subtle)
-	success   := lipgloss.Color(t.Success)
-	warning   := lipgloss.Color(t.Warning)
-	errorC    := lipgloss.Color(t.Error)
-	border    := lipgloss.Color(t.Border)
+	accent := colorAccent
+	muted := lipgloss.Color(t.Muted)
+	subtle := lipgloss.Color(t.Subtle)
+	success := lipgloss.Color(t.Success)
+	warning := lipgloss.Color(t.Warning)
+	errorC := lipgloss.Color(t.Error)
+	border := lipgloss.Color(t.Border)
 	highlight := lipgloss.Color(t.Highlight)
 
 	styleTabActive = lipgloss.NewStyle().
@@ -110,13 +110,13 @@ func InitStyles(t theme.Theme) {
 	styleHelp = lipgloss.NewStyle().
 		Foreground(muted)
 
-	styleProgressFill  = lipgloss.NewStyle().Foreground(success)
+	styleProgressFill = lipgloss.NewStyle().Foreground(success)
 	styleProgressEmpty = lipgloss.NewStyle().Foreground(muted)
 
-	stylePendingTag  = lipgloss.NewStyle().Foreground(muted)
-	styleActiveTag   = lipgloss.NewStyle().Foreground(warning)
+	stylePendingTag = lipgloss.NewStyle().Foreground(muted)
+	styleActiveTag = lipgloss.NewStyle().Foreground(warning)
 	styleCompleteTag = lipgloss.NewStyle().Foreground(success)
-	styleFailedTag   = lipgloss.NewStyle().Foreground(errorC)
+	styleFailedTag = lipgloss.NewStyle().Foreground(errorC)
 
 	styleRowNum = lipgloss.NewStyle().
 		Foreground(subtle)
