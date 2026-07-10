@@ -6,20 +6,24 @@ import (
 	"time"
 )
 
-// simpleBackend launches a player without position tracking.
-type simpleBackend struct {
-	path string
+type simpleBackend struct{ driver Driver }
+
+func newSimpleBackend(driver Driver) *simpleBackend {
+	return &simpleBackend{driver: driver}
 }
 
-func newSimpleBackend(path string) *simpleBackend {
-	return &simpleBackend{path: path}
-}
-
-func (s *simpleBackend) Launch(filePath string, startAt time.Duration) error {
-	args := startArgs(s.path, filePath, startAt)
-	cmd := exec.Command(s.path, args...)
+func (s *simpleBackend) exec(args []string) error {
+	cmd := exec.Command(s.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
+}
+
+func (s *simpleBackend) Launch(source string, startAt time.Duration) error {
+	return s.exec(s.driver.Args(source, startAt))
+}
+
+func (s *simpleBackend) LaunchAudio(source string, startAt time.Duration) error {
+	return s.exec(s.driver.AudioArgs(source, startAt))
 }
 
 func (s *simpleBackend) Position() (time.Duration, bool) { return 0, false }

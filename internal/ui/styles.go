@@ -132,6 +132,7 @@ func InitStyles(t theme.Theme) {
 	styleSectionTitle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accent).
+		PaddingLeft(1).
 		MarginBottom(1)
 }
 

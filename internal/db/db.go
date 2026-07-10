@@ -73,7 +73,7 @@ type DB struct {
 	sql *sql.DB
 }
 
-func New(dataDir string, stripEmojis bool) (*DB, error) {
+func New(dataDir string, stripEmojis bool, recommendedMaxAgeDays int) (*DB, error) {
 	path := filepath.Join(dataDir, "yt-tui.db")
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -102,7 +102,7 @@ func New(dataDir string, stripEmojis bool) (*DB, error) {
 	if err := d.deleteMemberVideos(); err != nil {
 		return nil, err
 	}
-	if err := d.pruneRecommendedFeed(); err != nil {
+	if err := d.pruneRecommendedFeed(recommendedMaxAgeDays); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -120,7 +120,25 @@ func (d *DB) Close() error {
 var versionedMigrations = []struct {
 	version int
 	run     func(db *sql.DB) error
-}{}
+}{
+	{
+		version: 1,
+		run: func(db *sql.DB) error {
+			_, err := db.Exec(`UPDATE history SET event_type = 'playVideo' WHERE event_type = 'play'`)
+			return err
+		},
+	},
+	{
+		version: 2,
+		run: func(db *sql.DB) error {
+			_, err := db.Exec(`
+				INSERT OR IGNORE INTO video_positions (video_id, position_ms)
+				SELECT id, last_position_ms FROM local_videos WHERE last_position_ms > 0
+			`)
+			return err
+		},
+	},
+}
 
 func (d *DB) runVersionedMigrations() error {
 	var current int
@@ -257,6 +275,7 @@ func (d *DB) migrate() error {
 		`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE video_details_cache ADD COLUMN links TEXT`,
 		`ALTER TABLE video_details_cache ADD COLUMN chapters TEXT`,
+		`ALTER TABLE video_details_cache ADD COLUMN sb_segments TEXT`,
 		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
@@ -316,6 +335,11 @@ func (d *DB) migrate() error {
 		`CREATE TABLE IF NOT EXISTS meta (
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS video_positions (
+			video_id    TEXT PRIMARY KEY,
+			position_ms INTEGER NOT NULL DEFAULT 0,
+			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 	} {
 		if _, err = d.sql.Exec(stmt); err != nil {
@@ -626,10 +650,68 @@ func (d *DB) LocalVideos() ([]LocalVideo, error) {
 	return result, rows.Err()
 }
 
+// AllVideoPositions returns all saved positions as a map of videoID → position_ms.
+func (d *DB) AllVideoPositions() (map[string]int64, error) {
+	rows, err := d.sql.Query(`SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string]int64)
+	for rows.Next() {
+		var id string
+		var ms int64
+		if err := rows.Scan(&id, &ms); err == nil {
+			m[id] = ms
+		}
+	}
+	return m, rows.Err()
+}
+
+// SaveVideoPosition upserts the last known playback position for any video (local or streamed).
+func (d *DB) SaveVideoPosition(videoID string, ms int64) error {
+	_, err := d.sql.Exec(`
+		INSERT INTO video_positions (video_id, position_ms, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(video_id) DO UPDATE SET position_ms=excluded.position_ms, updated_at=excluded.updated_at
+	`, videoID, ms)
+	return err
+}
+
+// VideoPosition returns the last saved position for any video, or 0 if none.
+func (d *DB) VideoPosition(videoID string) (int64, bool) {
+	var ms int64
+	err := d.sql.QueryRow(`SELECT position_ms FROM video_positions WHERE video_id=?`, videoID).Scan(&ms)
+	if err != nil || ms == 0 {
+		return 0, false
+	}
+	return ms, true
+}
+
+// WatchedVideoIDs returns the set of video IDs that have any play or stream history event.
+func (d *DB) WatchedVideoIDs() (map[string]bool, error) {
+	rows, err := d.sql.Query(`
+		SELECT DISTINCT video_id FROM history
+		WHERE event_type IN ('playVideo','playAudio','streamVideo','streamAudio')
+		AND video_id != ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids[id] = true
+		}
+	}
+	return ids, rows.Err()
+}
+
 // UpdateLastPosition saves the last known playback position for a local video.
 func (d *DB) UpdateLastPosition(id string, ms int64) error {
-	_, err := d.sql.Exec(`UPDATE local_videos SET last_position_ms=? WHERE id=?`, ms, id)
-	return err
+	return d.SaveVideoPosition(id, ms)
 }
 
 // HasLocalVideo returns the local video record if it exists.
@@ -1089,28 +1171,42 @@ type Link struct {
 	URL   string `json:"url"`
 }
 
-// Chapter is a timed section from a video's chapter list.
+// Chapter is a timed section from a video's chapter list with both original and
+// SponsorBlock-adjusted timestamps. SponsorBlock chapters are excluded; chapters
+// whose boundaries coincide with a SponsorBlock segment (±3 s) are also dropped.
 type Chapter struct {
-	Title     string  `json:"title"`
-	StartTime float64 `json:"start_time"`
-	EndTime   float64 `json:"end_time"`
+	Title         string  `json:"title"`
+	OriginalStart float64 `json:"original_start"`
+	OriginalEnd   float64 `json:"original_end"`
+	AdjustedStart float64 `json:"adjusted_start"`
+	AdjustedEnd   float64 `json:"adjusted_end"`
+}
+
+// SBSegment is a SponsorBlock time range in the original video timeline.
+// Stored alongside chapters and used to convert local-file positions to original
+// timeline positions (and back) for unified cross-mode resume.
+type SBSegment struct {
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
 }
 
 type CachedDetails struct {
 	Description  string
 	ThumbnailURL string
 	Subscribers  int64
-	Links        *[]Link    // nil = never parsed; &[]Link{} = parsed, none found
-	Chapters     *[]Chapter // nil = none available; populated from yt-dlp metadata
+	Links        *[]Link      // nil = never parsed; &[]Link{} = parsed, none found
+	Chapters     *[]Chapter   // nil = none available; populated from yt-dlp metadata
+	SBSegments   *[]SBSegment // nil = none; SponsorBlock cut ranges in original timeline
 }
 
 // GetVideoDetailsCache returns cached details for a video, false if not cached.
 func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 	var c CachedDetails
-	var linksJSON, chaptersJSON *string
+	var linksJSON, chaptersJSON, sbJSON *string
 	err := d.sql.QueryRow(`
-		SELECT description, thumbnail_url, subscribers, links, chapters FROM video_details_cache WHERE video_id=?
-	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON, &chaptersJSON)
+		SELECT description, thumbnail_url, subscribers, links, chapters, sb_segments
+		FROM video_details_cache WHERE video_id=?
+	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON, &chaptersJSON, &sbJSON)
 	if err == sql.ErrNoRows {
 		return c, false, nil
 	}
@@ -1129,16 +1225,32 @@ func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 			c.Chapters = &chapters
 		}
 	}
+	if sbJSON != nil {
+		var segs []SBSegment
+		if json.Unmarshal([]byte(*sbJSON), &segs) == nil {
+			c.SBSegments = &segs
+		}
+	}
 	return c, true, nil
 }
 
-// SaveVideoChapters stores the chapter list for a video.
+// SaveVideoChapters stores the pre-processed, SponsorBlock-adjusted chapter list for a video.
 func (d *DB) SaveVideoChapters(videoID string, chapters []Chapter) error {
 	data, err := json.Marshal(chapters)
 	if err != nil {
 		return err
 	}
 	_, err = d.sql.Exec(`UPDATE video_details_cache SET chapters=? WHERE video_id=?`, string(data), videoID)
+	return err
+}
+
+// SaveVideoSBSegments stores the raw SponsorBlock cut ranges for a video.
+func (d *DB) SaveVideoSBSegments(videoID string, segs []SBSegment) error {
+	data, err := json.Marshal(segs)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`UPDATE video_details_cache SET sb_segments=? WHERE video_id=?`, string(data), videoID)
 	return err
 }
 
@@ -1154,9 +1266,9 @@ func (d *DB) SaveVideoLinks(videoID string, links []Link) error {
 }
 
 // pruneRecommendedFeed removes recommended feed entries and their cached details for videos
-// older than two weeks.
-func (d *DB) pruneRecommendedFeed() error {
-	cutoff := time.Now().AddDate(0, 0, -14).Format("20060102")
+// older than maxDays days.
+func (d *DB) pruneRecommendedFeed(maxDays int) error {
+	cutoff := time.Now().AddDate(0, 0, -maxDays).Format("20060102")
 	if _, err := d.sql.Exec(`
 		DELETE FROM video_details_cache WHERE video_id IN (
 			SELECT fc.video_id FROM feed_cache fc
@@ -1176,6 +1288,42 @@ func (d *DB) pruneRecommendedFeed() error {
 		)
 	`, cutoff)
 	return err
+}
+
+func (d *DB) ClearHistory() error {
+	_, err := d.sql.Exec(`DELETE FROM history`)
+	return err
+}
+
+func (d *DB) ClearRecommended() error {
+	_, err := d.sql.Exec(`DELETE FROM feed_cache WHERE feed='recommended'`)
+	return err
+}
+
+func (d *DB) ClearVideoDetailsCache() error {
+	_, err := d.sql.Exec(`DELETE FROM video_details_cache`)
+	return err
+}
+
+// ClearDownloads removes all local_videos DB entries and returns their file paths for deletion.
+func (d *DB) ClearDownloads() ([]string, error) {
+	rows, err := d.sql.Query(`SELECT file_path FROM local_videos WHERE file_path != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	if _, err := d.sql.Exec(`DELETE FROM local_videos`); err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 // HiddenRecVideoIDs returns a set of video IDs hidden from recommended.
@@ -1275,7 +1423,7 @@ func (d *DB) ChannelHideStats(channelID string) (hidden, played int, err error) 
 			 WHERE v.channel_id = ?) AS hidden_count,
 			(SELECT COUNT(*) FROM history h
 			 JOIN videos v ON v.id = h.video_id
-			 WHERE v.channel_id = ? AND h.event_type = 'play') AS play_count
+			 WHERE v.channel_id = ? AND h.event_type IN ('playVideo','playAudio','streamVideo','streamAudio')) AS play_count
 	`, channelID, channelID).Scan(&hidden, &played)
 	return hidden, played, err
 }

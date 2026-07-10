@@ -4,33 +4,30 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 )
 
 var fallbacks = []string{"mpv", "vlc", "cvlc", "ffplay"}
 
-// startArgs returns player-specific CLI args with an optional resume offset.
-func startArgs(player, filePath string, startAt time.Duration) []string {
-	secs := startAt.Seconds()
-	name := baseName(player)
-	switch name {
-	case "mpv":
-		if secs > 0 {
-			return []string{fmt.Sprintf("--start=%.0f", secs), filePath}
-		}
-	case "vlc", "cvlc":
-		if secs > 0 {
-			return []string{fmt.Sprintf("--start-time=%.0f", secs), filePath}
-		}
+func baseName(path string) string {
+	parts := strings.Split(path, "/")
+	name := parts[len(parts)-1]
+	if idx := strings.IndexByte(name, '-'); idx > 0 {
+		name = name[:idx]
 	}
-	return []string{filePath}
+	return name
 }
 
-func baseName(player string) string {
-	parts := strings.Split(player, "/")
-	return parts[len(parts)-1]
+func newDriver(path string) Driver {
+	switch baseName(path) {
+	case "mpv":
+		return &mpvDriver{path: path}
+	case "vlc", "cvlc":
+		return &vlcDriver{path: path}
+	default:
+		return &genericDriver{path: path}
+	}
 }
 
 // resolvePlayer returns the path to the first available player binary.
@@ -55,13 +52,14 @@ func New(cfg *config.Config) (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	driver := newDriver(path)
 	if cfg.PlayerBackend == "simple" {
-		return newSimpleBackend(path), nil
+		return newSimpleBackend(driver), nil
 	}
 	// Default: MPRIS; fall back to simple if D-Bus is unavailable.
-	b, dbusErr := newMPRISBackend(path)
+	b, dbusErr := newMPRISBackend(driver)
 	if dbusErr != nil {
-		return newSimpleBackend(path), nil
+		return newSimpleBackend(driver), nil
 	}
 	return b, nil
 }

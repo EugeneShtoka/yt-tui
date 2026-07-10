@@ -68,8 +68,8 @@ func buildKeyMap(kb config.KeyBindings) keyMap {
 
 		Download:      b(kb.Download,      "download video"),
 		DownloadAudio: b(kb.DownloadAudio, "download audio"),
-		Play:          b(kb.Play,          "play video"),
-		PlayAudio:     b(kb.PlayAudio,     "play audio"),
+		Play:          b(kb.Play,          "stream video"),
+		PlayAudio:     b(kb.PlayAudio,     "stream audio"),
 		Delete:        b(kb.Delete,        "delete"),
 		HideVideo:     b(kb.HideVideo,     "hide video"),
 		HideChannel:   b(kb.HideChannel,   "hide channel"),

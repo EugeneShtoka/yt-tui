@@ -38,13 +38,6 @@ func (m Model) View() string {
 		m.width += vidDetailPanelW
 		panel := m.renderVideoDetailPanel(vidDetailPanelW, contentH, thumbH)
 		content = lipgloss.JoinHorizontal(lipgloss.Top, left, panel)
-		if m.linkOverlay {
-			content = m.renderLinkOverlay(content)
-		}
-		if m.chapterOverlay {
-			content = m.renderChapterOverlay(content)
-		}
-
 		if m.vidDetailKittyOverlay != "" {
 			kittyOverlay = m.vidDetailKittyOverlay
 		}
@@ -58,6 +51,13 @@ func (m Model) View() string {
 		if kittyCapable() {
 			kittyOverlay = kittyDeleteOverlay()
 		}
+	}
+
+	if m.linkOverlay {
+		content = m.renderLinkOverlay(content)
+	}
+	if m.chapterOverlay {
+		content = m.renderChapterOverlay(content)
 	}
 
 	// Pad content so the status bar is always pinned to the bottom.
@@ -92,10 +92,19 @@ func (m Model) renderStatusBar() string {
 	kh := m.keys.Help.Help().Key
 	kq := m.keys.Quit.Help().Key
 
-	// Non-context-help states (chords, status messages) always render single-row.
 	kb := m.cfg.Keybindings
+	right := styleHelp.Render(kh + ": help  " + kq + ": quit")
+
+	// Non-context-help states (chords, status messages) always render single-row.
 	var fixed string
 	switch {
+	case m.cmdMode:
+		cmdView := ":" + m.cmdInput.View()
+		space := m.width - 1 - lipgloss.Width(cmdView) - lipgloss.Width(right)
+		if space < 1 {
+			space = 1
+		}
+		return cmdView + strings.Repeat(" ", space) + right
 	case m.pendingChord != "":
 		fixed = styleWarning.Render(m.chordHint())
 	case m.gPending && !m.vidDetailOverlay && !m.linkOverlay && !m.chapterOverlay && !m.addOverlay:
@@ -110,7 +119,6 @@ func (m Model) renderStatusBar() string {
 		}
 	}
 	if fixed != "" {
-		right := styleHelp.Render(kh + ": help  " + kq + ": quit")
 		space := m.width - lipgloss.Width(fixed) - lipgloss.Width(right)
 		if space < 1 {
 			space = 1
@@ -118,73 +126,17 @@ func (m Model) renderStatusBar() string {
 		return fixed + strings.Repeat(" ", space) + right
 	}
 
-	// Context help: try single row; wrap to two rows if too wide.
+	// Try full context hints; fall back to minimal if they don't fit on one line.
 	helpRaw := m.contextHelpRaw()
-	r1 := styleHelp.Render(kh + ": help")
-	r2 := styleHelp.Render(kq + ": quit")
-	rightW := lipgloss.Width(r1)
-	if lipgloss.Width(r2) > rightW {
-		rightW = lipgloss.Width(r2)
+	if lipgloss.Width(styleHelp.Render(helpRaw))+1+lipgloss.Width(right) > m.width {
+		helpRaw = m.minimalHintRaw()
 	}
-	rightSingle := styleHelp.Render(kh + ": help  " + kq + ": quit")
-
-	if lipgloss.Width(styleHelp.Render(helpRaw))+1+lipgloss.Width(rightSingle) <= m.width {
-		left := styleHelp.Render(helpRaw)
-		space := m.width - lipgloss.Width(left) - lipgloss.Width(rightSingle)
-		if space < 1 {
-			space = 1
-		}
-		return left + strings.Repeat(" ", space) + rightSingle
+	left := styleHelp.Render(helpRaw)
+	space := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if space < 1 {
+		space = 1
 	}
-
-	// When the Kitty thumbnail is visible, keep the status bar at exactly one row.
-	// A height change (2→1 rows) causes BubbleTea to repaint cells that overlap
-	// the Kitty image, producing a one-frame flicker before the overlay re-sends it.
-	if m.vidDetailOverlay {
-		left := styleHelp.Render(helpRaw)
-		space := m.width - lipgloss.Width(left) - lipgloss.Width(rightSingle)
-		if space < 1 {
-			space = 1
-		}
-		return left + strings.Repeat(" ", space) + rightSingle
-	}
-
-	// Two-row layout: split hints greedily at available width.
-	availW := m.width - rightW - 1
-	line1raw, line2raw := splitStatusHints(helpRaw, availW)
-	l1 := styleHelp.Render(line1raw)
-	l2 := styleHelp.Render(line2raw)
-	p1 := m.width - lipgloss.Width(l1) - lipgloss.Width(r1)
-	p2 := m.width - lipgloss.Width(l2) - lipgloss.Width(r2)
-	if p1 < 1 {
-		p1 = 1
-	}
-	if p2 < 1 {
-		p2 = 1
-	}
-	return l1 + strings.Repeat(" ", p1) + r1 + "\n" +
-		l2 + strings.Repeat(" ", p2) + r2
-}
-
-// splitStatusHints splits a double-space-separated hint string into two rows,
-// greedily filling the first row up to maxW characters.
-func splitStatusHints(text string, maxW int) (string, string) {
-	parts := strings.Split(text, "  ")
-	var row1 []string
-	w1 := 0
-	for i, p := range parts {
-		pw := len(p)
-		if w1 == 0 {
-			row1 = append(row1, p)
-			w1 = pw
-		} else if w1+2+pw <= maxW {
-			row1 = append(row1, p)
-			w1 += 2 + pw
-		} else {
-			return strings.Join(row1, "  "), strings.Join(parts[i:], "  ")
-		}
-	}
-	return text, ""
+	return left + strings.Repeat(" ", space) + right
 }
 
 // chordHint returns the completion hint shown while a chord is pending.
@@ -226,7 +178,7 @@ func (m Model) contextHelpRaw() string {
 func (m Model) minimalHintRaw() string {
 	kb := m.cfg.Keybindings
 	play := m.keys.Play.Help().Key
-	return fmt.Sprintf("j/k: move  %s: tab  %s: play", kb.TabChord, play)
+	return fmt.Sprintf("j/k: move  %s: tab  %s: stream", kb.TabChord, play)
 }
 
 // hintEntry is a single "key: label" pair for the status bar hint.
@@ -261,8 +213,8 @@ var hintRegistry = map[string]hintFn{
 		}
 		return out
 	},
-	"play":          hintK(func(km keyMap) key.Binding { return km.Play }, "play video"),
-	"play_audio":    hintK(func(km keyMap) key.Binding { return km.PlayAudio }, "play audio"),
+	"play":          hintK(func(km keyMap) key.Binding { return km.Play }, "stream video"),
+	"play_audio":    hintK(func(km keyMap) key.Binding { return km.PlayAudio }, "stream audio"),
 	"download":      hintK(func(km keyMap) key.Binding { return km.Download }, "download video"),
 	"download_audio": hintK(func(km keyMap) key.Binding { return km.DownloadAudio }, "download audio"),
 	"copy_url":      hintK(func(km keyMap) key.Binding { return km.CopyURL }, "copy url"),
@@ -283,6 +235,7 @@ var hintRegistry = map[string]hintFn{
 	"rename":        hintK(func(km keyMap) key.Binding { return km.RenameChannel }, "rename"),
 	"edit_tags":     hintK(func(km keyMap) key.Binding { return km.TagChannel }, "tags"),
 	"open_links":    hintK(func(km keyMap) key.Binding { return km.OpenLinks }, "links"),
+	"open_chapters": hintK(func(km keyMap) key.Binding { return km.OpenChapters }, "chapters"),
 	"toggle_mode": func(m Model) []hintEntry {
 		label := "tag view"
 		if m.subChTagsMode {
@@ -294,7 +247,7 @@ var hintRegistry = map[string]hintFn{
 
 // tabHintIDs returns the ordered action IDs to display for the current tab and UI state.
 func (m Model) tabHintIDs() []string {
-	videoBase := []string{"move", "chords", "play", "play_audio", "download", "download_audio", "copy_url", "info", "open_links"}
+	videoBase := []string{"move", "chords", "play", "play_audio", "download", "download_audio", "copy_url", "info", "open_links", "open_chapters"}
 	switch m.activeTab {
 	case tabRecommended:
 		return append(videoBase, "hide_video", "hide_channel", "add_playlist")
@@ -310,7 +263,7 @@ func (m Model) tabHintIDs() []string {
 		if m.subChPane == 0 {
 			return []string{"move", "open", "chords", "rename", "edit_tags", "unsubscribe", "toggle_mode"}
 		}
-		return []string{"move", "info", "download", "download_audio", "copy_url", "back"}
+		return []string{"move", "play", "play_audio", "info", "open_links", "open_chapters", "download", "download_audio", "copy_url", "back"}
 	case tabPlaylists:
 		if m.playlistPane == 1 {
 			return []string{"move", "info", "open", "new_playlist", "delete"}
@@ -318,7 +271,7 @@ func (m Model) tabHintIDs() []string {
 		return []string{"move", "open", "new_playlist", "delete"}
 	case tabSearch:
 		if m.searchChSel != nil {
-			return []string{"move", "info", "download", "download_audio", "copy_url", "filter", "back"}
+			return []string{"move", "play", "play_audio", "info", "open_links", "open_chapters", "download", "download_audio", "copy_url", "filter", "back"}
 		}
 		return []string{"move", "chords", "play", "play_audio", "open_channel", "info", "download", "download_audio", "copy_url", "open_links"}
 	case tabDownloading:
@@ -474,9 +427,6 @@ func (m Model) renderVideoRows(videos []youtube.Video, cursor, vs, height int) s
 	titleW := m.videoListTitleW()
 	colHeader := m.renderVideoColHeader(titleW)
 	windowH := height - 1
-	if ps := m.pageSize(); ps < windowH {
-		windowH = ps
-	}
 	start, end := scrollWindowAt(vs, len(videos), windowH)
 
 	var rows []string
@@ -506,8 +456,8 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 	title := truncate(v.Title, titleW)
 	channel := truncate(v.Channel, colChannel-2)
 	dur := v.DurationStr()
-	if hasLocal && lv.Status == db.StatusStarted && lv.LastPositionMs > 0 {
-		dur = fmtDurWithPos(lv.LastPositionMs, v.Duration)
+	if posMs := m.videoPositions[v.ID]; posMs > 0 {
+		dur = fmtDurWithPos(posMs, v.Duration)
 	}
 	views := v.ViewsStr()
 	date := v.DateStr()
@@ -535,6 +485,9 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 		titleStyle = styleBold.Width(titleW)
 		indicator = styleSuccess.Render("● ")
 	case hasLocal && (lv.Status == db.StatusStarted || lv.Status == db.StatusWatched):
+		titleStyle = styleDim.Width(titleW)
+		indicator = styleDim.Render("○ ")
+	case !hasLocal && m.streamedVideoIDs[v.ID]:
 		titleStyle = styleDim.Width(titleW)
 		indicator = styleDim.Render("○ ")
 	default:
@@ -663,9 +616,6 @@ func (m Model) renderTagList(height int) string {
 		styleColHeader.Width(labelW).Render("Tag")
 
 	windowH := height - 1
-	if ps := m.pageSize(); ps < windowH {
-		windowH = ps
-	}
 	start, end := scrollWindowAt(m.subChTagVS, len(items), windowH)
 	rows := []string{colHeader}
 
@@ -728,9 +678,6 @@ func (m Model) renderChannelList(channels []youtube.Channel, height int) string 
 		styleColHeader.Width(colDate).Render("Date")
 
 	windowH := height - 1
-	if ps := m.pageSize(); ps < windowH {
-		windowH = ps
-	}
 	start, end := scrollWindowAt(m.subChVS, len(channels), windowH)
 	rows := []string{colHeader}
 
@@ -872,7 +819,7 @@ func (m Model) renderPlaylistRows(height int) string {
 // ── Search ────────────────────────────────────────────────────────────────────
 
 func (m Model) renderSearch(height int) string {
-	prompt := styleInputPrompt.Render("Search: ") + m.searchInput.View()
+	prompt := " " + styleInputPrompt.Render("Search: ") + m.searchInput.View()
 	promptH := 1
 	remaining := height - promptH - 1
 
@@ -904,9 +851,9 @@ func (m Model) renderSearch(height int) string {
 	}
 	if len(m.searchChannels) == 0 && len(m.searchVideos) == 0 {
 		if m.lastQuery != "" {
-			return lipgloss.JoinVertical(lipgloss.Left, prompt, styleDim.Render("No results for: "+m.lastQuery))
+			return lipgloss.JoinVertical(lipgloss.Left, prompt, styleDim.PaddingLeft(1).Render("No results for: "+m.lastQuery))
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, prompt, styleDim.Render("Type to search YouTube"))
+		return lipgloss.JoinVertical(lipgloss.Left, prompt, styleDim.PaddingLeft(1).Render("Type to search YouTube"))
 	}
 
 	header := styleSectionTitle.Render("Results for: " + m.lastQuery)
@@ -919,7 +866,7 @@ func (m Model) renderSearch(height int) string {
 
 	// ── Channels section ──────────────────────────────────────────────────────
 	if nCh > 0 {
-		rows = append(rows, styleDim.Render("Channels"))
+		rows = append(rows, styleDim.PaddingLeft(1).Render("Channels"))
 		nameW := m.width - colNum - 1 - 4
 		selW := m.width - colNum - 1
 		for i, ch := range m.searchChannels {
@@ -933,7 +880,7 @@ func (m Model) renderSearch(height int) string {
 			}
 		}
 		if len(m.searchVideos) > 0 {
-			rows = append(rows, styleDim.Render("Videos"))
+			rows = append(rows, styleDim.PaddingLeft(1).Render("Videos"))
 		}
 	}
 
@@ -966,8 +913,8 @@ func (m Model) renderDownloading(height int) string {
 
 	items := m.downloader.Items()
 	if len(items) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styleDim.Render("No active downloads. Press "+m.keys.Download.Help().Key+" on any video to start."))
+		return lipgloss.JoinVertical(lipgloss.Left, header, "",
+			styleDim.PaddingLeft(1).Render("No active downloads. Press "+m.keys.Download.Help().Key+" on any video to start."))
 	}
 
 	titleW := m.width - colNum - 1 - colChannel - colDuration - 42 - 6
@@ -986,7 +933,8 @@ func (m Model) renderDownloading(height int) string {
 	for i := start; i < end && i < len(items); i++ {
 		rows = append(rows, m.renderDownloadRow(items[i], i == m.dlCursor, i+1))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
+	parts := []string{header, "", strings.Join(rows, "\n")}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m Model) renderDownloadRow(item downloader.Item, selected bool, num int) string {
@@ -1150,8 +1098,17 @@ func (m Model) renderHistory(height int) string {
 		titleW = 20
 	}
 
-	start, end := scrollWindowAt(m.histVS, len(m.histEntries), height-headerH)
+	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
+		styleColHeader.Width(colStatus).Render("Type") + " " +
+		styleColHeader.Width(titleW).Render("Title") + " " +
+		styleColHeader.Width(colChannel).Render("Channel") + " " +
+		styleColHeader.Width(colDuration).Render("Duration") + " " +
+		styleColHeader.Width(colViews).Render("Views") + " " +
+		styleColHeader.Width(colDate).Render("Date")
+
+	start, end := scrollWindowAt(m.histVS, len(m.histEntries), height-headerH-1)
 	var rows []string
+	rows = append(rows, colHeader)
 	for i := start; i < end && i < len(m.histEntries); i++ {
 		e := m.histEntries[i]
 
@@ -1623,7 +1580,7 @@ func (m Model) renderChapterOverlay(behind string) string {
 		"",
 	}
 	for i, ch := range chapters {
-		ts := fmtChapterTime(ch.StartTime)
+		ts := fmtChapterTime(ch.OriginalStart)
 		label := fmt.Sprintf("%-7s  %s", ts, truncate(ch.Title, innerW-11))
 		if i == m.chapterOverlaySel {
 			lines = append(lines, styleSelected.Render("▶ "+label))
@@ -1635,8 +1592,12 @@ func (m Model) renderChapterOverlay(behind string) string {
 	if m.gPending {
 		lines = append(lines, "", styleWarning.Render(kb.GotoPrefix+"→"+kb.GotoPrefix+": top"))
 	} else {
-		actionHint := "y: copy timestamp"
-		closeHint := m.keys.Escape.Help().Key + ": close"
+		playKey := m.keys.Play.Help().Key
+		audioKey := m.keys.PlayAudio.Help().Key
+		copyKey := m.keys.CopyURL.Help().Key
+		closeKey := m.keys.Escape.Help().Key
+		actionHint := fmt.Sprintf("%s: stream  %s: audio  %s: copy url", playKey, audioKey, copyKey)
+		closeHint := closeKey + ": close"
 		space := innerW - lipgloss.Width(actionHint) - lipgloss.Width(closeHint)
 		if space < 1 {
 			space = 1

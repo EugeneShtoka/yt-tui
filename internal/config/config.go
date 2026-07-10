@@ -246,6 +246,7 @@ type Config struct {
 	Keybindings           KeyBindings          `toml:"keybindings"`
 	BlacklistedChannels   []BlacklistedChannel `toml:"blacklisted_channels"`
 	DataDir               string               `toml:"-"`
+	ConfigFile            string               `toml:"-"`
 }
 
 var DefaultTabs = []string{
@@ -319,6 +320,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.DataDir = appDir
+	cfg.ConfigFile = cfgFile
 
 	if len(cfg.DownloadDir) > 1 && cfg.DownloadDir[:2] == "~/" {
 		cfg.DownloadDir = filepath.Join(os.Getenv("HOME"), cfg.DownloadDir[2:])

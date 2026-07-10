@@ -232,6 +232,13 @@ type Model struct {
 	localFilterInput   textinput.Model
 	localFilterCursor  int
 
+	// ── Command mode (:cmd) ───────────────────────────────────────────────────
+	cmdMode         bool
+	cmdInput        textinput.Model
+	cmdCompletions  []string
+	cmdCompIdx      int
+	cmdLastTabValue string
+
 	// ── Search: channel results + drill-down ─────────────────────────────────
 	searchChannels    []youtube.Channel
 	searchChSel       *youtube.Channel
@@ -266,6 +273,8 @@ type Model struct {
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
 	localVideoIDs        map[string]db.LocalVideo // cached for fast per-row lookup
+	streamedVideoIDs     map[string]bool          // video IDs with any play/stream history event
+	videoPositions       map[string]int64         // last known position ms for any video
 	recHidden            map[string]bool          // video IDs hidden from recommended
 	recPage              int                      // number of fetches fired this session
 	subscribedChannelIDs map[string]bool          // channel IDs from subscriptions
@@ -274,8 +283,12 @@ type Model struct {
 	playAfterDownload map[string]bool
 
 	// ── Playback resume ───────────────────────────────────────────────────
-	playerBackend   player.Backend
-	playingVideoID  string // ID of the video currently playing (for position saves)
+	playerBackend    player.Backend
+	playingVideoID   string        // ID of the video currently playing (for position saves)
+	playingSBSegments []db.SBSegment // SponsorBlock segments for the current local file (empty = no conversion)
+
+	// ── Pending direct overlay (chapters/links opened without info panel) ──
+	pendingDirectOverlay string // "links" or "chapters"; cleared after VideoDetailsMsg handled
 
 	// ── Video detail overlay ──────────────────────────────────────────────
 	vidDetailOverlay bool
@@ -422,12 +435,15 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		spinner:           sp,
 		localVideos:       localVideos,
 		localVideoIDs:     localIDMap,
+		streamedVideoIDs:  mustWatchedIDs(database),
+		videoPositions:    mustVideoPositions(database),
 		recHidden:            recHidden,
 		subscribedChannelIDs: subscribedIDs,
 		subChannels:          cachedChannels,
 		subChLoaded:          len(cachedChannels) > 0,
 		subChLatest:          chLatest,
 		localFilterInput:     textinput.New(),
+		cmdInput:             func() textinput.Model { t := textinput.New(); t.Prompt = ""; return t }(),
 		playAfterDownload:    make(map[string]bool),
 		playlists:         playlists,
 		ytPlaylists:       cachedYTPlaylists,
@@ -598,6 +614,22 @@ func buildLocalIDMap(lvs []db.LocalVideo) map[string]db.LocalVideo {
 		m[lv.ID] = lv
 	}
 	return m
+}
+
+func mustWatchedIDs(d *db.DB) map[string]bool {
+	ids, _ := d.WatchedVideoIDs()
+	if ids == nil {
+		return make(map[string]bool)
+	}
+	return ids
+}
+
+func mustVideoPositions(d *db.DB) map[string]int64 {
+	pos, _ := d.AllVideoPositions()
+	if pos == nil {
+		return make(map[string]int64)
+	}
+	return pos
 }
 
 type ytClientInitMsg struct {

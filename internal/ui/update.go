@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"regexp"
@@ -39,7 +40,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case positionTickMsg:
 		if pos, ok := m.playerBackend.Position(); ok && m.playingVideoID != "" {
-			_ = m.db.UpdateLastPosition(m.playingVideoID, pos.Milliseconds())
+			ms := pos.Milliseconds()
+			// Local files downloaded with --sponsorblock-remove have compressed timelines.
+			// Convert file position → original timeline before saving so streaming and
+			// local playback share the same position space.
+			if _, isLocal := m.localVideoIDs[m.playingVideoID]; isLocal && len(m.playingSBSegments) > 0 {
+				ms = adjustedToOriginalMs(ms, m.playingSBSegments)
+			}
+			m.videoPositions[m.playingVideoID] = ms
+			_ = m.db.SaveVideoPosition(m.playingVideoID, ms)
 		}
 		return m, positionTick()
 
@@ -161,6 +170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.vidDetailLoading = false
 			m.vidDetailOverlay = false
+			m.pendingDirectOverlay = ""
 			m.setStatus("video details: "+msg.Err.Error(), true)
 			return m, nil
 		}
@@ -169,17 +179,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vidDetailLinks = nil
 		m.vidDetailDescLines = wordWrap(details.Description, vidDetailPanelW-2)
 		_ = m.db.SaveVideoDetailsCache(details.Video.ID, details.Description, details.ThumbnailURL, details.Subscribers)
+
+		// Process chapters: filter SponsorBlock chapters, adjust timecodes.
 		if len(details.Chapters) > 0 {
-			dbChapters := make([]db.Chapter, len(details.Chapters))
-			for i, c := range details.Chapters {
-				dbChapters[i] = db.Chapter{Title: c.Title, StartTime: c.StartTime, EndTime: c.EndTime}
+			displayChapters, sbSegs := processChapters(details.Chapters)
+			m.vidDetailChapters = &displayChapters
+			_ = m.db.SaveVideoChapters(details.Video.ID, displayChapters)
+			if len(sbSegs) > 0 {
+				_ = m.db.SaveVideoSBSegments(details.Video.ID, sbSegs)
 			}
-			ch := dbChapters
-			m.vidDetailChapters = &ch
-			_ = m.db.SaveVideoChapters(details.Video.ID, dbChapters)
 		} else {
 			m.vidDetailChapters = nil
 		}
+
+		// Handle direct overlay open (chapters/links without info panel).
+		if m.pendingDirectOverlay != "" {
+			overlay := m.pendingDirectOverlay
+			m.pendingDirectOverlay = ""
+			switch overlay {
+			case "chapters":
+				if m.vidDetailChapters != nil && len(*m.vidDetailChapters) > 0 {
+					m.chapterOverlayItems = *m.vidDetailChapters
+					m.chapterOverlaySel = 0
+					m.chapterOverlay = true
+				} else {
+					m.setStatus("no chapters available", false)
+				}
+			case "links":
+				urls := extractLinks(details.Description)
+				m.vidDetailLinks = &urls
+				_ = m.db.SaveVideoLinks(details.Video.ID, urls)
+				if len(urls) == 0 {
+					m.setStatus("no links in description", false)
+				} else {
+					m.linkOverlayURLs = urls
+					m.linkOverlaySel = 0
+					m.linkOverlay = true
+				}
+			}
+			m.vidDetailLoading = false
+			return m, nil
+		}
+
 		if details.ThumbnailURL != "" {
 			// Keep loading=true until thumbnail arrives so panel renders once with image.
 			return m, loadThumbnailCmd(details.ThumbnailURL)
@@ -348,6 +389,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.downloader.WaitForEvent()
 
 	case cursor.BlinkMsg:
+		if m.cmdMode {
+			var cmd tea.Cmd
+			m.cmdInput, cmd = m.cmdInput.Update(msg)
+			return m, cmd
+		}
 		if m.searchFocused {
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(msg)
@@ -358,6 +404,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.createInput, cmd = m.createInput.Update(msg)
 			return m, cmd
 		}
+		return m, nil
+
+	case cmdErrMsg:
+		m.setStatus("editor: "+msg.err.Error(), true)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -450,6 +500,220 @@ func (m Model) handleLocalFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+var cmdAllCompletions = []string{
+	"config",
+	"clear cache",
+	"clear history",
+	"clear downloads",
+	"clear recommended",
+	"tab recommended",
+	"tab subscriptions",
+	"tab channels",
+	"tab playlists",
+	"tab search",
+	"tab downloading",
+	"tab local",
+	"tab history",
+	"tab activity",
+}
+
+// cmdCompletionsFor returns completions one word at a time.
+// Before a space: completes the command name only (e.g. "t" → "tab ").
+// After a space: completes the subcommand (e.g. "tab r" → "tab recommended").
+func cmdCompletionsFor(input string) []string {
+	spaceIdx := strings.Index(input, " ")
+	if spaceIdx < 0 {
+		// First-word completion: return unique command words (+ space if they have subcommands).
+		seen := map[string]bool{}
+		var out []string
+		for _, c := range cmdAllCompletions {
+			parts := strings.SplitN(c, " ", 2)
+			fw := parts[0]
+			if !strings.HasPrefix(fw, input) || seen[fw] {
+				continue
+			}
+			seen[fw] = true
+			if len(parts) > 1 {
+				out = append(out, fw+" ")
+			} else {
+				out = append(out, fw)
+			}
+		}
+		return out
+	}
+	// Second-word completion: match full commands against first word + subcommand prefix.
+	firstWord := input[:spaceIdx]
+	subPrefix := input[spaceIdx+1:]
+	var out []string
+	for _, c := range cmdAllCompletions {
+		parts := strings.SplitN(c, " ", 2)
+		if parts[0] == firstWord && len(parts) > 1 && strings.HasPrefix(parts[1], subPrefix) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (m Model) handleCmdInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		m.cmdMode = false
+		m.cmdCompletions = nil
+		m.cmdLastTabValue = ""
+		m.cmdInput.SetValue("")
+		m.cmdInput.Blur()
+		return m, nil
+	case "enter":
+		val := strings.TrimSpace(m.cmdInput.Value())
+		m.cmdMode = false
+		m.cmdCompletions = nil
+		m.cmdLastTabValue = ""
+		m.cmdInput.SetValue("")
+		m.cmdInput.Blur()
+		return m.execCommand(val)
+	case "tab":
+		input := m.cmdInput.Value()
+		// Recompute if input changed since last Tab, or no completions yet.
+		if len(m.cmdCompletions) == 0 || input != m.cmdLastTabValue {
+			m.cmdCompletions = cmdCompletionsFor(input)
+			m.cmdCompIdx = 0
+		} else {
+			m.cmdCompIdx = (m.cmdCompIdx + 1) % len(m.cmdCompletions)
+		}
+		if len(m.cmdCompletions) > 0 {
+			newVal := m.cmdCompletions[m.cmdCompIdx]
+			m.cmdInput.SetValue(newVal)
+			m.cmdInput.CursorEnd()
+			// If we just completed a word boundary (trailing space), next Tab
+			// should explore subcommands fresh rather than continue this cycle.
+			if strings.HasSuffix(newVal, " ") {
+				m.cmdLastTabValue = ""
+			} else {
+				m.cmdLastTabValue = newVal
+			}
+		}
+		return m, nil
+	default:
+		m.cmdLastTabValue = ""
+		m.cmdCompletions = nil
+		var cmd tea.Cmd
+		m.cmdInput, cmd = m.cmdInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m Model) execCommand(input string) (Model, tea.Cmd) {
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return m, nil
+	}
+	switch parts[0] {
+	case "config":
+		return m.openConfigInEditor()
+	case "clear":
+		if len(parts) < 2 {
+			m.setStatus("usage: clear <cache|history|downloads|recommended>", true)
+			return m, nil
+		}
+		return m.execClear(parts[1])
+	case "tab":
+		if len(parts) < 2 {
+			m.setStatus("usage: tab <name>", true)
+			return m, nil
+		}
+		name := parts[1]
+		id, ok := tabIDByName[name]
+		if !ok {
+			m.setStatus("unknown tab: "+name, true)
+			return m, nil
+		}
+		for _, t := range m.tabs {
+			if t == id {
+				m.activeTab = id
+				if id == tabSearch {
+					m.searchFocused = true
+					m.searchInput.Focus()
+					return m, textinput.Blink
+				}
+				return m, nil
+			}
+		}
+		m.setStatus("tab not in layout: "+name, true)
+		return m, nil
+	default:
+		m.setStatus("unknown command: "+parts[0], true)
+		return m, nil
+	}
+}
+
+func (m Model) execClear(what string) (Model, tea.Cmd) {
+	switch what {
+	case "cache":
+		if err := m.db.ClearVideoDetailsCache(); err != nil {
+			m.setStatus("clear cache: "+err.Error(), true)
+		} else {
+			m.setStatus("video details cache cleared", false)
+		}
+	case "history":
+		if err := m.db.ClearHistory(); err != nil {
+			m.setStatus("clear history: "+err.Error(), true)
+		} else {
+			m.histEntries = nil
+			m.histDetail = nil
+			m.histDetailVideoID = ""
+			m.histLoaded = false
+			m.streamedVideoIDs = make(map[string]bool)
+			m.setStatus("history cleared", false)
+		}
+	case "downloads":
+		paths, err := m.db.ClearDownloads()
+		if err != nil {
+			m.setStatus("clear downloads: "+err.Error(), true)
+		} else {
+			go func() {
+				for _, p := range paths {
+					_ = os.Remove(p)
+				}
+			}()
+			m.localVideos = nil
+			m.localVideoIDs = make(map[string]db.LocalVideo)
+			m.localCursor = 0
+			m.setStatus(fmt.Sprintf("cleared %d downloads", len(paths)), false)
+		}
+	case "recommended":
+		if err := m.db.ClearRecommended(); err != nil {
+			m.setStatus("clear recommended: "+err.Error(), true)
+		} else {
+			m.recVideos = nil
+			m.recCursor = 0
+			m.recLoaded = false
+			m.setStatus("recommended cleared", false)
+		}
+	default:
+		m.setStatus("unknown: clear "+what+" (cache|history|downloads|recommended)", true)
+	}
+	return m, nil
+}
+
+func (m Model) openConfigInEditor() (Model, tea.Cmd) {
+	editor := os.Getenv("VISUAL")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = "vi"
+	}
+	cmd := exec.Command(editor, m.cfg.ConfigFile)
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		return nil
+	})
+}
+
+type cmdErrMsg struct{ err error }
+
 var tabDebugNames = [numTabIDs]string{
 	"recommended", "subscriptions", "channels", "playlists", "search", "downloading", "local", "history", "activity",
 }
@@ -466,6 +730,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		msg.String(), tabName(m.activeTab), m.localFilterFocused, m.localFilter, m.searchFocused,
 		m.createMode, m.addOverlay, m.showHelp, m.pendingChord, m.gPending, m.numPrefix)
 
+	if m.cmdMode {
+		debug.Log("→ handleCmdInput (cmdMode=true)")
+		return m.handleCmdInput(msg)
+	}
 	if m.localFilterFocused {
 		debug.Log("→ handleLocalFilter (localFilterFocused=true)")
 		return m.handleLocalFilter(msg)
@@ -561,6 +829,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.numPrefix = ""
 	m.gPending = false
 
+	// ── Command mode trigger ──────────────────────────────────────────────
+	if s == ":" {
+		m.cmdMode = true
+		m.cmdInput.SetValue("")
+		m.cmdInput.Focus()
+		return m, textinput.Blink
+	}
+
 	// ── Chord trigger detection ───────────────────────────────────────────
 	if s == kb.TabChord {
 		m.pendingChord = kb.TabChord
@@ -630,6 +906,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, youtube.FetchVideoDetails(m.cfg, v.URL)
 		}
 		return m, nil
+	case key.Matches(msg, m.keys.OpenLinks):
+		if v, ok := m.currentVideo(); ok {
+			return m.openLinksForVideo(v)
+		}
+	case key.Matches(msg, m.keys.OpenChapters):
+		if v, ok := m.currentVideo(); ok {
+			return m.openChaptersForVideo(v)
+		}
 	case key.Matches(msg, m.keys.ForceRefresh):
 		debug.Log("→ force refresh")
 		return m, m.forceRefresh()
@@ -1131,11 +1415,11 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Play):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
+			m.playVideo(v)
 		}
 	case key.Matches(msg, m.keys.PlayAudio):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlayAudio(v)
+			m.playAudio(v)
 		}
 	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
@@ -1179,11 +1463,11 @@ func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Play):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
+			m.playVideo(v)
 		}
 	case key.Matches(msg, m.keys.PlayAudio):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlayAudio(v)
+			m.playAudio(v)
 		}
 	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
@@ -1297,13 +1581,17 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageDown):
 			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Play):
+		case key.Matches(msg, m.keys.DrillDown):
 			if v, ok := m.currentVideo(); ok {
 				m.downloadAndPlay(v)
 			}
+		case key.Matches(msg, m.keys.Play):
+			if v, ok := m.currentVideo(); ok {
+				m.playVideo(v)
+			}
 		case key.Matches(msg, m.keys.PlayAudio):
 			if v, ok := m.currentVideo(); ok {
-				m.downloadAndPlayAudio(v)
+				m.playAudio(v)
 			}
 		case key.Matches(msg, m.keys.Download):
 			if v, ok := m.currentVideo(); ok {
@@ -1397,11 +1685,11 @@ func (m Model) updateSubChVideoPane(msg tea.KeyMsg, backPane int) (tea.Model, te
 		}
 	case key.Matches(msg, m.keys.Play):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
+			m.playVideo(v)
 		}
 	case key.Matches(msg, m.keys.PlayAudio):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlayAudio(v)
+			m.playAudio(v)
 		}
 	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
@@ -1626,11 +1914,11 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.Play):
 			if v, ok := m.currentVideo(); ok {
-				m.downloadAndPlay(v)
+				m.playVideo(v)
 			}
 		case key.Matches(msg, m.keys.PlayAudio):
 			if v, ok := m.currentVideo(); ok {
-				m.downloadAndPlayAudio(v)
+				m.playAudio(v)
 			}
 		case key.Matches(msg, m.keys.Download):
 			if v, ok := m.currentVideo(); ok {
@@ -1679,11 +1967,11 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Play):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
+			m.playVideo(v)
 		}
 	case key.Matches(msg, m.keys.PlayAudio):
 		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlayAudio(v)
+			m.playAudio(v)
 		}
 	case key.Matches(msg, m.keys.Download):
 		if v, ok := m.currentVideo(); ok {
@@ -1861,13 +2149,12 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.launchVideo(lv)
 				}
 			} else {
-				m.playAfterDownload[item.Video.ID] = true
-				m.setStatus("Will play video after download: "+truncate(item.Video.Title, 50), false)
+				m.playVideo(item.Video)
 			}
 		}
 	case key.Matches(msg, m.keys.PlayAudio):
 		if m.dlCursor < n {
-			m.downloadAndPlayAudio(items[m.dlCursor].Video)
+			m.playAudio(items[m.dlCursor].Video)
 		}
 	case key.Matches(msg, m.keys.HideChannel):
 		if m.dlCursor < n {
@@ -1958,11 +2245,8 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.histCursor < n {
 			e := m.histEntries[m.histCursor]
 			if e.EventType != "search" {
-				if lv, ok := m.localVideoIDs[e.VideoID]; ok {
-					m.launchVideo(lv)
-				} else {
-					m.setStatus("Not downloaded: "+truncate(e.Title, 40), true)
-				}
+				v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
+				m.playVideo(v)
 			}
 		}
 	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
@@ -2276,13 +2560,23 @@ func (m Model) handleChapterOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
 		m.chapterOverlay = false
+	case key.Matches(msg, m.keys.Play):
+		if n > 0 && m.vidDetailVideo != nil {
+			m.playVideoFromChapter(m.chapterOverlayItems[m.chapterOverlaySel])
+		}
+	case key.Matches(msg, m.keys.PlayAudio):
+		if n > 0 && m.vidDetailVideo != nil {
+			m.playAudioFromChapter(m.chapterOverlayItems[m.chapterOverlaySel])
+		}
 	case key.Matches(msg, m.keys.CopyURL):
-		if n > 0 {
-			ts := fmtChapterTime(m.chapterOverlayItems[m.chapterOverlaySel].StartTime) // defined in view.go
-			if err := clipboard.WriteAll(ts); err != nil {
+		if n > 0 && m.vidDetailVideo != nil {
+			ch := m.chapterOverlayItems[m.chapterOverlaySel]
+			secs := int(ch.OriginalStart)
+			u := fmt.Sprintf("https://www.youtube.com/watch?v=%s&t=%d", m.vidDetailVideo.Video.ID, secs)
+			if err := clipboard.WriteAll(u); err != nil {
 				m.setStatus("clipboard: "+err.Error(), true)
 			} else {
-				m.setStatus("copied: "+ts, false)
+				m.setStatus("copied: "+u, false)
 			}
 		}
 	}
@@ -2447,9 +2741,48 @@ func (m *Model) downloadAndPlay(v youtube.Video) {
 	m.startDownload(v, downloader.TypeVideo)
 }
 
-func (m *Model) downloadAndPlayAudio(v youtube.Video) {
-	m.playAfterDownload[v.ID+":audio"] = true
-	m.startDownload(v, downloader.TypeAudio)
+func (m *Model) streamVideo(v youtube.Video) {
+	startAt := time.Duration(0)
+	if ms, ok := m.db.VideoPosition(v.ID); ok {
+		startAt = time.Duration(ms) * time.Millisecond
+		m.videoPositions[v.ID] = ms
+	}
+	if err := m.playerBackend.Launch(v.URL, startAt); err != nil {
+		m.setStatus("stream: "+err.Error(), true)
+		return
+	}
+	m.playingVideoID = v.ID
+	m.playingSBSegments = nil // mpv handles SponsorBlock live; MPRIS reports original timeline
+	m.streamedVideoIDs[v.ID] = true
+	_ = m.db.AddHistory(v.ID, "streamVideo", "")
+	label := truncate(v.Title, 50)
+	if startAt > 0 {
+		m.setStatus(fmt.Sprintf("Streaming (from %s): %s", formatDuration(startAt), label), false)
+	} else {
+		m.setStatus("Streaming: "+label, false)
+	}
+}
+
+func (m *Model) streamAudio(v youtube.Video) {
+	startAt := time.Duration(0)
+	if ms, ok := m.db.VideoPosition(v.ID); ok {
+		startAt = time.Duration(ms) * time.Millisecond
+		m.videoPositions[v.ID] = ms
+	}
+	if err := m.playerBackend.LaunchAudio(v.URL, startAt); err != nil {
+		m.setStatus("stream audio: "+err.Error(), true)
+		return
+	}
+	m.playingVideoID = v.ID
+	m.playingSBSegments = nil // mpv handles SponsorBlock live; MPRIS reports original timeline
+	m.streamedVideoIDs[v.ID] = true
+	_ = m.db.AddHistory(v.ID, "streamAudio", "")
+	label := truncate(v.Title, 50)
+	if startAt > 0 {
+		m.setStatus(fmt.Sprintf("Streaming audio (from %s): %s", formatDuration(startAt), label), false)
+	} else {
+		m.setStatus("Streaming audio: "+label, false)
+	}
 }
 
 func (m *Model) startDownload(v youtube.Video, dlType downloader.DownloadType) {
@@ -2756,20 +3089,73 @@ func removeChannelByID(channels []youtube.Channel, id string) []youtube.Channel 
 	return out
 }
 
+// playVideo plays locally if downloaded, otherwise streams.
+func (m *Model) playVideo(v youtube.Video) {
+	if lv, ok := m.localVideoIDs[v.ID]; ok {
+		m.launchVideo(lv)
+	} else {
+		m.streamVideo(v)
+	}
+}
+
+// playAudio plays the local file in audio-only mode if downloaded, otherwise streams audio.
+func (m *Model) playAudio(v youtube.Video) {
+	if lv, ok := m.localVideoIDs[v.ID]; ok {
+		m.launchVideoAudio(lv)
+	} else {
+		m.streamAudio(v)
+	}
+}
+
+// launchVideoAudio plays a local video file in audio-only mode.
+func (m *Model) launchVideoAudio(lv db.LocalVideo) {
+	if _, err := os.Stat(lv.FilePath); err != nil {
+		m.setStatus("File not found: "+truncate(lv.Title, 50), true)
+		return
+	}
+	posMs, _ := m.db.VideoPosition(lv.ID)
+	sbSegs := m.loadSBSegmentsForVideo(lv.ID)
+	fileMs := posMs
+	if len(sbSegs) > 0 {
+		fileMs = originalToAdjustedMs(posMs, sbSegs)
+	}
+	startAt := time.Duration(fileMs) * time.Millisecond
+	if err := m.playerBackend.LaunchAudio(lv.FilePath, startAt); err != nil {
+		m.setStatus("play audio: "+err.Error(), true)
+		return
+	}
+	m.playingVideoID = lv.ID
+	m.playingSBSegments = sbSegs
+	_ = m.db.AddHistory(lv.ID, "playAudio", "")
+	label := truncate(lv.Title, 50)
+	if startAt > 0 {
+		m.setStatus(fmt.Sprintf("Playing audio (from %s): %s", formatDuration(startAt), label), false)
+	} else {
+		m.setStatus("Playing audio: "+label, false)
+	}
+}
+
 // launchVideo starts playback of a local video, resuming from last position.
 func (m *Model) launchVideo(lv db.LocalVideo) {
 	if _, err := os.Stat(lv.FilePath); err != nil {
 		m.setStatus("File not found: "+truncate(lv.Title, 50), true)
 		return
 	}
-	startAt := time.Duration(lv.LastPositionMs) * time.Millisecond
+	posMs, _ := m.db.VideoPosition(lv.ID)
+	sbSegs := m.loadSBSegmentsForVideo(lv.ID)
+	fileMs := posMs
+	if len(sbSegs) > 0 {
+		fileMs = originalToAdjustedMs(posMs, sbSegs)
+	}
+	startAt := time.Duration(fileMs) * time.Millisecond
 	if err := m.playerBackend.Launch(lv.FilePath, startAt); err != nil {
 		m.setStatus("play: "+err.Error(), true)
 		return
 	}
 	m.playingVideoID = lv.ID
+	m.playingSBSegments = sbSegs
 	_ = m.db.SetVideoStatus(lv.ID, db.StatusStarted)
-	_ = m.db.AddHistory(lv.ID, "play", "")
+	_ = m.db.AddHistory(lv.ID, "playVideo", "")
 	if lv2, err := m.db.LocalVideos(); err == nil {
 		m.localVideos = lv2
 		m.localVideoIDs = buildLocalIDMap(lv2)
@@ -2930,4 +3316,243 @@ func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
 	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
 	m.subChVideos = removeChannelVideos(m.subChVideos, channelID, channelName)
 	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
+}
+
+// ── SponsorBlock chapter processing ──────────────────────────────────────────
+
+// processChapters splits raw yt-dlp chapters (which include [SponsorBlock] entries
+// when --sponsorblock-chapters was passed) into display chapters and SB segments.
+// Display chapters have their timecodes adjusted to reflect the local-file timeline
+// (after SB cuts); chapters whose boundaries coincide with a SB segment (±3 s on
+// both start AND end) are dropped entirely.
+func processChapters(all []youtube.Chapter) ([]db.Chapter, []db.SBSegment) {
+	const tol = 3.0
+	var sbChapters []youtube.Chapter
+	var realChapters []youtube.Chapter
+	for _, ch := range all {
+		if strings.HasPrefix(ch.Title, "[SponsorBlock]") {
+			sbChapters = append(sbChapters, ch)
+		} else {
+			realChapters = append(realChapters, ch)
+		}
+	}
+
+	segs := make([]db.SBSegment, len(sbChapters))
+	for i, ch := range sbChapters {
+		segs[i] = db.SBSegment{Start: ch.StartTime, End: ch.EndTime}
+	}
+
+	var out []db.Chapter
+	for _, ch := range realChapters {
+		skip := false
+		for _, sb := range segs {
+			if math.Abs(ch.StartTime-sb.Start) <= tol && math.Abs(ch.EndTime-sb.End) <= tol {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		out = append(out, db.Chapter{
+			Title:         ch.Title,
+			OriginalStart: ch.StartTime,
+			OriginalEnd:   ch.EndTime,
+			AdjustedStart: originalToAdjustedSec(ch.StartTime, segs),
+			AdjustedEnd:   originalToAdjustedSec(ch.EndTime, segs),
+		})
+	}
+	return out, segs
+}
+
+// originalToAdjustedSec converts an original-timeline position (seconds) to the
+// adjusted local-file position after SB segments have been removed.
+func originalToAdjustedSec(origSec float64, segs []db.SBSegment) float64 {
+	offset := 0.0
+	for _, seg := range segs {
+		if origSec < seg.Start {
+			break
+		}
+		if origSec < seg.End {
+			return seg.Start - offset
+		}
+		offset += seg.End - seg.Start
+	}
+	return origSec - offset
+}
+
+// originalToAdjustedMs converts an original-timeline position (ms) to the adjusted
+// local-file position in ms.
+func originalToAdjustedMs(origMs int64, segs []db.SBSegment) int64 {
+	offset := int64(0)
+	for _, seg := range segs {
+		segStartMs := int64(seg.Start * 1000)
+		segEndMs := int64(seg.End * 1000)
+		if origMs < segStartMs {
+			break
+		}
+		if origMs < segEndMs {
+			return segStartMs - offset
+		}
+		offset += segEndMs - segStartMs
+	}
+	return origMs - offset
+}
+
+// adjustedToOriginalMs converts a local-file position (ms) back to the original
+// video timeline in ms, undoing the SB cuts.
+func adjustedToOriginalMs(adjMs int64, segs []db.SBSegment) int64 {
+	offset := int64(0)
+	for _, seg := range segs {
+		segDur := int64((seg.End - seg.Start) * 1000)
+		segStartAdj := int64(seg.Start*1000) - offset
+		if adjMs < segStartAdj {
+			break
+		}
+		offset += segDur
+	}
+	return adjMs + offset
+}
+
+// ── Direct overlay helpers (chapters/links without opening info panel) ────────
+
+// loadSBSegmentsForVideo fetches the stored SponsorBlock segments for a video from
+// the DB cache. Returns nil if none are stored.
+func (m *Model) loadSBSegmentsForVideo(id string) []db.SBSegment {
+	if cached, ok, _ := m.db.GetVideoDetailsCache(id); ok && cached.SBSegments != nil && len(*cached.SBSegments) > 0 {
+		return *cached.SBSegments
+	}
+	return nil
+}
+
+// openChaptersForVideo opens the chapter overlay for v, loading from cache if
+// available or triggering a video-details fetch otherwise. vidDetailVideo is always
+// set so the overlay's y/p actions can reference the video.
+func (m Model) openChaptersForVideo(v youtube.Video) (tea.Model, tea.Cmd) {
+	if v.URL == "" {
+		return m, nil
+	}
+	if m.vidDetailVideo == nil || m.vidDetailVideo.Video.ID != v.ID {
+		vd := youtube.VideoDetails{Video: v}
+		m.vidDetailVideo = &vd
+	}
+	if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok && cached.Chapters != nil {
+		if len(*cached.Chapters) > 0 {
+			m.chapterOverlayItems = *cached.Chapters
+			m.chapterOverlaySel = 0
+			m.chapterOverlay = true
+		} else {
+			m.setStatus("no chapters available", false)
+		}
+		return m, nil
+	}
+	m.pendingDirectOverlay = "chapters"
+	m.setStatus("Loading chapters…", false)
+	return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+}
+
+// openLinksForVideo opens the link overlay for v, loading from cache if available
+// or triggering a fetch otherwise.
+func (m Model) openLinksForVideo(v youtube.Video) (tea.Model, tea.Cmd) {
+	if v.URL == "" {
+		return m, nil
+	}
+	if m.vidDetailVideo == nil || m.vidDetailVideo.Video.ID != v.ID {
+		vd := youtube.VideoDetails{Video: v}
+		m.vidDetailVideo = &vd
+	}
+	if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
+		var links []db.Link
+		if cached.Links != nil {
+			links = *cached.Links
+		} else {
+			links = extractLinks(cached.Description)
+			_ = m.db.SaveVideoLinks(v.ID, links)
+			m.vidDetailLinks = &links
+		}
+		if len(links) == 0 {
+			m.setStatus("no links in description", false)
+		} else {
+			m.linkOverlayURLs = links
+			m.linkOverlaySel = 0
+			m.linkOverlay = true
+		}
+		return m, nil
+	}
+	m.pendingDirectOverlay = "links"
+	m.setStatus("Loading links…", false)
+	return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+}
+
+// ── Chapter playback from overlay ─────────────────────────────────────────────
+
+// playVideoFromChapter seeks to the chapter's time and starts video playback.
+// Local files use the adjusted (file) timestamp; streaming uses the original.
+func (m *Model) playVideoFromChapter(ch db.Chapter) {
+	if m.vidDetailVideo == nil {
+		return
+	}
+	v := m.vidDetailVideo.Video
+	label := truncate(v.Title, 50)
+	if lv, ok := m.localVideoIDs[v.ID]; ok {
+		if _, err := os.Stat(lv.FilePath); err != nil {
+			m.setStatus("File not found: "+label, true)
+			return
+		}
+		startAt := time.Duration(ch.AdjustedStart * float64(time.Second))
+		if err := m.playerBackend.Launch(lv.FilePath, startAt); err != nil {
+			m.setStatus("play: "+err.Error(), true)
+			return
+		}
+		m.playingVideoID = v.ID
+		m.playingSBSegments = m.loadSBSegmentsForVideo(v.ID)
+		_ = m.db.AddHistory(v.ID, "playVideo", "")
+		m.setStatus(fmt.Sprintf("Playing (from %s): %s", fmtChapterTime(ch.AdjustedStart), label), false)
+	} else {
+		startAt := time.Duration(ch.OriginalStart * float64(time.Second))
+		if err := m.playerBackend.Launch(v.URL, startAt); err != nil {
+			m.setStatus("stream: "+err.Error(), true)
+			return
+		}
+		m.playingVideoID = v.ID
+		m.playingSBSegments = nil
+		m.streamedVideoIDs[v.ID] = true
+		_ = m.db.AddHistory(v.ID, "streamVideo", "")
+		m.setStatus(fmt.Sprintf("Streaming (from %s): %s", fmtChapterTime(ch.OriginalStart), label), false)
+	}
+}
+
+// playAudioFromChapter seeks to the chapter's time and starts audio-only playback.
+func (m *Model) playAudioFromChapter(ch db.Chapter) {
+	if m.vidDetailVideo == nil {
+		return
+	}
+	v := m.vidDetailVideo.Video
+	label := truncate(v.Title, 50)
+	if lv, ok := m.localVideoIDs[v.ID]; ok {
+		if _, err := os.Stat(lv.FilePath); err != nil {
+			m.setStatus("File not found: "+label, true)
+			return
+		}
+		startAt := time.Duration(ch.AdjustedStart * float64(time.Second))
+		if err := m.playerBackend.LaunchAudio(lv.FilePath, startAt); err != nil {
+			m.setStatus("play audio: "+err.Error(), true)
+			return
+		}
+		m.playingVideoID = v.ID
+		m.playingSBSegments = m.loadSBSegmentsForVideo(v.ID)
+		_ = m.db.AddHistory(v.ID, "playAudio", "")
+		m.setStatus(fmt.Sprintf("Playing audio (from %s): %s", fmtChapterTime(ch.AdjustedStart), label), false)
+	} else {
+		startAt := time.Duration(ch.OriginalStart * float64(time.Second))
+		if err := m.playerBackend.LaunchAudio(v.URL, startAt); err != nil {
+			m.setStatus("stream audio: "+err.Error(), true)
+			return
+		}
+		m.playingVideoID = v.ID
+		m.playingSBSegments = nil
+		m.streamedVideoIDs[v.ID] = true
+		_ = m.db.AddHistory(v.ID, "streamAudio", "")
+		m.setStatus(fmt.Sprintf("Streaming audio (from %s): %s", fmtChapterTime(ch.OriginalStart), label), false)
+	}
 }
