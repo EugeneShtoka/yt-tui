@@ -52,9 +52,10 @@ func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	b.active = true
 	b.stopCh = make(chan struct{})
 	b.once = sync.Once{}
+	stop := b.stopCh
 	b.mu.Unlock()
 
-	go b.poll()
+	go b.poll(stop)
 	return nil
 }
 
@@ -66,7 +67,7 @@ func (b *mprisBackend) LaunchAudio(source string, startAt time.Duration) error {
 	return b.exec(b.driver.AudioArgs(source, startAt), startAt)
 }
 
-func (b *mprisBackend) poll() {
+func (b *mprisBackend) poll(stopCh chan struct{}) {
 	// Give the player a moment to register on D-Bus.
 	time.Sleep(1500 * time.Millisecond)
 
@@ -74,7 +75,7 @@ func (b *mprisBackend) poll() {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-b.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			pos, ok := b.queryPosition()
@@ -113,9 +114,10 @@ func (b *mprisBackend) Close() {
 	b.once.Do(func() {
 		b.mu.Lock()
 		b.active = false
+		ch := b.stopCh
 		b.mu.Unlock()
-		if b.stopCh != nil {
-			close(b.stopCh)
+		if ch != nil {
+			close(ch)
 		}
 	})
 }
