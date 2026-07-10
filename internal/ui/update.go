@@ -10,6 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/debug"
+	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
@@ -17,11 +22,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/debug"
-	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -2981,8 +2981,8 @@ func filterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel,
 	for _, v := range videos {
 		if bl, matched := matchBlacklisted(v, list); matched {
 			if bl >= 0 && cfg.BlacklistedChannels[bl].ID == "" && v.ChannelID != "" {
-				cfg.BlacklistedChannels[bl].ID = v.ChannelID
-				go cfg.Save()
+				cfg.SetBlacklistID(bl, v.ChannelID)
+				cfg.SaveAsync()
 			}
 			continue
 		}
@@ -3291,7 +3291,7 @@ func (m *Model) hideChannel(channelID, channelName string) {
 		return
 	}
 	m.cfg.AddBlacklistedChannel(channelID, channelName)
-	go m.cfg.Save()
+	m.cfg.SaveAsync()
 	m.removeChannelFromFeeds(channelID, channelName)
 	m.setStatus("Blacklisted channel: "+channelName, false)
 }

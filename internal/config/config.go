@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 )
@@ -53,11 +54,11 @@ type KeyBindings struct {
 	AddToPlaylist string `toml:"add_to_playlist"`
 	NewPlaylist   string `toml:"new_playlist"`
 	ToggleMode    string `toml:"toggle_mode"`
-	Subscribe      string `toml:"subscribe"`
-	Unsubscribe    string `toml:"unsubscribe"`
-	RenameChannel  string `toml:"rename_channel"`
-	TagChannel     string `toml:"tag_channel"`
-	Help           string `toml:"help"`
+	Subscribe     string `toml:"subscribe"`
+	Unsubscribe   string `toml:"unsubscribe"`
+	RenameChannel string `toml:"rename_channel"`
+	TagChannel    string `toml:"tag_channel"`
+	Help          string `toml:"help"`
 	Quit          string `toml:"quit"`
 	Close         string `toml:"close"` // close/cancel overlays (always includes esc)
 
@@ -247,6 +248,14 @@ type Config struct {
 	BlacklistedChannels   []BlacklistedChannel `toml:"blacklisted_channels"`
 	DataDir               string               `toml:"-"`
 	ConfigFile            string               `toml:"-"`
+
+	// mu guards the mutable config fields (currently BlacklistedChannels) and
+	// serializes file writes so a save can never observe a half-mutated slice.
+	// Unexported fields are ignored by the TOML encoder.
+	mu sync.Mutex
+	// saveReq is a 1-deep channel that coalesces async save requests; a single
+	// background worker (started in Load) drains it. Nil until Load runs.
+	saveReq chan struct{}
 }
 
 var DefaultTabs = []string{
@@ -322,6 +331,12 @@ func Load() (*Config, error) {
 	cfg.DataDir = appDir
 	cfg.ConfigFile = cfgFile
 
+	// Start the background save worker now that ConfigFile is known. All saves
+	// after startup go through this single goroutine (via SaveAsync) or Save,
+	// both serialized by cfg.mu.
+	cfg.saveReq = make(chan struct{}, 1)
+	go cfg.saveWorker()
+
 	if len(cfg.DownloadDir) > 1 && cfg.DownloadDir[:2] == "~/" {
 		cfg.DownloadDir = filepath.Join(os.Getenv("HOME"), cfg.DownloadDir[2:])
 	}
@@ -333,19 +348,61 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// Save writes the config to disk, serialized against concurrent saves and
+// mutations via mu. Safe to call from multiple goroutines.
 func (c *Config) Save() error {
-	configDir, _ := os.UserConfigDir()
-	cfgFile := filepath.Join(configDir, "yt-tui", "config.toml")
-	return c.save(cfgFile)
+	path := c.ConfigFile
+	if path == "" {
+		configDir, _ := os.UserConfigDir()
+		path = filepath.Join(configDir, "yt-tui", "config.toml")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.save(path)
 }
 
+// SaveAsync requests a background save without blocking the caller. Multiple
+// requests arriving before the worker runs are coalesced into a single write.
+// Falls back to a synchronous save if the worker was never started.
+func (c *Config) SaveAsync() {
+	if c.saveReq == nil {
+		go c.Save()
+		return
+	}
+	select {
+	case c.saveReq <- struct{}{}:
+	default: // a save is already pending — coalesce
+	}
+}
+
+// saveWorker drains coalesced save requests one at a time.
+func (c *Config) saveWorker() {
+	for range c.saveReq {
+		_ = c.Save()
+	}
+}
+
+// save atomically writes the config: encode to a temp file in the same
+// directory, then rename over the target. A crash or encode error leaves the
+// existing file untouched. Callers must hold c.mu (except single-threaded
+// startup in Load).
 func (c *Config) save(path string) error {
-	f, err := os.Create(path)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(c)
+	tmpName := tmp.Name()
+	if err := toml.NewEncoder(tmp).Encode(c); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func (c *Config) SubtitleLangsArg() string {
@@ -366,9 +423,21 @@ func (c *Config) SponsorBlockArg() string {
 	return out
 }
 
-// AddBlacklistedChannel appends a channel to the blacklist if not already present,
-// then saves config. Deduplicates by ID first, then by name.
+// SetBlacklistID back-fills the channel ID on an existing name-only blacklist
+// entry. Locked so it can't race a concurrent save encoding the slice.
+func (c *Config) SetBlacklistID(idx int, id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if idx >= 0 && idx < len(c.BlacklistedChannels) {
+		c.BlacklistedChannels[idx].ID = id
+	}
+}
+
+// AddBlacklistedChannel appends a channel to the blacklist if not already present.
+// Deduplicates by ID first, then by name. Locked against concurrent saves.
 func (c *Config) AddBlacklistedChannel(id, name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for i, bl := range c.BlacklistedChannels {
 		if id != "" && bl.ID == id {
 			if bl.Name == "" {
