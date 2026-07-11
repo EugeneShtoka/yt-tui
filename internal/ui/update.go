@@ -926,6 +926,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	debug.Log("→ dispatch to %s handler", tabName(m.activeTab))
+	if v := m.activeView(); v != nil {
+		var cmd tea.Cmd
+		if intent := v.update(msg, m.viewCtx()); intent != nil {
+			cmd = intent.apply(&m)
+		}
+		return m, cmd
+	}
 	switch m.activeTab {
 	case tabRecommended:
 		return m.updateRecommended(msg)
@@ -937,14 +944,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updatePlaylists(msg)
 	case tabSearch:
 		return m.updateSearch(msg)
-	case tabDownloading:
-		return m.updateDownloading(msg)
-	case tabLocal:
-		return m.updateLocal(msg)
-	case tabHistory:
-		return m.updateHistory(msg)
-	case tabActivity:
-		return m.updateActivity(msg)
 	}
 
 	return m, nil
@@ -1139,14 +1138,7 @@ func (m *Model) loadActivity() {
 	m.activity.load(m.db, func(s string) { m.setStatus(s, true) })
 }
 
-func (m Model) updateActivity(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if e, ok := m.activity.update(msg, m.keys, m.pageSize(), m.cfg.CircularNav); ok {
-		return m.navigateToActivity(e)
-	}
-	return m, nil
-}
-
-func (m Model) navigateToActivity(e db.ActivityEntry) (tea.Model, tea.Cmd) {
+func (m *Model) navigateToActivity(e db.ActivityEntry) tea.Cmd {
 	switch e.Type {
 	case "subscribe":
 		m.activeTab = tabChannels
@@ -1154,12 +1146,11 @@ func (m Model) navigateToActivity(e db.ActivityEntry) (tea.Model, tea.Cmd) {
 		for i, ch := range channels {
 			if ch.ID == e.ChannelID {
 				m.subChCursor = i
-				cmd := m.openChannelVideos(ch, false)
-				return m, cmd
+				return m.openChannelVideos(ch, false)
 			}
 		}
 		m.setStatus("No longer subscribed to: "+e.ChannelName, true)
-		return m, m.onTabActivated()
+		return m.onTabActivated()
 	case "create_playlist", "add_to_playlist":
 		m.activeTab = tabPlaylists
 		if e.PlaylistLocalID != 0 {
@@ -1171,8 +1162,7 @@ func (m Model) navigateToActivity(e db.ActivityEntry) (tea.Model, tea.Cmd) {
 				if pl.ID == e.PlaylistLocalID {
 					m.playlistCursor = offset + i
 					m.playlistPane = 1
-					cmd := m.fetchCurrentPlaylistVideos()
-					return m, cmd
+					return m.fetchCurrentPlaylistVideos()
 				}
 			}
 		} else if e.PlaylistID != "" && m.ytPlLoaded {
@@ -1180,15 +1170,14 @@ func (m Model) navigateToActivity(e db.ActivityEntry) (tea.Model, tea.Cmd) {
 				if pl.ID == e.PlaylistID {
 					m.playlistCursor = i
 					m.playlistPane = 1
-					cmd := m.fetchCurrentPlaylistVideos()
-					return m, cmd
+					return m.fetchCurrentPlaylistVideos()
 				}
 			}
 		}
 		m.setStatus("Playlist no longer exists: "+e.PlaylistName, true)
-		return m, m.onTabActivated()
+		return m.onTabActivated()
 	}
-	return m, nil
+	return nil
 }
 
 func (m *Model) refresh() tea.Cmd {
@@ -1935,108 +1924,6 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // ── Downloading ───────────────────────────────────────────────────────────────
-
-func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	intent := m.downloading.update(msg, m.keys, m.downloader.Items(), m.pageSize(), m.cfg.CircularNav)
-	switch intent.kind {
-	case dlIntentPlay:
-		item := intent.item
-		if item.Status == downloader.StatusComplete {
-			if lv, ok := m.localVideoIDs[item.Video.ID]; ok {
-				m.launchVideo(lv)
-			}
-		} else {
-			m.playVideo(item.Video)
-		}
-	case dlIntentPlayAudio:
-		m.playAudio(intent.item.Video)
-	case dlIntentHide:
-		v := intent.item.Video
-		m.hideChannel(v.ChannelID, v.Channel)
-	case dlIntentDelete:
-		item := intent.item
-		m.downloader.Remove(item.Video.ID)
-		// Also remove any downloaded or partial file and DB record.
-		if item.FilePath != "" {
-			_ = os.Remove(item.FilePath)
-		}
-		_ = m.db.DeleteLocalVideo(item.Video.ID)
-		_ = m.db.AddHistory(item.Video.ID, "delete", "")
-		if lv, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv
-		}
-		m.downloading.reclamp(len(m.downloader.Items()), m.pageSize())
-		m.setStatus("Deleted: "+truncate(item.Video.Title, 50), false)
-	case dlIntentCopyURL:
-		m.copyCurrentURL()
-	}
-	return m, nil
-}
-
-// ── Local ─────────────────────────────────────────────────────────────────────
-
-func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	intent := m.local.update(msg, m.keys, m.localVideos, m.pageSize(), m.cfg.CircularNav)
-	switch intent.kind {
-	case localIntentPlay:
-		m.launchVideo(intent.video)
-	case localIntentDelete:
-		lv := intent.video
-		_ = os.Remove(lv.FilePath)
-		_ = m.db.DeleteLocalVideo(lv.ID)
-		_ = m.db.AddHistory(lv.ID, "delete", "")
-		if lv2, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv2
-		}
-		m.local.reclamp(len(m.localVideos), m.pageSize())
-		m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
-	case localIntentCopyURL:
-		m.copyCurrentURL()
-	}
-	return m, nil
-}
-
-// ── History ───────────────────────────────────────────────────────────────────
-
-func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	intent := m.history.update(msg, m.keys, m.pageSize(), m.cfg.CircularNav, m.db)
-	switch intent.kind {
-	case histIntentDrillSearch:
-		// Navigate to search tab with query pre-filled; user presses Enter again to search.
-		m.activeTab = tabSearch
-		cmd := m.onTabActivated()
-		m.searchInput.SetValue(intent.entry.Details)
-		m.searchInput.CursorEnd()
-		return m, cmd
-	case histIntentPlay:
-		e := intent.entry
-		v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
-		m.playVideo(v)
-	case histIntentDelete:
-		e := intent.entry
-		if e.EventType == "search" {
-			_ = m.db.DeleteSearchHistory(e.Details)
-			m.setStatus("Removed search: "+truncate(e.Details, 50), false)
-		} else {
-			if lv, ok := m.localVideoIDs[e.VideoID]; ok {
-				_ = os.Remove(lv.FilePath)
-				_ = m.db.DeleteLocalVideo(lv.ID)
-				if lv2, err := m.db.LocalVideos(); err == nil {
-					m.localVideos = lv2
-					m.localVideoIDs = buildLocalIDMap(lv2)
-				}
-			}
-			_ = m.db.DeleteVideoHistory(e.VideoID)
-			_ = m.db.DeleteVideoPosition(e.VideoID)
-			delete(m.streamedVideoIDs, e.VideoID)
-			delete(m.videoPositions, e.VideoID)
-			m.setStatus("Deleted: "+truncate(e.Title, 50), false)
-		}
-	case histIntentHide:
-		m.hideChannel(intent.entry.ChannelID, intent.entry.Channel)
-	}
-	return m, nil
-}
 
 // ── Playlist create type selector ─────────────────────────────────────────────
 

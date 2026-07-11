@@ -15,11 +15,14 @@ func sampleLocal() []db.LocalVideo {
 	}
 }
 
+func localCtx(videos []db.LocalVideo, pageSize int) viewCtx {
+	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, localVideos: videos}
+}
+
 func TestLocalDownMovesCursor(t *testing.T) {
 	v := localView{sort: vidSortNone}
-	keys := testListKeys()
-	if in := v.update(tea.KeyMsg{Type: tea.KeyDown}, keys, sampleLocal(), 10, false); in.kind != localIntentNone {
-		t.Fatalf("Down should not produce an intent, got %d", in.kind)
+	if in := v.update(tea.KeyMsg{Type: tea.KeyDown}, localCtx(sampleLocal(), 10)); in != nil {
+		t.Fatalf("Down should not produce an intent, got %T", in)
 	}
 	if v.cursor != 1 {
 		t.Errorf("Down: cursor=%d, want 1", v.cursor)
@@ -28,13 +31,12 @@ func TestLocalDownMovesCursor(t *testing.T) {
 
 func TestLocalPageDownMovesCursor(t *testing.T) {
 	v := localView{}
-	keys := testListKeys()
 	vids := make([]db.LocalVideo, 10)
 	for i := range vids {
 		vids[i] = db.LocalVideo{ID: string(rune('a' + i))}
 	}
 	// One page (size 2) down from the top advances the viewport by 2 rows.
-	v.update(tea.KeyMsg{Type: tea.KeyPgDown}, keys, vids, 2, false)
+	v.update(tea.KeyMsg{Type: tea.KeyPgDown}, localCtx(vids, 2))
 	if v.cursor != 2 {
 		t.Errorf("PageDown: cursor=%d, want 2", v.cursor)
 	}
@@ -42,27 +44,26 @@ func TestLocalPageDownMovesCursor(t *testing.T) {
 
 func TestLocalPlayReturnsVideo(t *testing.T) {
 	v := localView{cursor: 2}
-	keys := testListKeys()
-	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, keys, sampleLocal(), 10, false)
-	if in.kind != localIntentPlay || in.video.ID != "c" {
-		t.Errorf("Play: got kind=%d id=%q, want localIntentPlay/c", in.kind, in.video.ID)
+	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, localCtx(sampleLocal(), 10))
+	got, ok := in.(localIntent)
+	if !ok || got.kind != localIntentPlay || got.video.ID != "c" {
+		t.Errorf("Play: got %T kind=%v id=%q, want localIntent/localIntentPlay/c", in, got.kind, got.video.ID)
 	}
 }
 
 func TestLocalDeleteReturnsIntent(t *testing.T) {
 	v := localView{cursor: 0}
-	keys := testListKeys()
-	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}, keys, sampleLocal(), 10, false)
-	if in.kind != localIntentDelete || in.video.ID != "a" {
-		t.Errorf("Delete: got kind=%d id=%q, want localIntentDelete/a", in.kind, in.video.ID)
+	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}, localCtx(sampleLocal(), 10))
+	got, ok := in.(localIntent)
+	if !ok || got.kind != localIntentDelete || got.video.ID != "a" {
+		t.Errorf("Delete: got %T kind=%v id=%q, want localIntent/localIntentDelete/a", in, got.kind, got.video.ID)
 	}
 }
 
 func TestLocalActionEmptyNoIntent(t *testing.T) {
 	v := localView{}
-	keys := testListKeys()
-	if in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, keys, nil, 10, false); in.kind != localIntentNone {
-		t.Errorf("Play on empty library: kind=%d, want localIntentNone", in.kind)
+	if in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, localCtx(nil, 10)); in != nil {
+		t.Errorf("Play on empty library: got %T, want nil", in)
 	}
 }
 
@@ -77,5 +78,11 @@ func TestLocalCurrentVideoConvertsEntry(t *testing.T) {
 	}
 	if _, ok := (localView{cursor: 9}).currentVideo(sampleLocal()); ok {
 		t.Error("currentVideo out of range should be false")
+	}
+}
+
+func TestLocalContext(t *testing.T) {
+	if got := (localView{}).context(); got != CtxLocal {
+		t.Errorf("context=%v, want CtxLocal", got)
 	}
 }

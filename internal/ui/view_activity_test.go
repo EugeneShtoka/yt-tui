@@ -13,10 +13,14 @@ func testActivityKeys() keyMap {
 		Up:        "up",
 		Down:      "down",
 		PageUp:    "pgup",
-		PageDown:  "pgdn",
+		PageDown:  "pgdown",
 		DrillDown: "enter",
 		Right:     "right",
 	})
+}
+
+func testActivityCtx() viewCtx {
+	return viewCtx{keys: testActivityKeys(), pageSize: 10, circular: false}
 }
 
 func sampleActivity() activityView {
@@ -31,8 +35,7 @@ func sampleActivity() activityView {
 
 func TestActivityViewDownMovesCursor(t *testing.T) {
 	v := sampleActivity()
-	keys := testActivityKeys()
-	if _, ok := v.update(tea.KeyMsg{Type: tea.KeyDown}, keys, 10, false); ok {
+	if in := v.update(tea.KeyMsg{Type: tea.KeyDown}, testActivityCtx()); in != nil {
 		t.Fatal("Down should not signal navigation")
 	}
 	if v.cursor != 1 {
@@ -42,8 +45,7 @@ func TestActivityViewDownMovesCursor(t *testing.T) {
 
 func TestActivityViewUpClampsAtTop(t *testing.T) {
 	v := sampleActivity()
-	keys := testActivityKeys()
-	v.update(tea.KeyMsg{Type: tea.KeyUp}, keys, 10, false)
+	v.update(tea.KeyMsg{Type: tea.KeyUp}, testActivityCtx())
 	if v.cursor != 0 {
 		t.Errorf("Up at top (non-circular): cursor=%d, want 0", v.cursor)
 	}
@@ -51,21 +53,20 @@ func TestActivityViewUpClampsAtTop(t *testing.T) {
 
 func TestActivityViewDrillDownReturnsEntry(t *testing.T) {
 	v := sampleActivity()
-	keys := testActivityKeys()
 	v.cursor = 2
-	e, ok := v.update(tea.KeyMsg{Type: tea.KeyEnter}, keys, 10, false)
+	in := v.update(tea.KeyMsg{Type: tea.KeyEnter}, testActivityCtx())
+	nav, ok := in.(activityNavIntent)
 	if !ok {
-		t.Fatal("DrillDown should signal navigation")
+		t.Fatalf("DrillDown should return activityNavIntent, got %T", in)
 	}
-	if e.Type != "add_to_playlist" || e.VideoTitle != "Gamma" {
-		t.Errorf("DrillDown returned wrong entry: %+v", e)
+	if nav.entry.Type != "add_to_playlist" || nav.entry.VideoTitle != "Gamma" {
+		t.Errorf("DrillDown returned wrong entry: %+v", nav.entry)
 	}
 }
 
 func TestActivityViewDrillDownEmptyNoNav(t *testing.T) {
 	v := activityView{}
-	keys := testActivityKeys()
-	if _, ok := v.update(tea.KeyMsg{Type: tea.KeyEnter}, keys, 10, false); ok {
+	if in := v.update(tea.KeyMsg{Type: tea.KeyEnter}, testActivityCtx()); in != nil {
 		t.Error("DrillDown on empty list should not signal navigation")
 	}
 }

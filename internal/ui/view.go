@@ -315,6 +315,9 @@ func (m Model) contentVideos(raw []youtube.Video, cursor int) ([]youtube.Video, 
 }
 
 func (m Model) renderContent(height int) string {
+	if v := m.activeView(); v != nil {
+		return v.render(m.viewCtx(), height)
+	}
 	switch m.activeTab {
 	case tabRecommended:
 		vids, cur := m.contentVideos(m.recVideos, m.recCursor)
@@ -327,14 +330,6 @@ func (m Model) renderContent(height int) string {
 		return m.renderPlaylists(height)
 	case tabSearch:
 		return m.renderSearch(height)
-	case tabDownloading:
-		return m.downloading.render(m.downloader.Items(), m.playAfterDownload, m.width, m.keys.Download.Help().Key, height)
-	case tabLocal:
-		return m.local.render(m.localVideos, m.videoListTitleW(), height)
-	case tabHistory:
-		return m.history.render(m.width, height)
-	case tabActivity:
-		return m.activity.render(m.width, height)
 	}
 	return ""
 }

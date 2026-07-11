@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -79,26 +81,27 @@ func (v *historyView) jumpToLast(pageSize int) {
 // update handles key input for the History tab. It returns an intent for any
 // action that requires the router (cross-tab navigation, play, delete, hide).
 // The view mutates its own cursor/scroll/detail state directly.
-func (v *historyView) update(msg tea.KeyMsg, keys keyMap, pageSize int, circular bool, store Store) historyIntent {
+func (v *historyView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
+	keys := ctx.keys
 	if v.detailVideoID != "" {
 		switch {
 		case key.Matches(msg, keys.Escape), key.Matches(msg, keys.Left):
 			v.detailVideoID = ""
 			v.detail = nil
 		}
-		return historyIntent{}
+		return nil
 	}
 
 	n := len(v.entries)
 	switch {
 	case key.Matches(msg, keys.Up):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, pageSize, circular)
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.Down):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, pageSize, circular)
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.PageUp):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, pageSize, circular)
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.PageDown):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, pageSize, circular)
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.Play):
 		if v.cursor < n {
 			e := v.entries[v.cursor]
@@ -112,7 +115,7 @@ func (v *historyView) update(msg tea.KeyMsg, keys keyMap, pageSize int, circular
 			if e.EventType == "search" {
 				return historyIntent{kind: histIntentDrillSearch, entry: e}
 			}
-			if detail, err := store.VideoHistory(e.VideoID); err == nil {
+			if detail, err := ctx.db.VideoHistory(e.VideoID); err == nil {
 				v.detailVideoID = e.VideoID
 				v.detail = detail
 			}
@@ -134,11 +137,52 @@ func (v *historyView) update(msg tea.KeyMsg, keys keyMap, pageSize int, circular
 			}
 		}
 	}
-	return historyIntent{}
+	return nil
+}
+
+// apply performs the router-side effects of a history action.
+func (in historyIntent) apply(m *Model) tea.Cmd {
+	switch in.kind {
+	case histIntentDrillSearch:
+		// Navigate to search tab with query pre-filled; user presses Enter again to search.
+		m.activeTab = tabSearch
+		cmd := m.onTabActivated()
+		m.searchInput.SetValue(in.entry.Details)
+		m.searchInput.CursorEnd()
+		return cmd
+	case histIntentPlay:
+		e := in.entry
+		v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
+		m.playVideo(v)
+	case histIntentDelete:
+		e := in.entry
+		if e.EventType == "search" {
+			_ = m.db.DeleteSearchHistory(e.Details)
+			m.setStatus("Removed search: "+truncate(e.Details, 50), false)
+		} else {
+			if lv, ok := m.localVideoIDs[e.VideoID]; ok {
+				_ = os.Remove(lv.FilePath)
+				_ = m.db.DeleteLocalVideo(lv.ID)
+				if lv2, err := m.db.LocalVideos(); err == nil {
+					m.localVideos = lv2
+					m.localVideoIDs = buildLocalIDMap(lv2)
+				}
+			}
+			_ = m.db.DeleteVideoHistory(e.VideoID)
+			_ = m.db.DeleteVideoPosition(e.VideoID)
+			delete(m.streamedVideoIDs, e.VideoID)
+			delete(m.videoPositions, e.VideoID)
+			m.setStatus("Deleted: "+truncate(e.Title, 50), false)
+		}
+	case histIntentHide:
+		m.hideChannel(in.entry.ChannelID, in.entry.Channel)
+	}
+	return nil
 }
 
 // render draws the history tab, dispatching to renderDetail when a video is open.
-func (v historyView) render(width, height int) string {
+func (v historyView) render(ctx viewCtx, height int) string {
+	width := ctx.width
 	if v.detailVideoID != "" {
 		return v.renderDetail(width, height)
 	}

@@ -31,12 +31,14 @@ func sampleItems() []downloader.Item {
 	}
 }
 
+func dlCtx(items []downloader.Item) viewCtx {
+	return viewCtx{keys: testListKeys(), pageSize: 10, circular: false, dlItems: items}
+}
+
 func TestDownloadingDownMovesCursor(t *testing.T) {
 	v := downloadingView{}
-	items := sampleItems()
-	keys := testListKeys()
-	if in := v.update(tea.KeyMsg{Type: tea.KeyDown}, keys, items, 10, false); in.kind != dlIntentNone {
-		t.Fatalf("Down should not produce an intent, got %d", in.kind)
+	if in := v.update(tea.KeyMsg{Type: tea.KeyDown}, dlCtx(sampleItems())); in != nil {
+		t.Fatalf("Down should not produce an intent, got %T", in)
 	}
 	if v.cursor != 1 {
 		t.Errorf("Down: cursor=%d, want 1", v.cursor)
@@ -45,33 +47,30 @@ func TestDownloadingDownMovesCursor(t *testing.T) {
 
 func TestDownloadingPlayReturnsItem(t *testing.T) {
 	v := downloadingView{cursor: 1}
-	items := sampleItems()
-	keys := testListKeys()
-	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, keys, items, 10, false)
-	if in.kind != dlIntentPlay {
-		t.Fatalf("Play: kind=%d, want dlIntentPlay", in.kind)
+	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, dlCtx(sampleItems()))
+	got, ok := in.(downloadingIntent)
+	if !ok || got.kind != dlIntentPlay {
+		t.Fatalf("Play: got %T kind=%v, want downloadingIntent/dlIntentPlay", in, got.kind)
 	}
-	if in.item.Video.ID != "b" {
-		t.Errorf("Play: item=%q, want b", in.item.Video.ID)
+	if got.item.Video.ID != "b" {
+		t.Errorf("Play: item=%q, want b", got.item.Video.ID)
 	}
 }
 
 func TestDownloadingDeleteReturnsIntent(t *testing.T) {
 	v := downloadingView{cursor: 2}
-	items := sampleItems()
-	keys := testListKeys()
-	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}, keys, items, 10, false)
-	if in.kind != dlIntentDelete || in.item.Video.ID != "c" {
-		t.Errorf("Delete: got kind=%d item=%q, want dlIntentDelete/c", in.kind, in.item.Video.ID)
+	in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}, dlCtx(sampleItems()))
+	got, ok := in.(downloadingIntent)
+	if !ok || got.kind != dlIntentDelete || got.item.Video.ID != "c" {
+		t.Errorf("Delete: got %T kind=%v item=%q, want downloadingIntent/dlIntentDelete/c", in, got.kind, got.item.Video.ID)
 	}
 }
 
 func TestDownloadingActionEmptyNoIntent(t *testing.T) {
 	v := downloadingView{}
-	keys := testListKeys()
 	// no items → cursor 0 is out of range, play must not fire.
-	if in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, keys, nil, 10, false); in.kind != dlIntentNone {
-		t.Errorf("Play on empty queue: kind=%d, want dlIntentNone", in.kind)
+	if in := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}, dlCtx(nil)); in != nil {
+		t.Errorf("Play on empty queue: got %T, want nil", in)
 	}
 }
 
@@ -92,5 +91,11 @@ func TestDownloadingCurrentItem(t *testing.T) {
 	}
 	if _, ok := (downloadingView{cursor: 9}).currentItem(items); ok {
 		t.Error("currentItem out of range should be false")
+	}
+}
+
+func TestDownloadingContext(t *testing.T) {
+	if got := (downloadingView{}).context(); got != CtxDownloading {
+		t.Errorf("context=%v, want CtxDownloading", got)
 	}
 }

@@ -1016,6 +1016,9 @@ func sortLocalVideos(videos []db.LocalVideo, mode int) {
 
 // currentContext returns the ContextID for the currently focused UI area.
 func (m Model) currentContext() ContextID {
+	if v := m.activeView(); v != nil {
+		return v.context()
+	}
 	switch m.activeTab {
 	case tabRecommended:
 		return CtxVideoList
@@ -1045,12 +1048,6 @@ func (m Model) currentContext() ContextID {
 			return CtxPlaylistList
 		}
 		return CtxVideoList
-	case tabDownloading:
-		return CtxDownloading
-	case tabLocal:
-		return CtxLocal
-	case tabHistory:
-		return m.history.context()
 	}
 	return CtxVideoList
 }

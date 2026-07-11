@@ -31,30 +31,40 @@ func (v *activityView) load(store Store, setErr func(string)) {
 	v.cursor = clamp(v.cursor, len(entries))
 }
 
-// update handles navigation keys. On drill-down it returns the selected entry
-// and true; the router performs the cross-tab jump (activity navigation writes
-// other tabs' state, which is a router concern, not this view's).
-func (v *activityView) update(msg tea.KeyMsg, keys keyMap, pageSize int, circular bool) (db.ActivityEntry, bool) {
+// activityNavIntent asks the router to jump to the tab/target for an entry;
+// activity navigation writes other tabs' state, which is a router concern.
+type activityNavIntent struct{ entry db.ActivityEntry }
+
+func (in activityNavIntent) apply(m *Model) tea.Cmd { return m.navigateToActivity(in.entry) }
+
+// context: Activity has no video/sort semantics, so it reports the default
+// context (matching its absence from the pre-interface currentContext switch).
+func (v activityView) context() ContextID { return CtxVideoList }
+
+// update handles navigation keys. On drill-down it returns a nav intent for the
+// router to perform the cross-tab jump.
+func (v *activityView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 	n := len(v.entries)
 	switch {
-	case key.Matches(msg, keys.Up):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, pageSize, circular)
-	case key.Matches(msg, keys.Down):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, pageSize, circular)
-	case key.Matches(msg, keys.PageUp):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, pageSize, circular)
-	case key.Matches(msg, keys.PageDown):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, pageSize, circular)
-	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
+	case key.Matches(msg, ctx.keys.Up):
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
+	case key.Matches(msg, ctx.keys.Down):
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
+	case key.Matches(msg, ctx.keys.PageUp):
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
+	case key.Matches(msg, ctx.keys.PageDown):
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
+	case key.Matches(msg, ctx.keys.DrillDown), key.Matches(msg, ctx.keys.Right):
 		if v.cursor < n {
-			return v.entries[v.cursor], true
+			return activityNavIntent{entry: v.entries[v.cursor]}
 		}
 	}
-	return db.ActivityEntry{}, false
+	return nil
 }
 
 // render draws the activity list. Moved verbatim from Model.renderActivity.
-func (v activityView) render(width, height int) string {
+func (v activityView) render(ctx viewCtx, height int) string {
+	width := ctx.width
 	header := styleSectionTitle.Render("Activity")
 	headerH := lipgloss.Height(header)
 

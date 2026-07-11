@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/db"
@@ -65,19 +66,23 @@ func (v localView) currentVideo(videos []db.LocalVideo) (youtube.Video, bool) {
 	return youtube.Video{}, false
 }
 
+// context reports the Local tab's sort/chord context.
+func (v localView) context() ContextID { return CtxLocal }
+
 // update handles navigation keys directly and returns an intent for the actions
-// (play/delete/…) the router owns. videos is the shared local library.
-func (v *localView) update(msg tea.KeyMsg, keys keyMap, videos []db.LocalVideo, pageSize int, circular bool) localIntent {
+// (play/delete/…) the router owns. The library is shared (ctx.localVideos).
+func (v *localView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
+	keys, videos := ctx.keys, ctx.localVideos
 	n := len(videos)
 	switch {
 	case key.Matches(msg, keys.Up):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, pageSize, circular)
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.Down):
-		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, pageSize, circular)
+		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.PageUp):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, pageSize, circular)
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.PageDown):
-		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, pageSize, circular)
+		v.cursor, v.vs = vsPage(v.cursor, v.vs, n, +1, ctx.pageSize, ctx.circular)
 	case key.Matches(msg, keys.Play):
 		if v.cursor < n {
 			return localIntent{kind: localIntentPlay, video: videos[v.cursor]}
@@ -89,12 +94,34 @@ func (v *localView) update(msg tea.KeyMsg, keys keyMap, videos []db.LocalVideo, 
 	case key.Matches(msg, keys.CopyURL):
 		return localIntent{kind: localIntentCopyURL}
 	}
-	return localIntent{}
+	return nil
 }
 
-// render draws the Local tab. videos is shared router state; titleW is computed
-// by the router (it depends on the global column layout).
-func (v localView) render(videos []db.LocalVideo, titleW, height int) string {
+// apply performs the router-side effects of a local-library action.
+func (in localIntent) apply(m *Model) tea.Cmd {
+	switch in.kind {
+	case localIntentPlay:
+		m.launchVideo(in.video)
+	case localIntentDelete:
+		lv := in.video
+		_ = os.Remove(lv.FilePath)
+		_ = m.db.DeleteLocalVideo(lv.ID)
+		_ = m.db.AddHistory(lv.ID, "delete", "")
+		if lv2, err := m.db.LocalVideos(); err == nil {
+			m.localVideos = lv2
+		}
+		m.local.reclamp(len(m.localVideos), m.pageSize())
+		m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
+	case localIntentCopyURL:
+		m.copyCurrentURL()
+	}
+	return nil
+}
+
+// render draws the Local tab. The library is shared router state (ctx); titleW
+// is computed by the router (it depends on the global column layout).
+func (v localView) render(ctx viewCtx, height int) string {
+	videos, titleW := ctx.localVideos, ctx.localTitleW
 	header := styleSectionTitle.Render("Local Library")
 	headerH := lipgloss.Height(header)
 

@@ -14,7 +14,7 @@ func testHistoryKeys() keyMap {
 		Up:          "up",
 		Down:        "down",
 		PageUp:      "pgup",
-		PageDown:    "pgdn",
+		PageDown:    "pgdown",
 		DrillDown:   "enter",
 		Right:       "right",
 		Back:        "left",
@@ -23,6 +23,18 @@ func testHistoryKeys() keyMap {
 		Delete:      "d",
 		HideChannel: "h",
 	})
+}
+
+func testHistoryCtx() viewCtx {
+	return viewCtx{keys: testHistoryKeys(), pageSize: 10, circular: false, db: &fakeStore{}}
+}
+
+// histKind decodes a viewIntent into its history kind/entry (nil → None).
+func histKind(in viewIntent) (histIntentKind, db.HistoryEntry) {
+	if hi, ok := in.(historyIntent); ok {
+		return hi.kind, hi.entry
+	}
+	return histIntentNone, db.HistoryEntry{}
 }
 
 func sampleHistory() historyView {
@@ -37,10 +49,9 @@ func sampleHistory() historyView {
 
 func TestHistoryViewDownMovesCursor(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyDown}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentNone {
-		t.Fatalf("Down should return no intent, got %v", intent.kind)
+	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyDown}, testHistoryCtx()))
+	if kind != histIntentNone {
+		t.Fatalf("Down should return no intent, got %v", kind)
 	}
 	if v.cursor != 1 {
 		t.Errorf("Down: cursor=%d, want 1", v.cursor)
@@ -49,8 +60,7 @@ func TestHistoryViewDownMovesCursor(t *testing.T) {
 
 func TestHistoryViewUpClampsAtTop(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
-	v.update(tea.KeyMsg{Type: tea.KeyUp}, keys, 10, false, &fakeStore{})
+	v.update(tea.KeyMsg{Type: tea.KeyUp}, testHistoryCtx())
 	if v.cursor != 0 {
 		t.Errorf("Up at top: cursor=%d, want 0", v.cursor)
 	}
@@ -58,46 +68,42 @@ func TestHistoryViewUpClampsAtTop(t *testing.T) {
 
 func TestHistoryViewPlayOnVideoEntry(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentPlay {
-		t.Fatalf("Play on video entry: intent=%v, want histIntentPlay", intent.kind)
+	kind, entry := histKind(v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}, testHistoryCtx()))
+	if kind != histIntentPlay {
+		t.Fatalf("Play on video entry: intent=%v, want histIntentPlay", kind)
 	}
-	if intent.entry.VideoID != "v1" {
-		t.Errorf("Play: entry.VideoID=%q, want v1", intent.entry.VideoID)
+	if entry.VideoID != "v1" {
+		t.Errorf("Play: entry.VideoID=%q, want v1", entry.VideoID)
 	}
 }
 
 func TestHistoryViewPlayOnSearchEntryDoesNothing(t *testing.T) {
 	v := sampleHistory()
 	v.cursor = 2 // search entry
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentNone {
-		t.Errorf("Play on search entry should return no intent, got %v", intent.kind)
+	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}, testHistoryCtx()))
+	if kind != histIntentNone {
+		t.Errorf("Play on search entry should return no intent, got %v", kind)
 	}
 }
 
 func TestHistoryViewDrillDownOnSearchReturnsSearchIntent(t *testing.T) {
 	v := sampleHistory()
 	v.cursor = 2 // search entry
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyEnter}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentDrillSearch {
-		t.Fatalf("DrillDown on search: intent=%v, want histIntentDrillSearch", intent.kind)
+	kind, entry := histKind(v.update(tea.KeyMsg{Type: tea.KeyEnter}, testHistoryCtx()))
+	if kind != histIntentDrillSearch {
+		t.Fatalf("DrillDown on search: intent=%v, want histIntentDrillSearch", kind)
 	}
-	if intent.entry.Details != "golang tutorial" {
-		t.Errorf("DrillDown search: Details=%q, want 'golang tutorial'", intent.entry.Details)
+	if entry.Details != "golang tutorial" {
+		t.Errorf("DrillDown search: Details=%q, want 'golang tutorial'", entry.Details)
 	}
 }
 
 func TestHistoryViewDrillDownOnVideoOpensDetail(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
 	// fakeStore.VideoHistory returns nil, so detail will be nil but detailVideoID is set.
-	intent := v.update(tea.KeyMsg{Type: tea.KeyEnter}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentNone {
-		t.Fatalf("DrillDown on video should return no intent, got %v", intent.kind)
+	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyEnter}, testHistoryCtx()))
+	if kind != histIntentNone {
+		t.Fatalf("DrillDown on video should return no intent, got %v", kind)
 	}
 	if v.detailVideoID != "v1" {
 		t.Errorf("DrillDown: detailVideoID=%q, want v1", v.detailVideoID)
@@ -108,10 +114,9 @@ func TestHistoryViewEscapeClosesDetail(t *testing.T) {
 	v := sampleHistory()
 	v.detailVideoID = "v1"
 	v.detail = []db.HistoryEntry{{VideoID: "v1", Title: "Alpha", EventType: "streamVideo", Timestamp: time.Now()}}
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyEsc}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentNone {
-		t.Errorf("Escape in detail: intent=%v, want none", intent.kind)
+	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyEsc}, testHistoryCtx()))
+	if kind != histIntentNone {
+		t.Errorf("Escape in detail: intent=%v, want none", kind)
 	}
 	if v.detailVideoID != "" {
 		t.Errorf("Escape should clear detailVideoID, got %q", v.detailVideoID)
@@ -121,8 +126,7 @@ func TestHistoryViewEscapeClosesDetail(t *testing.T) {
 func TestHistoryViewLeftClosesDetail(t *testing.T) {
 	v := sampleHistory()
 	v.detailVideoID = "v1"
-	keys := testHistoryKeys()
-	v.update(tea.KeyMsg{Type: tea.KeyLeft}, keys, 10, false, &fakeStore{})
+	v.update(tea.KeyMsg{Type: tea.KeyLeft}, testHistoryCtx())
 	if v.detailVideoID != "" {
 		t.Errorf("Left should clear detailVideoID, got %q", v.detailVideoID)
 	}
@@ -130,13 +134,12 @@ func TestHistoryViewLeftClosesDetail(t *testing.T) {
 
 func TestHistoryViewDeleteVideoEntry(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentDelete {
-		t.Fatalf("Delete: intent=%v, want histIntentDelete", intent.kind)
+	kind, entry := histKind(v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}, testHistoryCtx()))
+	if kind != histIntentDelete {
+		t.Fatalf("Delete: intent=%v, want histIntentDelete", kind)
 	}
-	if intent.entry.VideoID != "v1" {
-		t.Errorf("Delete: entry.VideoID=%q, want v1", intent.entry.VideoID)
+	if entry.VideoID != "v1" {
+		t.Errorf("Delete: entry.VideoID=%q, want v1", entry.VideoID)
 	}
 	if len(v.entries) != 2 {
 		t.Errorf("Delete: entries len=%d, want 2", len(v.entries))
@@ -146,8 +149,7 @@ func TestHistoryViewDeleteVideoEntry(t *testing.T) {
 func TestHistoryViewDeleteClampsCursorAtEnd(t *testing.T) {
 	v := sampleHistory()
 	v.cursor = 2 // last entry
-	keys := testHistoryKeys()
-	v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}, keys, 10, false, &fakeStore{})
+	v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}, testHistoryCtx())
 	if v.cursor != 1 {
 		t.Errorf("Delete last: cursor=%d, want 1", v.cursor)
 	}
@@ -155,23 +157,21 @@ func TestHistoryViewDeleteClampsCursorAtEnd(t *testing.T) {
 
 func TestHistoryViewHideChannelOnVideoEntry(t *testing.T) {
 	v := sampleHistory()
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentHide {
-		t.Fatalf("HideChannel: intent=%v, want histIntentHide", intent.kind)
+	kind, entry := histKind(v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, testHistoryCtx()))
+	if kind != histIntentHide {
+		t.Fatalf("HideChannel: intent=%v, want histIntentHide", kind)
 	}
-	if intent.entry.ChannelID != "c1" {
-		t.Errorf("HideChannel: ChannelID=%q, want c1", intent.entry.ChannelID)
+	if entry.ChannelID != "c1" {
+		t.Errorf("HideChannel: ChannelID=%q, want c1", entry.ChannelID)
 	}
 }
 
 func TestHistoryViewHideChannelOnSearchDoesNothing(t *testing.T) {
 	v := sampleHistory()
 	v.cursor = 2 // search entry
-	keys := testHistoryKeys()
-	intent := v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, keys, 10, false, &fakeStore{})
-	if intent.kind != histIntentNone {
-		t.Errorf("HideChannel on search: intent=%v, want none", intent.kind)
+	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, testHistoryCtx()))
+	if kind != histIntentNone {
+		t.Errorf("HideChannel on search: intent=%v, want none", kind)
 	}
 }
 
