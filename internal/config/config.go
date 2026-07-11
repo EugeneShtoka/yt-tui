@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -155,175 +156,23 @@ func defaultKeyBindings() KeyBindings {
 // before a new binding was added — TOML zeroes nested struct fields not in the file).
 func (kb *KeyBindings) fillDefaults() {
 	d := defaultKeyBindings()
-	if kb.Download == "" {
-		kb.Download = d.Download
-	}
-	if kb.DownloadAudio == "" {
-		kb.DownloadAudio = d.DownloadAudio
-	}
-	if kb.Delete == "" {
-		kb.Delete = d.Delete
-	}
-	if kb.Play == "" {
-		kb.Play = d.Play
-	}
-	if kb.PlayAudio == "" {
-		kb.PlayAudio = d.PlayAudio
-	}
-	if kb.HideVideo == "" {
-		kb.HideVideo = d.HideVideo
-	}
-	if kb.HideChannel == "" {
-		kb.HideChannel = d.HideChannel
-	}
-	if kb.CopyURL == "" {
-		kb.CopyURL = d.CopyURL
-	}
-	if kb.OpenLinks == "" {
-		kb.OpenLinks = d.OpenLinks
-	}
-	if kb.OpenChapters == "" {
-		kb.OpenChapters = d.OpenChapters
-	}
-	if kb.AddToPlaylist == "" {
-		kb.AddToPlaylist = d.AddToPlaylist
-	}
-	if kb.NewPlaylist == "" {
-		kb.NewPlaylist = d.NewPlaylist
-	}
-	if kb.ToggleMode == "" {
-		kb.ToggleMode = d.ToggleMode
-	}
-	if kb.Subscribe == "" {
-		kb.Subscribe = d.Subscribe
-	}
-	if kb.Unsubscribe == "" {
-		kb.Unsubscribe = d.Unsubscribe
-	}
-	if kb.RenameChannel == "" {
-		kb.RenameChannel = d.RenameChannel
-	}
-	if kb.TagChannel == "" {
-		kb.TagChannel = d.TagChannel
-	}
-	if kb.Help == "" {
-		kb.Help = d.Help
-	}
-	if kb.Quit == "" {
-		kb.Quit = d.Quit
-	}
-	if kb.Close == "" {
-		kb.Close = d.Close
-	}
+	fillStringDefaults(reflect.ValueOf(kb).Elem(), reflect.ValueOf(d))
+}
 
-	if kb.Refresh == "" {
-		kb.Refresh = d.Refresh
-	}
-	if kb.ForceRefresh == "" {
-		kb.ForceRefresh = d.ForceRefresh
-	}
-	if kb.VideoInfo == "" {
-		kb.VideoInfo = d.VideoInfo
-	}
-
-	if kb.Up == "" {
-		kb.Up = d.Up
-	}
-	if kb.Down == "" {
-		kb.Down = d.Down
-	}
-	if kb.Right == "" {
-		kb.Right = d.Right
-	}
-	if kb.PageUp == "" {
-		kb.PageUp = d.PageUp
-	}
-	if kb.PageDown == "" {
-		kb.PageDown = d.PageDown
-	}
-	if kb.DrillDown == "" {
-		kb.DrillDown = d.DrillDown
-	}
-	if kb.Back == "" {
-		kb.Back = d.Back
-	}
-	if kb.Filter == "" {
-		kb.Filter = d.Filter
-	}
-	if kb.TabChord == "" {
-		kb.TabChord = d.TabChord
-	}
-	if kb.SortChord == "" {
-		kb.SortChord = d.SortChord
-	}
-	if kb.GotoPrefix == "" {
-		kb.GotoPrefix = d.GotoPrefix
-	}
-	if kb.GotoBottom == "" {
-		kb.GotoBottom = d.GotoBottom
-	}
-	if kb.GotoLine == "" {
-		kb.GotoLine = d.GotoLine
-	}
-
-	if kb.SubscribeKeys.Remote == "" {
-		kb.SubscribeKeys.Remote = d.SubscribeKeys.Remote
-	}
-	if kb.SubscribeKeys.Local == "" {
-		kb.SubscribeKeys.Local = d.SubscribeKeys.Local
-	}
-	if kb.PlaylistKeys.Remote == "" {
-		kb.PlaylistKeys.Remote = d.PlaylistKeys.Remote
-	}
-	if kb.PlaylistKeys.Local == "" {
-		kb.PlaylistKeys.Local = d.PlaylistKeys.Local
-	}
-
-	if kb.SortKeys.Date == "" {
-		kb.SortKeys.Date = d.SortKeys.Date
-	}
-	if kb.SortKeys.Views == "" {
-		kb.SortKeys.Views = d.SortKeys.Views
-	}
-	if kb.SortKeys.Name == "" {
-		kb.SortKeys.Name = d.SortKeys.Name
-	}
-	if kb.SortKeys.Channel == "" {
-		kb.SortKeys.Channel = d.SortKeys.Channel
-	}
-	if kb.SortKeys.Duration == "" {
-		kb.SortKeys.Duration = d.SortKeys.Duration
-	}
-	if kb.SortKeys.Subscribers == "" {
-		kb.SortKeys.Subscribers = d.SortKeys.Subscribers
-	}
-	if kb.SortKeys.Tags == "" {
-		kb.SortKeys.Tags = d.SortKeys.Tags
-	}
-
-	if kb.TabKeys.Recommended == "" {
-		kb.TabKeys.Recommended = d.TabKeys.Recommended
-	}
-	if kb.TabKeys.Subscriptions == "" {
-		kb.TabKeys.Subscriptions = d.TabKeys.Subscriptions
-	}
-	if kb.TabKeys.Channels == "" {
-		kb.TabKeys.Channels = d.TabKeys.Channels
-	}
-	if kb.TabKeys.Playlists == "" {
-		kb.TabKeys.Playlists = d.TabKeys.Playlists
-	}
-	if kb.TabKeys.Search == "" {
-		kb.TabKeys.Search = d.TabKeys.Search
-	}
-	if kb.TabKeys.Downloading == "" {
-		kb.TabKeys.Downloading = d.TabKeys.Downloading
-	}
-	if kb.TabKeys.Local == "" {
-		kb.TabKeys.Local = d.TabKeys.Local
-	}
-	if kb.TabKeys.History == "" {
-		kb.TabKeys.History = d.TabKeys.History
+// fillStringDefaults recursively fills empty string fields in target from defaults.
+// Only processes string and struct kinds — safe for KeyBindings and its nested types.
+func fillStringDefaults(target, defaults reflect.Value) {
+	for i := 0; i < target.NumField(); i++ {
+		tv := target.Field(i)
+		dv := defaults.Field(i)
+		switch tv.Kind() {
+		case reflect.String:
+			if tv.String() == "" {
+				tv.Set(dv)
+			}
+		case reflect.Struct:
+			fillStringDefaults(tv, dv)
+		}
 	}
 }
 

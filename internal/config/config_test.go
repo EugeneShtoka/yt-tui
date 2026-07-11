@@ -3,11 +3,67 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/BurntSushi/toml"
 )
+
+func TestFillDefaultsZeroInput(t *testing.T) {
+	var kb KeyBindings
+	kb.fillDefaults()
+	want := defaultKeyBindings()
+	if kb != want {
+		t.Errorf("fillDefaults on zero struct did not produce defaultKeyBindings()\ngot:  %+v\nwant: %+v", kb, want)
+	}
+}
+
+func TestFillDefaultsPreservesExisting(t *testing.T) {
+	kb := KeyBindings{
+		Play:    "space",
+		SortKeys: SortKeys{Date: "D"},
+		TabKeys:  TabKeys{Recommended: "1"},
+	}
+	kb.fillDefaults()
+	if kb.Play != "space" {
+		t.Errorf("fillDefaults overwrote Play: got %q, want %q", kb.Play, "space")
+	}
+	if kb.SortKeys.Date != "D" {
+		t.Errorf("fillDefaults overwrote SortKeys.Date: got %q, want %q", kb.SortKeys.Date, "D")
+	}
+	if kb.TabKeys.Recommended != "1" {
+		t.Errorf("fillDefaults overwrote TabKeys.Recommended: got %q, want %q", kb.TabKeys.Recommended, "1")
+	}
+	// Other fields should be filled with defaults.
+	d := defaultKeyBindings()
+	if kb.Download != d.Download {
+		t.Errorf("fillDefaults did not fill Download: got %q, want %q", kb.Download, d.Download)
+	}
+}
+
+func TestFillDefaultsNoEmptyFields(t *testing.T) {
+	// After fillDefaults, every string field at any nesting depth must be non-empty.
+	var kb KeyBindings
+	kb.fillDefaults()
+	var check func(v reflect.Value, path string)
+	check = func(v reflect.Value, path string) {
+		tp := v.Type()
+		for i := 0; i < tp.NumField(); i++ {
+			fv := v.Field(i)
+			ft := tp.Field(i)
+			switch fv.Kind() {
+			case reflect.String:
+				if fv.String() == "" {
+					t.Errorf("field %s.%s is empty after fillDefaults", path, ft.Name)
+				}
+			case reflect.Struct:
+				check(fv, path+"."+ft.Name)
+			}
+		}
+	}
+	check(reflect.ValueOf(kb), "KeyBindings")
+}
 
 // TestConcurrentBlacklistSaves is the acceptance test for the config
 // serialization work (REFACTOR_PLAN P0.1b): many goroutines mutating the

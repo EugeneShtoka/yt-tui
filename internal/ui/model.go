@@ -272,8 +272,9 @@ type Model struct {
 	gPending  bool   // true after first GotoPrefix press, waiting for second
 
 	// ── Chord system ──────────────────────────────────────────────────────
-	pendingChord string // chord trigger key currently waiting for completion
-	chordBuffer  string // keys accumulated after the trigger (supports multi-char)
+	pendingChord string      // chord trigger key currently waiting for completion
+	chordBuffer  string      // keys accumulated after the trigger (supports multi-char)
+	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
 
 	// ── Sort state per tab ────────────────────────────────────────────────
 	recSort      int // recommended: vidSortViews default
@@ -428,7 +429,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 
 	backend, _ := player.New(cfg)
 
-	return Model{
+	m := Model{
 		cfg:                  cfg,
 		db:                   database,
 		downloader:           dl,
@@ -471,6 +472,9 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		playlistSort:         vidSortNone,
 		searchHistIdx:        -1,
 	}
+	chords := m.buildChordDefs()
+	m.chordCache = &chords
+	return m
 }
 
 // sortChannelSlice returns a sorted copy of the given channel slice.
@@ -1130,9 +1134,16 @@ func validActions(actions []chordAction, ctx ContextID) []chordAction {
 	return out
 }
 
-// chordDefs builds the full chord registry from the current config.
-// Called on each keypress and render — cheap enough given the small slice sizes.
+// chordDefs returns the chord registry, using the cached value built in NewModel.
 func (m Model) chordDefs() []chordDef {
+	if m.chordCache != nil {
+		return *m.chordCache
+	}
+	return m.buildChordDefs()
+}
+
+// buildChordDefs constructs the full chord registry from the current config and tabs.
+func (m Model) buildChordDefs() []chordDef {
 	kb := m.cfg.Keybindings
 	tk := kb.TabKeys
 	sk := kb.SortKeys
