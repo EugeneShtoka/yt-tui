@@ -193,7 +193,9 @@ type Config struct {
 	Theme                 string               `toml:"theme,omitempty"`
 	Tabs                  []string             `toml:"tabs"`
 	HintMode              string               `toml:"hint_mode"` // "full" | "minimal" | "none"
-	RecommendedMaxAgeDays int                  `toml:"recommended_max_age_days"`
+	RecommendedMaxAgeDays      int `toml:"recommended_max_age_days"`
+	RecommendedMinDurationSecs int `toml:"recommended_min_duration_secs"`
+	RecommendedMinViews        int `toml:"recommended_min_views"`
 	RecommendedFetchCount int                  `toml:"recommended_fetch_count"`
 	RecommendedMaxPages   int                  `toml:"recommended_max_pages"`
 	ChannelLatestCount    int                  `toml:"channel_latest_count"`

@@ -430,6 +430,8 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 		if msg.Err == nil {
 			merged := mergeVideos(m.recVideos, msg.Videos)
 			filtered := filterByAge(merged, m.cfg.RecommendedMaxAgeDays)
+			filtered = filterByMinDuration(filtered, m.cfg.RecommendedMinDurationSecs)
+			filtered = filterByMinViews(filtered, m.cfg.RecommendedMinViews)
 			filtered = filterDownloaded(filtered, m.localVideoIDs)
 			filtered = filterHidden(filtered, m.recHidden)
 			filtered = filterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
@@ -2670,6 +2672,36 @@ func preserveCursor(old []youtube.Video, cursor int, new []youtube.Video) int {
 		}
 	}
 	return 0
+}
+
+// filterByMinDuration removes videos shorter than minSecs seconds.
+// Videos with Duration == 0 (unknown) are kept. Pass minSecs <= 0 to skip.
+func filterByMinDuration(videos []youtube.Video, minSecs int) []youtube.Video {
+	if minSecs <= 0 {
+		return videos
+	}
+	out := make([]youtube.Video, 0, len(videos))
+	for _, v := range videos {
+		if v.Duration == 0 || v.Duration >= minSecs {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// filterByMinViews removes videos with fewer than minViews views.
+// Videos with ViewCount == 0 (unknown) are kept. Pass minViews <= 0 to skip.
+func filterByMinViews(videos []youtube.Video, minViews int) []youtube.Video {
+	if minViews <= 0 {
+		return videos
+	}
+	out := make([]youtube.Video, 0, len(videos))
+	for _, v := range videos {
+		if v.ViewCount == 0 || v.ViewCount >= int64(minViews) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // filterByAge removes videos whose upload date is older than maxDays.
