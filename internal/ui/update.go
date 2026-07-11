@@ -881,29 +881,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, m.keys.VideoInfo):
 		if v, ok := m.currentVideo(); ok && v.URL != "" {
-			m.vidDetailOverlay = true
-			m.vidDetailLoading = true
-			m.vidDetailVideo = nil
-			m.vidDetailThumb = nil
-			m.vidDetailDescVS = 0
-			m.vidDetailLinks = nil
-			m.vidDetailDescLines = nil
-			m.vidDetailThumbB64 = ""
-			m.vidDetailThumbRendered = ""
-			m.vidDetailKittyOverlay = ""
-			if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
-				details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
-				m.vidDetailVideo = &details
-				m.vidDetailLinks = cached.Links
-				m.vidDetailChapters = cached.Chapters
-				m.vidDetailDescLines = wordWrap(cached.Description, vidDetailPanelW-2)
-				if cached.ThumbnailURL != "" {
-					return m, loadThumbnailCmd(cached.ThumbnailURL)
-				}
-				m.vidDetailLoading = false
-				return m, nil
-			}
-			return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+			return m, (&m).openVideoDetail(v)
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.OpenLinks):
@@ -1532,28 +1510,7 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.VideoInfo):
 			if v, ok := m.currentVideo(); ok && v.URL != "" {
-				m.vidDetailOverlay = true
-				m.vidDetailLoading = true
-				m.vidDetailVideo = nil
-				m.vidDetailThumb = nil
-				m.vidDetailDescVS = 0
-				m.vidDetailLinks = nil
-				m.vidDetailDescLines = nil
-				m.vidDetailThumbB64 = ""
-				m.vidDetailThumbRendered = ""
-				m.vidDetailKittyOverlay = ""
-				if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
-					details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
-					m.vidDetailVideo = &details
-					m.vidDetailLinks = cached.Links
-					m.vidDetailDescLines = wordWrap(cached.Description, vidDetailPanelW-2)
-					if cached.ThumbnailURL != "" {
-						return m, loadThumbnailCmd(cached.ThumbnailURL)
-					}
-					m.vidDetailLoading = false
-					return m, nil
-				}
-				return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+				return m, (&m).openVideoDetail(v)
 			}
 		}
 		m.handleVideoAction(msg)
@@ -3324,6 +3281,35 @@ func (m *Model) loadSBSegmentsForVideo(id string) []db.SBSegment {
 		return *cached.SBSegments
 	}
 	return nil
+}
+
+// openVideoDetail opens the video-detail overlay for v, resetting all detail
+// state and serving from cache when available.
+func (m *Model) openVideoDetail(v youtube.Video) tea.Cmd {
+	m.vidDetailOverlay = true
+	m.vidDetailLoading = true
+	m.vidDetailVideo = nil
+	m.vidDetailThumb = nil
+	m.vidDetailDescVS = 0
+	m.vidDetailLinks = nil
+	m.vidDetailChapters = nil
+	m.vidDetailDescLines = nil
+	m.vidDetailThumbB64 = ""
+	m.vidDetailThumbRendered = ""
+	m.vidDetailKittyOverlay = ""
+	if cached, ok, _ := m.db.GetVideoDetailsCache(v.ID); ok {
+		details := youtube.VideoDetails{Video: v, Description: cached.Description, ThumbnailURL: cached.ThumbnailURL, Subscribers: cached.Subscribers}
+		m.vidDetailVideo = &details
+		m.vidDetailLinks = cached.Links
+		m.vidDetailChapters = cached.Chapters
+		m.vidDetailDescLines = wordWrap(cached.Description, vidDetailPanelW-2)
+		if cached.ThumbnailURL != "" {
+			return loadThumbnailCmd(cached.ThumbnailURL)
+		}
+		m.vidDetailLoading = false
+		return nil
+	}
+	return youtube.FetchVideoDetails(m.cfg, v.URL)
 }
 
 // openChaptersForVideo opens the chapter overlay for v, loading from cache if
