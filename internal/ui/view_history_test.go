@@ -202,7 +202,7 @@ func TestHistoryViewClear(t *testing.T) {
 
 func TestHistoryViewContextVideoEntry(t *testing.T) {
 	v := sampleHistory()
-	if got := v.context(); got != CtxHistoryVideo {
+	if got := v.context(viewCtx{}); got != CtxHistoryVideo {
 		t.Errorf("context for video entry: %v, want CtxHistoryVideo", got)
 	}
 }
@@ -210,7 +210,7 @@ func TestHistoryViewContextVideoEntry(t *testing.T) {
 func TestHistoryViewContextSearchEntry(t *testing.T) {
 	v := sampleHistory()
 	v.cursor = 2
-	if got := v.context(); got != CtxHistorySearch {
+	if got := v.context(viewCtx{}); got != CtxHistorySearch {
 		t.Errorf("context for search entry: %v, want CtxHistorySearch", got)
 	}
 }
@@ -218,7 +218,7 @@ func TestHistoryViewContextSearchEntry(t *testing.T) {
 func TestHistoryViewContextDetailOpen(t *testing.T) {
 	v := sampleHistory()
 	v.detailVideoID = "v1"
-	if got := v.context(); got != CtxHistoryVideo {
+	if got := v.context(viewCtx{}); got != CtxHistoryVideo {
 		t.Errorf("context in detail mode: %v, want CtxHistoryVideo", got)
 	}
 }

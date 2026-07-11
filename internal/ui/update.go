@@ -320,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("channel videos: "+msg.Err.Error(), true)
 			} else {
 				m.searchChVideos = msg.Videos
-				m.searchChVidCursor = 0
+				m.search.vidCursor = 0
 			}
 		} else if msg.Source == "ch-background" {
 			// Background latest-video fetch: merge and persist; rebuild subVideos if newer found.
@@ -378,7 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.searchChannels = msg.Channels
 			m.searchVideos = msg.Videos
-			m.searchCursor = 0
+			m.search.cursor = 0
 			m.searchChSel = nil
 			m.searchChVideos = nil
 		}
@@ -938,8 +938,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSubChannels(msg)
 	case tabPlaylists:
 		return m.updatePlaylists(msg)
-	case tabSearch:
-		return m.updateSearch(msg)
 	}
 
 	return m, nil
@@ -1054,7 +1052,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 			sortVideos(m.subChVideos, vidSort)
 		}
 	case tabSearch:
-		m.searchSort = vidSort
+		m.search.sort = vidSort
 		if m.searchChSel != nil {
 			sortVideos(m.searchChVideos, vidSort)
 		} else {
@@ -1637,90 +1635,6 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	}
-	return m, nil
-}
-
-// ── Search ────────────────────────────────────────────────────────────────────
-
-func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Filter key refocuses the search input when results are shown.
-	if key.Matches(msg, m.keys.Filter) {
-		m.searchFocused = true
-		m.searchInput.Focus()
-		return m, textinput.Blink
-	}
-	// ── Channel drill-down ───────────────────────────────────────────────────
-	if m.searchChSel != nil {
-		n := len(m.searchChVideos)
-		switch {
-		case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
-			m.searchChSel = nil
-			m.searchChVideos = nil
-			m.localFilter = ""
-			m.localFilterInput.SetValue("")
-		case key.Matches(msg, m.keys.Up):
-			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Down):
-			m.searchChVidCursor, m.searchChVidVS = vsMove(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.PageUp):
-			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.PageDown):
-			m.searchChVidCursor, m.searchChVidVS = vsPage(m.searchChVidCursor, m.searchChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Play):
-			if v, ok := m.currentVideo(); ok {
-				m.playVideo(v)
-			}
-		case key.Matches(msg, m.keys.PlayAudio):
-			if v, ok := m.currentVideo(); ok {
-				m.playAudio(v)
-			}
-		case key.Matches(msg, m.keys.Download):
-			if v, ok := m.currentVideo(); ok {
-				m.startDownload(v, downloader.TypeVideo)
-			}
-		case key.Matches(msg, m.keys.DownloadAudio):
-			if v, ok := m.currentVideo(); ok {
-				m.startDownload(v, downloader.TypeAudio)
-			}
-		case key.Matches(msg, m.keys.CopyURL):
-			m.copyCurrentURL()
-		}
-		return m, nil
-	}
-
-	// ── Channel + video results ───────────────────────────────────────────────
-	totalChannels := len(m.searchChannels)
-	totalVideos := len(m.searchVideos)
-	total := totalChannels + totalVideos
-
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.searchCursor = clamp(m.searchCursor-1, total)
-		m.updateSearchVS(totalChannels, totalVideos)
-	case key.Matches(msg, m.keys.Down):
-		m.searchCursor = clamp(m.searchCursor+1, total)
-		m.updateSearchVS(totalChannels, totalVideos)
-	case key.Matches(msg, m.keys.PageUp):
-		m.searchCursor = clamp(m.searchCursor-m.pageSize(), total)
-		m.updateSearchVS(totalChannels, totalVideos)
-	case key.Matches(msg, m.keys.PageDown):
-		m.searchCursor = clamp(m.searchCursor+m.pageSize(), total)
-		m.updateSearchVS(totalChannels, totalVideos)
-	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-		if m.searchCursor < totalChannels {
-			ch := m.searchChannels[m.searchCursor]
-			m.searchChSel = &ch
-			m.searchChVideos = nil
-			m.searchChVidCursor = 0
-			m.searchChLoading = true
-			return m, youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "search")
-		}
-		// DrillDown on a video row: delegate to shared helper below.
-		// Explicit return prevents helper from firing a second DrillDown.
-		m.handleVideoAction(msg)
-		return m, nil
-	}
-	m.handleVideoAction(msg)
 	return m, nil
 }
 
@@ -2443,16 +2357,6 @@ func vsPage(cursor, vs, n, direction, height int, circular bool) (newCursor, new
 	return newCursor, newVS
 }
 
-// updateSearchVS keeps searchVS in sync after searchCursor moves.
-// Channels are always fully visible; VS only applies to the video sub-list.
-func (m *Model) updateSearchVS(nCh, nVid int) {
-	if m.searchCursor >= nCh && nVid > 0 {
-		_, m.searchVS = vsMove(m.searchCursor-nCh, m.searchVS, nVid, 0, m.pageSize(), false)
-	} else {
-		m.searchVS = 0
-	}
-}
-
 // vsJump jumps to a target line and centers it in the viewport (like nvim gg/G).
 func vsJump(target, n, height int) (newCursor, newVS int) {
 	c := target
@@ -2871,8 +2775,8 @@ func (m Model) currentChannelInfo() (id, name string) {
 		if m.searchChSel != nil {
 			return m.searchChSel.ID, m.searchChSel.Name
 		}
-		if m.searchCursor < len(m.searchChannels) {
-			ch := m.searchChannels[m.searchCursor]
+		if m.search.cursor < len(m.searchChannels) {
+			ch := m.searchChannels[m.search.cursor]
 			return ch.ID, ch.Name
 		}
 	}

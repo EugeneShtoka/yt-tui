@@ -46,7 +46,7 @@ func TestSubscriptionsReclampAfterShrink(t *testing.T) {
 }
 
 func TestSubscriptionsContext(t *testing.T) {
-	if got := (subscriptionsView{}).context(); got != CtxVideoList {
+	if got := (subscriptionsView{}).context(viewCtx{}); got != CtxVideoList {
 		t.Errorf("context=%v, want CtxVideoList", got)
 	}
 }

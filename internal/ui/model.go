@@ -115,7 +115,7 @@ const (
 	subChSortTags     = 6 // sort channels alphabetically by first tag (untagged last)
 )
 
-// Video list sort modes (used by each tab view's sort field + searchSort).
+// Video list sort modes (used by each tab view's sort field).
 const (
 	vidSortViews    = 0 // view count desc (default for recommended)
 	vidSortDate     = 1 // upload date desc
@@ -206,11 +206,13 @@ type Model struct {
 	addOverlayInput      textinput.Model
 
 	// ── Search ────────────────────────────────────────────────────────────────
+	// P4 slice: Search's private cursor/scroll/sort (both result modes) live in
+	// its own view struct. The result slices, drill-down selection, and loading
+	// flags are written by async fetches, so they stay here (router).
+	search        searchView
 	searchInput   textinput.Model
 	searchFocused bool
 	searchVideos  []youtube.Video
-	searchCursor  int
-	searchVS      int
 	searchLoading bool
 	lastQuery     string
 	searchHistory []string // past queries, newest first
@@ -249,12 +251,10 @@ type Model struct {
 	cmdLastTabValue string
 
 	// ── Search: channel results + drill-down ─────────────────────────────────
-	searchChannels    []youtube.Channel
-	searchChSel       *youtube.Channel
-	searchChVideos    []youtube.Video
-	searchChLoading   bool
-	searchChVidCursor int
-	searchChVidVS     int
+	searchChannels  []youtube.Channel
+	searchChSel     *youtube.Channel
+	searchChVideos  []youtube.Video
+	searchChLoading bool
 
 	// ── Shared ───────────────────────────────────────────────────────────────
 	spinner   spinner.Model
@@ -275,7 +275,6 @@ type Model struct {
 
 	// ── Sort state per tab ────────────────────────────────────────────────
 	subChVidSort int // subscriptions channel drill-down: vidSortDate default
-	searchSort   int // search results: vidSortNone default
 	playlistSort int // playlist video pane: vidSortNone default
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
@@ -460,8 +459,8 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		playerBackend:        backend,
 		recommended:          recommendedView{sort: vidSortViews},
 		subscriptions:        subscriptionsView{sort: vidSortDate},
+		search:               searchView{sort: vidSortNone},
 		subChVidSort:         vidSortDate,
-		searchSort:           vidSortNone,
 		local:                localView{sort: vidSortNone},
 		playlistSort:         vidSortNone,
 		searchHistIdx:        -1,
@@ -799,12 +798,12 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 		}
 	case tabSearch:
 		if m.searchChSel != nil {
-			if i := m.searchChVidCursor; i >= 0 && i < len(m.searchChVideos) {
+			if i := m.search.vidCursor; i >= 0 && i < len(m.searchChVideos) {
 				return m.searchChVideos[i], true
 			}
 		} else {
 			nCh := len(m.searchChannels)
-			idx := m.searchCursor - nCh
+			idx := m.search.cursor - nCh
 			if idx >= 0 && idx < len(m.searchVideos) {
 				return m.searchVideos[idx], true
 			}
@@ -865,9 +864,7 @@ func (m *Model) jumpToLine(idx int) {
 			m.playlistVidCursor, m.playlistVidVS = vsJump(idx, len(vids), ps)
 		}
 	case tabSearch:
-		nCh := len(m.searchChannels)
-		m.searchCursor = clamp(nCh+idx, nCh+len(m.searchVideos))
-		m.updateSearchVS(nCh, len(m.searchVideos))
+		m.search.jumpTo(idx, len(m.searchChannels), len(m.searchVideos), ps)
 	case tabDownloading:
 		m.downloading.jumpTo(idx, len(m.downloader.Items()), ps)
 	case tabLocal:
@@ -907,10 +904,7 @@ func (m *Model) jumpToLast() {
 			m.playlistVidCursor, m.playlistVidVS = vsJump(len(vids)-1, len(vids), ps)
 		}
 	case tabSearch:
-		nCh := len(m.searchChannels)
-		nVid := len(m.searchVideos)
-		m.searchCursor = nCh + clamp(nVid-1, nVid)
-		m.updateSearchVS(nCh, nVid)
+		m.search.jumpToLast(len(m.searchChannels), len(m.searchVideos), ps)
 	case tabDownloading:
 		m.downloading.jumpToLast(len(m.downloader.Items()), ps)
 	case tabLocal:
@@ -1016,7 +1010,7 @@ func sortLocalVideos(videos []db.LocalVideo, mode int) {
 // currentContext returns the ContextID for the currently focused UI area.
 func (m Model) currentContext() ContextID {
 	if v := m.activeView(); v != nil {
-		return v.context()
+		return v.context(m.viewCtx())
 	}
 	switch m.activeTab {
 	case tabChannels:
@@ -1030,14 +1024,6 @@ func (m Model) currentContext() ContextID {
 			return CtxChannelList
 		}
 		return CtxVideoList
-	case tabSearch:
-		if m.searchChSel != nil {
-			return CtxVideoList // channel drill-down shows a video list
-		}
-		if m.searchCursor < len(m.searchChannels) {
-			return CtxSearchChannel
-		}
-		return CtxSearchVideo
 	case tabPlaylists:
 		if m.playlistPane == 0 {
 			return CtxPlaylistList

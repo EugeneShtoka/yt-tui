@@ -39,7 +39,7 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 	return nil
 }
 
-func (v recommendedView) context() ContextID { return CtxVideoList }
+func (v recommendedView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
 func (v *recommendedView) jumpTo(idx, n, pageSize int) {
 	v.cursor, v.vs = vsJump(idx, n, pageSize)

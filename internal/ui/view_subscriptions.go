@@ -29,7 +29,7 @@ func (in subActionIntent) apply(m *Model) tea.Cmd {
 	return nil
 }
 
-func (v subscriptionsView) context() ContextID { return CtxVideoList }
+func (v subscriptionsView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
 func (v *subscriptionsView) jumpTo(idx, n, pageSize int) {
 	v.cursor, v.vs = vsJump(idx, n, pageSize)

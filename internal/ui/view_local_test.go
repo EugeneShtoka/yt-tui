@@ -82,7 +82,7 @@ func TestLocalCurrentVideoConvertsEntry(t *testing.T) {
 }
 
 func TestLocalContext(t *testing.T) {
-	if got := (localView{}).context(); got != CtxLocal {
+	if got := (localView{}).context(viewCtx{}); got != CtxLocal {
 		t.Errorf("context=%v, want CtxLocal", got)
 	}
 }

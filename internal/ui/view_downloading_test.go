@@ -95,7 +95,7 @@ func TestDownloadingCurrentItem(t *testing.T) {
 }
 
 func TestDownloadingContext(t *testing.T) {
-	if got := (downloadingView{}).context(); got != CtxDownloading {
+	if got := (downloadingView{}).context(viewCtx{}); got != CtxDownloading {
 		t.Errorf("context=%v, want CtxDownloading", got)
 	}
 }

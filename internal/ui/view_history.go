@@ -58,7 +58,7 @@ func (v *historyView) clear() {
 }
 
 // context returns the context ID for the current cursor position.
-func (v *historyView) context() ContextID {
+func (v *historyView) context(ctx viewCtx) ContextID {
 	if v.detailVideoID != "" {
 		return CtxHistoryVideo
 	}

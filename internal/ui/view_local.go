@@ -67,7 +67,7 @@ func (v localView) currentVideo(videos []db.LocalVideo) (youtube.Video, bool) {
 }
 
 // context reports the Local tab's sort/chord context.
-func (v localView) context() ContextID { return CtxLocal }
+func (v localView) context(ctx viewCtx) ContextID { return CtxLocal }
 
 // update handles navigation keys directly and returns an intent for the actions
 // (play/delete/…) the router owns. The library is shared (ctx.localVideos).

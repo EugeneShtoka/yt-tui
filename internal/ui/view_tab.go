@@ -28,6 +28,12 @@ type viewCtx struct {
 	recVideos   []youtube.Video
 	subVideos   []youtube.Video
 
+	// Search result data + drill-down selection (written by async fetches).
+	searchChSel    *youtube.Channel
+	searchChannels []youtube.Channel
+	searchVideos   []youtube.Video
+	searchChVideos []youtube.Video
+
 	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
 	recLoading        bool
 	recRefreshing     bool
@@ -37,6 +43,9 @@ type viewCtx struct {
 	// renderList is the router's shared video-list renderer (m.renderVideoList),
 	// captured per frame so views can draw without a Model handle.
 	renderList func(videos []youtube.Video, cursor, vs int, loading, refreshing bool, height int, title string) string
+	// renderSearch is the router's bespoke Search renderer (m.renderSearch),
+	// captured per frame; the searchView passes its own cursor/scroll into it.
+	renderSearch func(height, cursor, vs, vidCursor, vidVS int) string
 }
 
 // viewIntent is an action a view decided on but cannot perform itself because it
@@ -57,8 +66,10 @@ type tabView interface {
 	update(msg tea.KeyMsg, ctx viewCtx) viewIntent
 	// render draws the tab body.
 	render(ctx viewCtx, height int) string
-	// context reports the sort/chord context at the cursor.
-	context() ContextID
+	// context reports the sort/chord context at the cursor. It receives ctx so
+	// multi-pane views (Search) can resolve their sub-pane context from the
+	// shared, router-owned result data.
+	context(ctx viewCtx) ContextID
 }
 
 // viewCtx builds the shared context handed to the active view this frame.
@@ -76,12 +87,18 @@ func (m *Model) viewCtx() viewCtx {
 		recVideos:   m.recVideos,
 		subVideos:   m.subVideos,
 
+		searchChSel:    m.searchChSel,
+		searchChannels: m.searchChannels,
+		searchVideos:   m.searchVideos,
+		searchChVideos: m.searchChVideos,
+
 		recLoading:        m.recLoading,
 		recRefreshing:     m.recRefreshing,
 		subLoading:        m.subChLoading && len(m.subVideos) == 0,
 		localFilter:       m.localFilter,
 		localFilterCursor: m.localFilterCursor,
 		renderList:        m.renderVideoList,
+		renderSearch:      m.renderSearch,
 	}
 }
 
@@ -102,6 +119,8 @@ func (m *Model) activeView() tabView {
 		return &m.recommended
 	case tabSubscriptions:
 		return &m.subscriptions
+	case tabSearch:
+		return &m.search
 	}
 	return nil
 }

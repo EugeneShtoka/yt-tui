@@ -62,7 +62,7 @@ func (v downloadingView) currentItem(items []downloader.Item) (downloader.Item, 
 }
 
 // context reports the Downloading tab's sort/chord context.
-func (v downloadingView) context() ContextID { return CtxDownloading }
+func (v downloadingView) context(ctx viewCtx) ContextID { return CtxDownloading }
 
 // update handles navigation keys directly and returns an intent for the actions
 // (play/delete/…) the router owns. The download queue is shared (ctx.dlItems).

@@ -39,7 +39,7 @@ func (in activityNavIntent) apply(m *Model) tea.Cmd { return m.navigateToActivit
 
 // context: Activity has no video/sort semantics, so it reports the default
 // context (matching its absence from the pre-interface currentContext switch).
-func (v activityView) context() ContextID { return CtxVideoList }
+func (v activityView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
 // update handles navigation keys. On drill-down it returns a nav intent for the
 // router to perform the cross-tab jump.

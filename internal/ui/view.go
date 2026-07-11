@@ -323,8 +323,6 @@ func (m Model) renderContent(height int) string {
 		return m.renderSubChannels(height)
 	case tabPlaylists:
 		return m.renderPlaylists(height)
-	case tabSearch:
-		return m.renderSearch(height)
 	}
 	return ""
 }
@@ -801,7 +799,10 @@ func (m Model) renderPlaylistRows(height int) string {
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
-func (m Model) renderSearch(height int) string {
+// renderSearch draws the Search tab. The cursor/scroll values are owned by the
+// searchView and passed in (see view_search.go); everything else it reads is
+// router-owned state (input, spinner, result slices).
+func (m Model) renderSearch(height, cursor, vs, vidCursor, vidVS int) string {
 	prompt := " " + styleInputPrompt.Render("Search: ") + m.searchInput.View()
 	promptH := 1
 	remaining := height - promptH - 1
@@ -819,8 +820,8 @@ func (m Model) renderSearch(height int) string {
 		if m.searchChLoading {
 			body = m.spinner.View() + " Loading…"
 		} else {
-			vids, cur := m.contentVideos(m.searchChVideos, m.searchChVidCursor)
-			body = m.renderVideoRows(vids, cur, m.searchChVidVS, remaining-subH-filterH)
+			vids, cur := m.contentVideos(m.searchChVideos, vidCursor)
+			body = m.renderVideoRows(vids, cur, vidVS, remaining-subH-filterH)
 		}
 		parts := []string{prompt, subHeader}
 		if filterLine != "" {
@@ -843,7 +844,6 @@ func (m Model) renderSearch(height int) string {
 	headerH := lipgloss.Height(header)
 	listH := remaining - headerH
 
-	cursor := m.searchCursor
 	nCh := len(m.searchChannels)
 	var rows []string
 
@@ -872,7 +872,7 @@ func (m Model) renderSearch(height int) string {
 		titleW := m.videoListTitleW()
 		rows = append(rows, m.renderVideoColHeader(titleW))
 		usedRows := len(rows)
-		start, end := scrollWindowAt(m.searchVS, len(m.searchVideos), listH-usedRows)
+		start, end := scrollWindowAt(vs, len(m.searchVideos), listH-usedRows)
 		for i := start; i < end && i < len(m.searchVideos); i++ {
 			rows = append(rows, m.renderVideoRow(m.searchVideos[i], cursor == nCh+i, titleW, i+1))
 		}

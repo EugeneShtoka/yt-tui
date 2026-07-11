@@ -58,7 +58,7 @@ func TestRecommendedReclampAfterShrink(t *testing.T) {
 }
 
 func TestRecommendedContext(t *testing.T) {
-	if got := (recommendedView{}).context(); got != CtxVideoList {
+	if got := (recommendedView{}).context(viewCtx{}); got != CtxVideoList {
 		t.Errorf("context=%v, want CtxVideoList", got)
 	}
 }
