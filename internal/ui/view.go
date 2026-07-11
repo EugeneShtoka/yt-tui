@@ -279,10 +279,10 @@ func (m Model) tabHintIDs() []string {
 	case tabLocal:
 		return []string{"move", "chords", "play", "delete"}
 	case tabHistory:
-		if m.histDetailVideoID != "" {
+		if m.history.detailVideoID != "" {
 			return []string{"back"}
 		}
-		if m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search" {
+		if m.history.cursor < len(m.history.entries) && m.history.entries[m.history.cursor].EventType == "search" {
 			return []string{"move", "search_again", "delete", "refresh"}
 		}
 		return []string{"move", "chords", "play", "details", "hide_channel", "delete", "refresh"}
@@ -333,7 +333,7 @@ func (m Model) renderContent(height int) string {
 	case tabLocal:
 		return m.renderLocal(height)
 	case tabHistory:
-		return m.renderHistory(height)
+		return m.history.render(m.width, height)
 	case tabActivity:
 		return m.activity.render(m.width, height)
 	}
@@ -1074,116 +1074,6 @@ func (m Model) renderLocalRow(lv db.LocalVideo, selected bool, num int) string {
 		durStyle.Render(dur) + sep +
 		viewsStyle.Render(views) + sep +
 		dateStyle.Render(date)
-}
-
-// ── History ───────────────────────────────────────────────────────────────────
-
-func (m Model) renderHistory(height int) string {
-	if m.histDetailVideoID != "" {
-		return m.renderHistoryDetail(height)
-	}
-
-	header := styleSectionTitle.Render("History")
-	headerH := lipgloss.Height(header)
-
-	if len(m.histEntries) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styleDim.Render("No history yet."))
-	}
-
-	// Summary: one row per video. Columns: num indicator status title channel dur views date
-	colStatus := 14
-	titleW := m.width - colNum - 1 - 2 - colStatus - 1 - colChannel - 1 - colDuration - 1 - colViews - 1 - colDate
-	if titleW < 20 {
-		titleW = 20
-	}
-
-	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
-		styleColHeader.Width(colStatus).Render("Type") + " " +
-		styleColHeader.Width(titleW).Render("Title") + " " +
-		styleColHeader.Width(colChannel).Render("Channel") + " " +
-		styleColHeader.Width(colDuration).Render("Duration") + " " +
-		styleColHeader.Width(colViews).Render("Views") + " " +
-		styleColHeader.Width(colDate).Render("Date")
-
-	start, end := scrollWindowAt(m.histVS, len(m.histEntries), height-headerH-1)
-	var rows []string
-	rows = append(rows, colHeader)
-	for i := start; i < end && i < len(m.histEntries); i++ {
-		e := m.histEntries[i]
-
-		indicator := "  "
-		sep := " "
-		numStyle := styleRowNum
-		statusStyle := styleWarning.Width(colStatus)
-		if i == m.histCursor {
-			indicator = styleSelected.Render("▶ ")
-			numStyle = numStyle.Background(colorBgSelect)
-			sep = lipgloss.NewStyle().Background(colorBgSelect).Render(" ")
-			statusStyle = statusStyle.Background(colorBgSelect)
-		}
-		numStr := numStyle.Render(fmt.Sprintf("%*d", colNum, i+1))
-
-		if e.EventType == "search" {
-			queryW := m.width - colNum - 1 - 2 - colStatus - 1
-			queryStyle := styleChannel.Width(queryW)
-			if i == m.histCursor {
-				queryStyle = styleSelected.Width(queryW)
-			}
-			rows = append(rows, numStr+sep+indicator+statusStyle.Render("search")+sep+
-				queryStyle.Render(truncate(e.Details, queryW)))
-			continue
-		}
-
-		title := truncate(e.Title, titleW)
-		channel := truncate(e.Channel, colChannel-2)
-		dur := fmtDuration(e.Duration)
-		views := fmtViews(e.ViewCount)
-		date := fmtDate(e.UploadDate)
-
-		titleStyle := styleNormal.Width(titleW)
-		chStyle := styleChannel.Width(colChannel)
-		durStyle := styleDuration.Width(colDuration)
-		viewsStyle := styleDuration.Width(colViews)
-		dateStyle := styleChannel.Width(colDate)
-		if i == m.histCursor {
-			titleStyle = styleSelected.Width(titleW)
-			chStyle = chStyle.Background(colorBgSelect)
-			durStyle = durStyle.Background(colorBgSelect)
-			viewsStyle = viewsStyle.Background(colorBgSelect)
-			dateStyle = dateStyle.Background(colorBgSelect)
-		}
-		rows = append(rows, numStr+sep+indicator+statusStyle.Render(e.EventType)+sep+
-			titleStyle.Render(title)+sep+
-			chStyle.Render(channel)+sep+
-			durStyle.Render(dur)+sep+
-			viewsStyle.Render(views)+sep+
-			dateStyle.Render(date))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
-}
-
-func (m Model) renderHistoryDetail(height int) string {
-	title := ""
-	if len(m.histDetail) > 0 {
-		title = m.histDetail[0].Title
-	}
-	header := styleSectionTitle.Render("← " + truncate(title, m.width-4))
-	headerH := lipgloss.Height(header)
-
-	colEvW := 14
-	colTsW := 19
-	var rows []string
-	for i, e := range m.histDetail {
-		if i >= height-headerH {
-			break
-		}
-		evType := styleWarning.Width(colEvW).Render(e.EventType)
-		ts := styleChannel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))
-		detail := styleDim.Render(e.Details)
-		rows = append(rows, "  "+evType+" "+ts+" "+detail)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
 // ── Video detail overlay ──────────────────────────────────────────────────────

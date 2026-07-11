@@ -658,10 +658,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 		if err := m.db.ClearHistory(); err != nil {
 			m.setStatus("clear history: "+err.Error(), true)
 		} else {
-			m.histEntries = nil
-			m.histDetail = nil
-			m.histDetailVideoID = ""
-			m.histLoaded = false
+			m.history.clear()
 			m.streamedVideoIDs = make(map[string]bool)
 			m.setStatus("history cleared", false)
 		}
@@ -1132,15 +1129,7 @@ func (m *Model) onTabActivated() tea.Cmd {
 }
 
 func (m *Model) loadHistory() tea.Cmd {
-	entries, err := m.db.HistoryVideos(200)
-	if err != nil {
-		m.setStatus("history: "+err.Error(), true)
-	} else {
-		m.histEntries = entries
-		m.histCursor = 0
-		m.histDetailVideoID = ""
-		m.histLoaded = true
-	}
+	m.history.load(m.db, func(s string) { m.setStatus(s, true) })
 	return nil
 }
 
@@ -2035,82 +2024,41 @@ func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── History ───────────────────────────────────────────────────────────────────
 
 func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.histDetailVideoID != "" {
-		switch {
-		case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Left):
-			m.histDetailVideoID = ""
-			m.histDetail = nil
-		}
-		return m, nil
-	}
-	n := len(m.histEntries)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.histCursor, m.histVS = vsMove(m.histCursor, m.histVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.histCursor, m.histVS = vsPage(m.histCursor, m.histVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Play):
-		if m.histCursor < n {
-			e := m.histEntries[m.histCursor]
-			if e.EventType != "search" {
-				v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
-				m.playVideo(v)
-			}
-		}
-	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-		if m.histCursor < n {
-			e := m.histEntries[m.histCursor]
-			if e.EventType == "search" {
-				// Navigate to search tab with query pre-filled; user presses Enter again to search.
-				m.activeTab = tabSearch
-				cmd := m.onTabActivated()
-				m.searchInput.SetValue(e.Details)
-				m.searchInput.CursorEnd()
-				return m, cmd
-			}
-			if entries, err := m.db.VideoHistory(e.VideoID); err == nil {
-				m.histDetailVideoID = e.VideoID
-				m.histDetail = entries
-			}
-		}
-	case key.Matches(msg, m.keys.Delete):
-		if m.histCursor < n {
-			e := m.histEntries[m.histCursor]
-			if e.EventType == "search" {
-				_ = m.db.DeleteSearchHistory(e.Details)
-				m.setStatus("Removed search: "+truncate(e.Details, 50), false)
-			} else {
-				if lv, ok := m.localVideoIDs[e.VideoID]; ok {
-					_ = os.Remove(lv.FilePath)
-					_ = m.db.DeleteLocalVideo(lv.ID)
-					if lv2, err := m.db.LocalVideos(); err == nil {
-						m.localVideos = lv2
-						m.localVideoIDs = buildLocalIDMap(lv2)
-					}
+	intent := m.history.update(msg, m.keys, m.pageSize(), m.cfg.CircularNav, m.db)
+	switch intent.kind {
+	case histIntentDrillSearch:
+		// Navigate to search tab with query pre-filled; user presses Enter again to search.
+		m.activeTab = tabSearch
+		cmd := m.onTabActivated()
+		m.searchInput.SetValue(intent.entry.Details)
+		m.searchInput.CursorEnd()
+		return m, cmd
+	case histIntentPlay:
+		e := intent.entry
+		v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
+		m.playVideo(v)
+	case histIntentDelete:
+		e := intent.entry
+		if e.EventType == "search" {
+			_ = m.db.DeleteSearchHistory(e.Details)
+			m.setStatus("Removed search: "+truncate(e.Details, 50), false)
+		} else {
+			if lv, ok := m.localVideoIDs[e.VideoID]; ok {
+				_ = os.Remove(lv.FilePath)
+				_ = m.db.DeleteLocalVideo(lv.ID)
+				if lv2, err := m.db.LocalVideos(); err == nil {
+					m.localVideos = lv2
+					m.localVideoIDs = buildLocalIDMap(lv2)
 				}
-				_ = m.db.DeleteVideoHistory(e.VideoID)
-				_ = m.db.DeleteVideoPosition(e.VideoID)
-				delete(m.streamedVideoIDs, e.VideoID)
-				delete(m.videoPositions, e.VideoID)
-				m.setStatus("Deleted: "+truncate(e.Title, 50), false)
 			}
-			m.histEntries = append(m.histEntries[:m.histCursor], m.histEntries[m.histCursor+1:]...)
-			if m.histCursor >= len(m.histEntries) && m.histCursor > 0 {
-				m.histCursor--
-			}
+			_ = m.db.DeleteVideoHistory(e.VideoID)
+			_ = m.db.DeleteVideoPosition(e.VideoID)
+			delete(m.streamedVideoIDs, e.VideoID)
+			delete(m.videoPositions, e.VideoID)
+			m.setStatus("Deleted: "+truncate(e.Title, 50), false)
 		}
-	case key.Matches(msg, m.keys.HideChannel):
-		if m.histCursor < n {
-			e := m.histEntries[m.histCursor]
-			if e.EventType != "search" {
-				m.hideChannel(e.ChannelID, e.Channel)
-			}
-		}
-
+	case histIntentHide:
+		m.hideChannel(intent.entry.ChannelID, intent.entry.Channel)
 	}
 	return m, nil
 }
@@ -3096,9 +3044,9 @@ func (m Model) currentChannelInfo() (id, name string) {
 			return ch.ID, ch.Name
 		}
 	}
-	if m.activeTab == tabHistory && m.histDetailVideoID == "" {
-		if m.histCursor < len(m.histEntries) {
-			e := m.histEntries[m.histCursor]
+	if m.activeTab == tabHistory && m.history.detailVideoID == "" {
+		if m.history.cursor < len(m.history.entries) {
+			e := m.history.entries[m.history.cursor]
 			return e.ChannelID, e.Channel
 		}
 	}

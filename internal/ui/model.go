@@ -226,12 +226,8 @@ type Model struct {
 	localVS     int
 
 	// ── History ──────────────────────────────────────────────────────────────
-	histEntries       []db.HistoryEntry
-	histCursor        int
-	histVS            int
-	histLoaded        bool
-	histDetailVideoID string
-	histDetail        []db.HistoryEntry
+	// P4 slice: History's state lives in its own view struct.
+	history historyView
 
 	// ── Activity ─────────────────────────────────────────────────────────────
 	// P4 reference slice: Activity's state lives in its own view struct.
@@ -886,7 +882,7 @@ func (m *Model) jumpToLine(idx int) {
 	case tabLocal:
 		m.localCursor, m.localVS = vsJump(idx, len(m.localVideos), ps)
 	case tabHistory:
-		m.histCursor, m.histVS = vsJump(idx, len(m.histEntries), ps)
+		m.history.jumpTo(idx, ps)
 	}
 }
 
@@ -930,7 +926,7 @@ func (m *Model) jumpToLast() {
 	case tabLocal:
 		m.localCursor, m.localVS = vsJump(len(m.localVideos)-1, len(m.localVideos), ps)
 	case tabHistory:
-		m.histCursor, m.histVS = vsJump(len(m.histEntries)-1, len(m.histEntries), ps)
+		m.history.jumpToLast(ps)
 	}
 }
 
@@ -1063,13 +1059,7 @@ func (m Model) currentContext() ContextID {
 	case tabLocal:
 		return CtxLocal
 	case tabHistory:
-		if m.histDetailVideoID != "" {
-			return CtxHistoryVideo
-		}
-		if m.histCursor < len(m.histEntries) && m.histEntries[m.histCursor].EventType == "search" {
-			return CtxHistorySearch
-		}
-		return CtxHistoryVideo
+		return m.history.context()
 	}
 	return CtxVideoList
 }
