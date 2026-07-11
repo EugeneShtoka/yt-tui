@@ -96,7 +96,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			vids := msg.Videos
-			sortVideos(vids, m.playlistSort)
+			sortVideos(vids, m.playlist.sort)
 			m.playlistVidCache[msg.PlaylistID] = vids
 			go func(id string, v []youtube.Video) {
 				_ = m.db.SaveYTPlaylistVideos(id, v)
@@ -933,10 +933,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	switch m.activeTab {
-	case tabPlaylists:
-		return m.updatePlaylists(msg)
-	}
 
 	return m, nil
 }
@@ -1057,7 +1053,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 			sortVideos(m.searchVideos, vidSort)
 		}
 	case tabPlaylists:
-		m.playlistSort = vidSort
+		m.playlist.sort = vidSort
 		plKey := m.selectedPlaylistKey()
 		if vids, ok := m.playlistVidCache[plKey]; ok {
 			sortVideos(vids, vidSort)
@@ -1152,16 +1148,16 @@ func (m *Model) navigateToActivity(e db.ActivityEntry) tea.Cmd {
 			}
 			for i, pl := range m.playlists {
 				if pl.ID == e.PlaylistLocalID {
-					m.playlistCursor = offset + i
-					m.playlistPane = 1
+					m.playlist.cursor = offset + i
+					m.playlist.pane = 1
 					return m.fetchCurrentPlaylistVideos()
 				}
 			}
 		} else if e.PlaylistID != "" && m.ytPlLoaded {
 			for i, pl := range m.ytPlaylists {
 				if pl.ID == e.PlaylistID {
-					m.playlistCursor = i
-					m.playlistPane = 1
+					m.playlist.cursor = i
+					m.playlist.pane = 1
 					return m.fetchCurrentPlaylistVideos()
 				}
 			}
@@ -1204,7 +1200,7 @@ func (m *Model) refresh() tea.Cmd {
 	case tabActivity:
 		m.loadActivity()
 	case tabPlaylists:
-		if m.playlistPane == 1 {
+		if m.playlist.pane == 1 {
 			return m.fetchCurrentPlaylistVideos()
 		}
 		if m.ytClient != nil && !m.ytPlLoading {
@@ -1397,119 +1393,6 @@ func parseLocalPlaylistID(key string) int64 {
 	}
 	id, _ := strconv.ParseInt(strings.TrimPrefix(key, "local:"), 10, 64)
 	return id
-}
-
-func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.playlistPane == 0 {
-		n := m.playlistCount()
-		switch {
-		case key.Matches(msg, m.keys.Up):
-			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Down):
-			m.playlistCursor, m.playlistVS = vsMove(m.playlistCursor, m.playlistVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-			if m.playlistCursor < n {
-				cmd := m.loadCurrentPlaylistVideos()
-				m.playlistPane = 1
-				m.playlistVidCursor = 0
-				return m, cmd
-			}
-		case key.Matches(msg, m.keys.NewList):
-			if m.ytClient != nil {
-				m.createTypeMode = true
-				m.createTypeSel = 0
-			} else {
-				m.createModeYT = false
-				m.createInput.SetValue("")
-				m.createInput.Placeholder = "Playlist name…"
-				m.createInput.Focus()
-				m.createMode = true
-				return m, textinput.Blink
-			}
-		case key.Matches(msg, m.keys.Delete):
-			plKey := m.selectedPlaylistKey()
-			if plKey == ytWatchLaterID {
-				break // Watch Later cannot be deleted
-			}
-			idx := m.playlistCursor
-			if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
-				pl := m.ytPlaylists[idx]
-				go func() { _ = m.ytClient.DeletePlaylist(pl.ID) }()
-				delete(m.playlistVidCache, pl.ID)
-				m.ytPlaylists = append(m.ytPlaylists[:idx], m.ytPlaylists[idx+1:]...)
-			} else {
-				localIdx := idx
-				if m.ytPlLoaded {
-					localIdx -= len(m.ytPlaylists)
-				}
-				if localIdx >= 0 && localIdx < len(m.playlists) {
-					pl := m.playlists[localIdx]
-					_ = m.db.DeletePlaylist(pl.ID)
-					delete(m.playlistVidCache, fmt.Sprintf("local:%d", pl.ID))
-					playlists, _ := m.db.Playlists()
-					m.playlists = playlists
-				}
-			}
-			m.playlistCursor, m.playlistVS = vsMove(clamp(m.playlistCursor, m.playlistCount()), m.playlistVS, m.playlistCount(), 0, m.pageSize(), false)
-		}
-		return m, nil
-	}
-
-	if m.playlistCursor >= m.playlistCount() {
-		m.playlistPane = 0
-		return m, nil
-	}
-	plKey := m.selectedPlaylistKey()
-	vids := m.playlistVidCache[plKey]
-	n := len(vids)
-
-	switch {
-	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
-		m.playlistPane = 0
-	case key.Matches(msg, m.keys.Up):
-		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.playlistVidCursor, m.playlistVidVS = vsMove(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.playlistVidCursor, m.playlistVidVS = vsPage(m.playlistVidCursor, m.playlistVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.DrillDown):
-		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
-		}
-	case key.Matches(msg, m.keys.Delete):
-		if m.playlistVidCursor < n {
-			vid := vids[m.playlistVidCursor]
-			var cmd tea.Cmd
-			if m.selectedPlaylistIsYT() {
-				cmd = youtube.RemoveYTPlaylistVideo(m.ytClient, plKey, vid.ID)
-			} else {
-				localID := parseLocalPlaylistID(plKey)
-				_ = m.db.RemoveFromPlaylist(localID, vid.ID)
-			}
-			// Optimistic removal from cache.
-			updated := make([]youtube.Video, 0, len(vids)-1)
-			for _, v := range vids {
-				if v.ID != vid.ID {
-					updated = append(updated, v)
-				}
-			}
-			m.playlistVidCache[plKey] = updated
-			m.playlistVidCursor, m.playlistVidVS = vsMove(clamp(m.playlistVidCursor, len(updated)), m.playlistVidVS, len(updated), 0, m.pageSize(), false)
-			return m, cmd
-		}
-	case key.Matches(msg, m.keys.Download):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeVideo)
-		}
-	case key.Matches(msg, m.keys.DownloadAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeAudio)
-		}
-
-	}
-	return m, nil
 }
 
 func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

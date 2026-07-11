@@ -42,6 +42,12 @@ type viewCtx struct {
 	chTagVideos []youtube.Video   // aggregated videos for the selected tag (tags pane 1)
 	subChVideos []youtube.Video   // selected channel's videos (flat pane 1)
 
+	// Playlists tab (multi-pane): the active pane's nav needs live element counts,
+	// and the actions read the router-owned playlist/video data. Only populated
+	// when the Playlists tab is active.
+	plCount  int             // total playlist rows (YT + local)
+	plVideos []youtube.Video // selected playlist's cached videos (pane 1)
+
 	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
 	recLoading        bool
 	recRefreshing     bool
@@ -57,6 +63,9 @@ type viewCtx struct {
 	// renderChannels is the router's bespoke Channels renderer (m.renderSubChannels),
 	// captured per frame; it reads the view's cursor/scroll off m.channels directly.
 	renderChannels func(height int) string
+	// renderPlaylists is the router's bespoke Playlists renderer (m.renderPlaylists),
+	// captured per frame; it reads the view's cursor/scroll off m.playlist directly.
+	renderPlaylists func(height int) string
 }
 
 // viewIntent is an action a view decided on but cannot perform itself because it
@@ -111,6 +120,7 @@ func (m *Model) viewCtx() viewCtx {
 		renderList:        m.renderVideoList,
 		renderSearch:      m.renderSearch,
 		renderChannels:    m.renderSubChannels,
+		renderPlaylists:   m.renderPlaylists,
 	}
 	// The Channels tab is multi-pane; its nav/actions need live element counts and
 	// the router-owned channel/video slices. Computing sortedChannels/tagVideos is
@@ -120,6 +130,12 @@ func (m *Model) viewCtx() viewCtx {
 		vc.chTagItems = m.tagListItems()
 		vc.chTagVideos = m.tagVideos()
 		vc.subChVideos = m.subChVideos
+	}
+	// The Playlists tab is multi-pane; its nav/actions need the live playlist count
+	// and the selected playlist's cached videos. Only compute when that tab is active.
+	if m.activeTab == tabPlaylists {
+		vc.plCount = m.playlistCount()
+		vc.plVideos = m.playlistVidCache[m.selectedPlaylistKey()]
 	}
 	return vc
 }
@@ -145,6 +161,8 @@ func (m *Model) activeView() tabView {
 		return &m.search
 	case tabChannels:
 		return &m.channels
+	case tabPlaylists:
+		return &m.playlist
 	}
 	return nil
 }

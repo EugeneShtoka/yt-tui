@@ -177,14 +177,10 @@ type Model struct {
 	ytPlaylists          []youtube.YTPlaylist // YouTube playlists (loaded from YT)
 	ytPlLoading          bool
 	ytPlLoaded           bool
-	ytClient             *youtube.YTClient // nil until browser cookies extracted
-	playlistCursor       int
-	playlistVS           int
-	playlistVidCache     map[string][]youtube.Video
-	playlistVidCursor    int
-	playlistVidVS        int
+	ytClient             *youtube.YTClient          // nil until browser cookies extracted
+	playlist             playlistsView              // P4 slice: cursor/scroll/pane/sort for both panes
+	playlistVidCache     map[string][]youtube.Video // per-playlist video cache (written by async fetches)
 	playlistVidLoading   bool
-	playlistPane         int
 	createMode           bool
 	createModeYT         bool // true = creating a YouTube playlist (not local)
 	createTypeMode       bool // true = in type-selection dialog before creating
@@ -265,9 +261,6 @@ type Model struct {
 	pendingChord string      // chord trigger key currently waiting for completion
 	chordBuffer  string      // keys accumulated after the trigger (supports multi-char)
 	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
-
-	// ── Sort state per tab ────────────────────────────────────────────────
-	playlistSort int // playlist video pane: vidSortNone default
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
 	localVideoIDs        map[string]db.LocalVideo // cached for fast per-row lookup
@@ -453,7 +446,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		subscriptions:        subscriptionsView{sort: vidSortDate},
 		search:               searchView{sort: vidSortNone},
 		local:                localView{sort: vidSortNone},
-		playlistSort:         vidSortNone,
+		playlist:             playlistsView{sort: vidSortNone},
 		searchHistIdx:        -1,
 	}
 	chords := m.buildChordDefs()
@@ -677,10 +670,10 @@ func (m Model) playlistCount() int {
 
 // selectedPlaylistKey returns the cache key for the currently highlighted playlist.
 func (m Model) selectedPlaylistKey() string {
-	if m.ytPlLoaded && m.playlistCursor < len(m.ytPlaylists) {
-		return m.ytPlaylists[m.playlistCursor].ID
+	if m.ytPlLoaded && m.playlist.cursor < len(m.ytPlaylists) {
+		return m.ytPlaylists[m.playlist.cursor].ID
 	}
-	localIdx := m.playlistCursor
+	localIdx := m.playlist.cursor
 	if m.ytPlLoaded {
 		localIdx -= len(m.ytPlaylists)
 	}
@@ -692,10 +685,10 @@ func (m Model) selectedPlaylistKey() string {
 
 // selectedPlaylistName returns the display name for the currently highlighted playlist entry.
 func (m Model) selectedPlaylistName() string {
-	if m.ytPlLoaded && m.playlistCursor < len(m.ytPlaylists) {
-		return m.ytPlaylists[m.playlistCursor].Title
+	if m.ytPlLoaded && m.playlist.cursor < len(m.ytPlaylists) {
+		return m.ytPlaylists[m.playlist.cursor].Title
 	}
-	localIdx := m.playlistCursor
+	localIdx := m.playlist.cursor
 	if m.ytPlLoaded {
 		localIdx -= len(m.ytPlaylists)
 	}
@@ -707,7 +700,7 @@ func (m Model) selectedPlaylistName() string {
 
 // selectedPlaylistIsYT returns true when the selected playlist is YouTube-backed.
 func (m Model) selectedPlaylistIsYT() bool {
-	return m.ytPlLoaded && m.ytClient != nil && m.playlistCursor < len(m.ytPlaylists)
+	return m.ytPlLoaded && m.ytClient != nil && m.playlist.cursor < len(m.ytPlaylists)
 }
 
 func (m *Model) currentTabIndex() int {
@@ -800,9 +793,9 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 			}
 		}
 	case tabPlaylists:
-		if m.playlistPane == 1 {
+		if m.playlist.pane == 1 {
 			if vids, ok := m.playlistVidCache[m.selectedPlaylistKey()]; ok {
-				if i := m.playlistVidCursor; i >= 0 && i < len(vids) {
+				if i := m.playlist.vidCursor; i >= 0 && i < len(vids) {
 					return vids[i], true
 				}
 			}
@@ -848,12 +841,7 @@ func (m *Model) jumpToLine(idx int) {
 			m.channels.vidCursor, m.channels.vidVS = vsJump(idx, len(m.subChVideos), ps)
 		}
 	case tabPlaylists:
-		if m.playlistPane == 0 {
-			m.playlistCursor, m.playlistVS = vsJump(idx, m.playlistCount(), ps)
-		} else {
-			vids := m.playlistVidCache[m.selectedPlaylistKey()]
-			m.playlistVidCursor, m.playlistVidVS = vsJump(idx, len(vids), ps)
-		}
+		m.playlist.jumpTo(idx, m.playlistCount(), len(m.playlistVidCache[m.selectedPlaylistKey()]), ps)
 	case tabSearch:
 		m.search.jumpTo(idx, len(m.searchChannels), len(m.searchVideos), ps)
 	case tabDownloading:
@@ -888,12 +876,7 @@ func (m *Model) jumpToLast() {
 			m.channels.vidCursor, m.channels.vidVS = vsJump(len(m.subChVideos)-1, len(m.subChVideos), ps)
 		}
 	case tabPlaylists:
-		if m.playlistPane == 0 {
-			m.playlistCursor, m.playlistVS = vsJump(m.playlistCount()-1, m.playlistCount(), ps)
-		} else {
-			vids := m.playlistVidCache[m.selectedPlaylistKey()]
-			m.playlistVidCursor, m.playlistVidVS = vsJump(len(vids)-1, len(vids), ps)
-		}
+		m.playlist.jumpToLast(m.playlistCount(), len(m.playlistVidCache[m.selectedPlaylistKey()]), ps)
 	case tabSearch:
 		m.search.jumpToLast(len(m.searchChannels), len(m.searchVideos), ps)
 	case tabDownloading:
@@ -1003,19 +986,12 @@ func (m Model) currentContext() ContextID {
 	if v := m.activeView(); v != nil {
 		return v.context(m.viewCtx())
 	}
-	switch m.activeTab {
-	case tabPlaylists:
-		if m.playlistPane == 0 {
-			return CtxPlaylistList
-		}
-		return CtxVideoList
-	}
 	return CtxVideoList
 }
 
 // contextSupportsNewPlaylist reports whether a new-playlist chord should activate.
 func (m Model) contextSupportsNewPlaylist() bool {
-	return m.activeTab == tabPlaylists && m.playlistPane == 0
+	return m.activeTab == tabPlaylists && m.playlist.pane == 0
 }
 
 // contextSupportsSubscribe reports whether the current focus has an identifiable channel to subscribe to.
