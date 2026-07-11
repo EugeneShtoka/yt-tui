@@ -2,18 +2,17 @@ package ui
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/media"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
@@ -45,7 +44,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Convert file position → original timeline before saving so streaming and
 			// local playback share the same position space.
 			if _, isLocal := m.localVideoIDs[m.playingVideoID]; isLocal && len(m.playingSBSegments) > 0 {
-				ms = adjustedToOriginalMs(ms, m.playingSBSegments)
+				ms = media.AdjustedToOriginalMs(ms, m.playingSBSegments)
 			}
 			m.videoPositions[m.playingVideoID] = ms
 			_ = m.db.SaveVideoPosition(m.playingVideoID, ms)
@@ -94,7 +93,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			vids := msg.Videos
-			sortVideos(vids, m.playlist.sort)
+			feed.SortVideos(vids, m.playlist.sort)
 			m.playlistVidCache[msg.PlaylistID] = vids
 			return m, saveYTPlaylistVideosCmd(m.db, msg.PlaylistID, msg.Videos)
 		}
@@ -119,10 +118,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("Unsubscribed from: "+msg.ChannelName, false)
 			delete(m.subscribedChannelIDs, msg.ChannelID)
 			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
-			m.subChannels = removeChannelByID(m.subChannels, msg.ChannelID)
-			m.subVideos = removeChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
+			m.subChannels = feed.RemoveChannelByID(m.subChannels, msg.ChannelID)
+			m.subVideos = feed.RemoveChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
 			m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
-			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
+			m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
 			m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 			return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
 		}
@@ -179,7 +178,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Process chapters: filter SponsorBlock chapters, adjust timecodes.
 		if len(details.Chapters) > 0 {
-			displayChapters, sbSegs := processChapters(details.Chapters)
+			displayChapters, sbSegs := media.ProcessChapters(details.Chapters)
 			m.vidDetailChapters = &displayChapters
 			_ = m.db.SaveVideoChapters(details.Video.ID, displayChapters)
 			if len(sbSegs) > 0 {
@@ -203,7 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setStatus("no chapters available", false)
 				}
 			case "links":
-				urls := extractLinks(details.Description)
+				urls := media.ExtractLinks(details.Description)
 				m.vidDetailLinks = &urls
 				_ = m.db.SaveVideoLinks(details.Video.ID, urls)
 				if len(urls) == 0 {
@@ -290,7 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.subscribedChannelIDs["name:"+strings.ToLower(ch.Name)] = true
 				}
 			}
-			m.recVideos = filterSubscribed(m.recVideos, m.subscribedChannelIDs)
+			m.recVideos = feed.FilterSubscribed(m.recVideos, m.subscribedChannelIDs)
 			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subChannels, m.recVideos)}
 			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
 			for _, ch := range msg.Channels {
@@ -340,8 +339,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else {
 				// Merge fetched videos with any already-loaded DB cache.
-				merged := mergeVideos(m.subChVideos, msg.Videos)
-				sortVideos(merged, m.channels.vidSort)
+				merged := feed.MergeVideos(m.subChVideos, msg.Videos)
+				feed.SortVideos(merged, m.channels.vidSort)
 				m.subChVideos = merged
 				m.channels.vidCursor = 0
 				// Update latest-video entry and persist.
@@ -418,16 +417,16 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 		m.recRefreshing = false
 		m.recLoaded = true
 		if msg.Err == nil {
-			merged := mergeVideos(m.recVideos, msg.Videos)
-			filtered := filterByAge(merged, m.cfg.RecommendedMaxAgeDays)
-			filtered = filterByMinDuration(filtered, m.cfg.RecommendedMinDurationSecs)
-			filtered = filterByMinViews(filtered, m.cfg.RecommendedMinViews)
-			filtered = filterDownloaded(filtered, m.localVideoIDs)
-			filtered = filterHidden(filtered, m.recHidden)
-			filtered = filterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
-			filtered = filterSubscribed(filtered, m.subscribedChannelIDs)
-			sortVideos(filtered, m.recommended.sort)
-			m.recommended.cursor = preserveCursor(m.recVideos, m.recommended.cursor, filtered)
+			merged := feed.MergeVideos(m.recVideos, msg.Videos)
+			filtered := feed.FilterByAge(merged, m.cfg.RecommendedMaxAgeDays)
+			filtered = feed.FilterByMinDuration(filtered, m.cfg.RecommendedMinDurationSecs)
+			filtered = feed.FilterByMinViews(filtered, m.cfg.RecommendedMinViews)
+			filtered = feed.FilterDownloaded(filtered, m.localVideoIDs)
+			filtered = feed.FilterHidden(filtered, m.recHidden)
+			filtered = feed.FilterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
+			filtered = feed.FilterSubscribed(filtered, m.subscribedChannelIDs)
+			feed.SortVideos(filtered, m.recommended.sort)
+			m.recommended.cursor = feed.PreserveCursor(m.recVideos, m.recommended.cursor, filtered)
 			m.recVideos = filtered
 			saveCmd := saveFeedCacheCmd(m.db, "recommended", filtered)
 
@@ -1014,7 +1013,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 
 	if ctx == CtxLocal {
 		m.local.sort = vidSort
-		sortLocalVideos(m.localVideos, vidSort)
+		feed.SortLocalVideos(m.localVideos, vidSort)
 		return m, nil
 	}
 
@@ -1022,29 +1021,29 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 	switch m.activeTab {
 	case tabRecommended:
 		m.recommended.sort = vidSort
-		sortVideos(m.recVideos, vidSort)
+		feed.SortVideos(m.recVideos, vidSort)
 	case tabSubscriptions:
 		m.subscriptions.sort = vidSort
-		sortVideos(m.subVideos, vidSort)
+		feed.SortVideos(m.subVideos, vidSort)
 	case tabChannels:
 		if m.channels.tagsMode && m.channels.pane == 1 {
 			m.channels.tagSort = vidSort
 		} else if !m.channels.tagsMode && m.channels.pane == 1 {
 			m.channels.vidSort = vidSort
-			sortVideos(m.subChVideos, vidSort)
+			feed.SortVideos(m.subChVideos, vidSort)
 		}
 	case tabSearch:
 		m.search.sort = vidSort
 		if m.searchChSel != nil {
-			sortVideos(m.searchChVideos, vidSort)
+			feed.SortVideos(m.searchChVideos, vidSort)
 		} else {
-			sortVideos(m.searchVideos, vidSort)
+			feed.SortVideos(m.searchVideos, vidSort)
 		}
 	case tabPlaylists:
 		m.playlist.sort = vidSort
 		plKey := m.selectedPlaylistKey()
 		if vids, ok := m.playlistVidCache[plKey]; ok {
-			sortVideos(vids, vidSort)
+			feed.SortVideos(vids, vidSort)
 		}
 	}
 	return m, nil
@@ -1267,8 +1266,8 @@ func (m *Model) rebuildSubVideos() {
 		}
 	}
 	if videos, err := m.db.GetAllChannelVideos(ids); err == nil {
-		sortVideos(videos, m.subscriptions.sort)
-		m.subscriptions.cursor = preserveCursor(m.subVideos, m.subscriptions.cursor, videos)
+		feed.SortVideos(videos, m.subscriptions.sort)
+		m.subscriptions.cursor = feed.PreserveCursor(m.subVideos, m.subscriptions.cursor, videos)
 		m.subVideos = videos
 	}
 }
@@ -1677,7 +1676,7 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.OpenLinks):
 		if m.vidDetailVideo != nil {
 			if m.vidDetailLinks == nil {
-				urls := extractLinks(m.vidDetailVideo.Description)
+				urls := media.ExtractLinks(m.vidDetailVideo.Description)
 				m.vidDetailLinks = &urls
 				_ = m.db.SaveVideoLinks(m.vidDetailVideo.Video.ID, urls)
 			}
@@ -1800,26 +1799,6 @@ func (m Model) handleChapterOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
-}
-
-var linkRe = regexp.MustCompile(`https?://[^\s\]>)"']+`)
-
-func extractLinks(desc string) []db.Link {
-	seen := make(map[string]bool)
-	var out []db.Link
-	for _, line := range strings.Split(desc, "\n") {
-		for _, loc := range linkRe.FindAllStringIndex(line, -1) {
-			url := strings.TrimRight(line[loc[0]:loc[1]], ".,;:!?)'\"")
-			if seen[url] {
-				continue
-			}
-			seen[url] = true
-			label := strings.TrimRight(strings.TrimSpace(line[:loc[0]]), ":,;-–—•►▶→")
-			label = strings.TrimSpace(label)
-			out = append(out, db.Link{Label: label, URL: url})
-		}
-	}
-	return out
 }
 
 func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2138,179 +2117,6 @@ func (m *Model) pageSize() int {
 
 // preserveCursor finds the previously selected video ID in the new list and returns
 // the new cursor position so the selection follows the same video after a refresh.
-func preserveCursor(old []youtube.Video, cursor int, new []youtube.Video) int {
-	if cursor >= len(old) {
-		return 0
-	}
-	prevID := old[cursor].ID
-	for i, v := range new {
-		if v.ID == prevID {
-			return i
-		}
-	}
-	return 0
-}
-
-// filterByMinDuration removes videos shorter than minSecs seconds.
-// Videos with Duration == 0 (unknown) are kept. Pass minSecs <= 0 to skip.
-func filterByMinDuration(videos []youtube.Video, minSecs int) []youtube.Video {
-	if minSecs <= 0 {
-		return videos
-	}
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if v.Duration == 0 || v.Duration >= minSecs {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// filterByMinViews removes videos with fewer than minViews views.
-// Videos with ViewCount == 0 (unknown) are kept. Pass minViews <= 0 to skip.
-func filterByMinViews(videos []youtube.Video, minViews int) []youtube.Video {
-	if minViews <= 0 {
-		return videos
-	}
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if v.ViewCount == 0 || v.ViewCount >= int64(minViews) {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// filterByAge removes videos whose upload date is older than maxDays.
-// Videos with no date are kept.
-func filterByAge(videos []youtube.Video, maxDays int) []youtube.Video {
-	if maxDays <= 0 {
-		return videos
-	}
-	cutoff := time.Now().AddDate(0, 0, -maxDays)
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if len(v.UploadDate) != 8 {
-			out = append(out, v)
-			continue
-		}
-		t, err := time.Parse("20060102", v.UploadDate)
-		if err != nil || !t.Before(cutoff) {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// mergeVideos merges incoming into existing by video ID; incoming wins on conflict.
-func mergeVideos(existing, incoming []youtube.Video) []youtube.Video {
-	m := make(map[string]youtube.Video, len(existing)+len(incoming))
-	for _, v := range existing {
-		m[v.ID] = v
-	}
-	for _, v := range incoming {
-		m[v.ID] = v
-	}
-	out := make([]youtube.Video, 0, len(m))
-	for _, v := range m {
-		out = append(out, v)
-	}
-	return out
-}
-
-// filterDownloaded removes videos that are already in the local library.
-func filterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if _, ok := local[v.ID]; !ok {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// filterHidden removes videos the user has explicitly hidden from recommended.
-func filterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if !hidden[v.ID] {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// filterBlacklisted removes videos whose channel is blacklisted.
-// As a side effect it enriches name-only blacklist entries with the channel ID.
-func filterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel, cfg *config.Config) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if bl, matched := matchBlacklisted(v, list); matched {
-			if bl >= 0 && cfg.BlacklistedChannels[bl].ID == "" && v.ChannelID != "" {
-				cfg.SetBlacklistID(bl, v.ChannelID)
-				cfg.SaveAsync()
-			}
-			continue
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
-// matchBlacklisted returns the index in list and true if the video's channel is blacklisted.
-// Matches by ID first (exact), then by name (case-insensitive) for entries without an ID.
-func matchBlacklisted(v youtube.Video, list []config.BlacklistedChannel) (int, bool) {
-	for i, bl := range list {
-		if bl.ID != "" && bl.ID == v.ChannelID {
-			return i, true
-		}
-		if bl.ID == "" && strings.EqualFold(bl.Name, v.Channel) {
-			return i, true
-		}
-	}
-	return -1, false
-}
-
-// removeVideoByID returns a new slice with the given video ID removed.
-func removeVideoByID(videos []youtube.Video, id string) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if v.ID != id {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func removeChannelVideos(videos []youtube.Video, channelID, channelName string) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		matchID := channelID != "" && v.ChannelID == channelID
-		matchName := channelName != "" && strings.EqualFold(v.Channel, channelName)
-		if !matchID && !matchName {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func filterSubscribed(videos []youtube.Video, subscribed map[string]bool) []youtube.Video {
-	if len(subscribed) == 0 {
-		return videos
-	}
-	out := make([]youtube.Video, 0, len(videos))
-	for _, v := range videos {
-		if subscribed[v.ChannelID] {
-			continue
-		}
-		if v.Channel != "" && subscribed["name:"+strings.ToLower(v.Channel)] {
-			continue
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
 // ytPlaylistSetChanged returns true if the two playlist lists differ.
 func ytPlaylistSetChanged(a, b []youtube.YTPlaylist) bool {
 	if len(a) != len(b) {
@@ -2345,16 +2151,6 @@ func channelSetChanged(a, b []youtube.Channel) bool {
 	return false
 }
 
-func removeChannelByID(channels []youtube.Channel, id string) []youtube.Channel {
-	out := make([]youtube.Channel, 0, len(channels))
-	for _, ch := range channels {
-		if ch.ID != id {
-			out = append(out, ch)
-		}
-	}
-	return out
-}
-
 // playVideo plays locally if downloaded, otherwise streams.
 func (m *Model) playVideo(v youtube.Video) {
 	if lv, ok := m.localVideoIDs[v.ID]; ok {
@@ -2383,7 +2179,7 @@ func (m *Model) launchVideoAudio(lv db.LocalVideo) {
 	sbSegs := m.loadSBSegmentsForVideo(lv.ID)
 	fileMs := posMs
 	if len(sbSegs) > 0 {
-		fileMs = originalToAdjustedMs(posMs, sbSegs)
+		fileMs = media.OriginalToAdjustedMs(posMs, sbSegs)
 	}
 	startAt := time.Duration(fileMs) * time.Millisecond
 	if err := m.playerBackend.LaunchAudio(lv.FilePath, startAt); err != nil {
@@ -2411,7 +2207,7 @@ func (m *Model) launchVideo(lv db.LocalVideo) {
 	sbSegs := m.loadSBSegmentsForVideo(lv.ID)
 	fileMs := posMs
 	if len(sbSegs) > 0 {
-		fileMs = originalToAdjustedMs(posMs, sbSegs)
+		fileMs = media.OriginalToAdjustedMs(posMs, sbSegs)
 	}
 	startAt := time.Duration(fileMs) * time.Millisecond
 	if err := m.playerBackend.Launch(lv.FilePath, startAt); err != nil {
@@ -2479,13 +2275,13 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	_ = m.db.RemoveSubscribedChannel(chID)
-	m.subChannels = removeChannelByID(m.subChannels, chID)
+	m.subChannels = feed.RemoveChannelByID(m.subChannels, chID)
 	delete(m.subscribedChannelIDs, chID)
 	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
 	// Strip the channel's videos from subscription feeds and purge from DB.
-	m.subVideos = removeChannelVideos(m.subVideos, chID, chName)
+	m.subVideos = feed.RemoveChannelVideos(m.subVideos, chID, chName)
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
-	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
+	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, chID, chName)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	m.setStatus("Removed local subscription: "+chName, false)
 	// Trigger a fresh recommended fetch so the channel's videos drip back in.
@@ -2575,108 +2371,12 @@ func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
 
 // removeChannelFromFeeds strips a channel's videos from all in-memory video lists.
 func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
-	m.recVideos = removeChannelVideos(m.recVideos, channelID, channelName)
+	m.recVideos = feed.RemoveChannelVideos(m.recVideos, channelID, channelName)
 	m.recommended.reclamp(len(m.recVideos), m.pageSize())
-	m.subVideos = removeChannelVideos(m.subVideos, channelID, channelName)
+	m.subVideos = feed.RemoveChannelVideos(m.subVideos, channelID, channelName)
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
-	m.subChVideos = removeChannelVideos(m.subChVideos, channelID, channelName)
+	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, channelID, channelName)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
-}
-
-// ── SponsorBlock chapter processing ──────────────────────────────────────────
-
-// processChapters splits raw yt-dlp chapters (which include [SponsorBlock] entries
-// when --sponsorblock-chapters was passed) into display chapters and SB segments.
-// Display chapters have their timecodes adjusted to reflect the local-file timeline
-// (after SB cuts); chapters whose boundaries coincide with a SB segment (±3 s on
-// both start AND end) are dropped entirely.
-func processChapters(all []youtube.Chapter) ([]db.Chapter, []db.SBSegment) {
-	const tol = 3.0
-	var sbChapters []youtube.Chapter
-	var realChapters []youtube.Chapter
-	for _, ch := range all {
-		if strings.HasPrefix(ch.Title, "[SponsorBlock]") {
-			sbChapters = append(sbChapters, ch)
-		} else {
-			realChapters = append(realChapters, ch)
-		}
-	}
-
-	segs := make([]db.SBSegment, len(sbChapters))
-	for i, ch := range sbChapters {
-		segs[i] = db.SBSegment{Start: ch.StartTime, End: ch.EndTime}
-	}
-
-	var out []db.Chapter
-	for _, ch := range realChapters {
-		skip := false
-		for _, sb := range segs {
-			if math.Abs(ch.StartTime-sb.Start) <= tol && math.Abs(ch.EndTime-sb.End) <= tol {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-		out = append(out, db.Chapter{
-			Title:         ch.Title,
-			OriginalStart: ch.StartTime,
-			OriginalEnd:   ch.EndTime,
-			AdjustedStart: originalToAdjustedSec(ch.StartTime, segs),
-			AdjustedEnd:   originalToAdjustedSec(ch.EndTime, segs),
-		})
-	}
-	return out, segs
-}
-
-// originalToAdjustedSec converts an original-timeline position (seconds) to the
-// adjusted local-file position after SB segments have been removed.
-func originalToAdjustedSec(origSec float64, segs []db.SBSegment) float64 {
-	offset := 0.0
-	for _, seg := range segs {
-		if origSec < seg.Start {
-			break
-		}
-		if origSec < seg.End {
-			return seg.Start - offset
-		}
-		offset += seg.End - seg.Start
-	}
-	return origSec - offset
-}
-
-// originalToAdjustedMs converts an original-timeline position (ms) to the adjusted
-// local-file position in ms.
-func originalToAdjustedMs(origMs int64, segs []db.SBSegment) int64 {
-	offset := int64(0)
-	for _, seg := range segs {
-		segStartMs := int64(seg.Start * 1000)
-		segEndMs := int64(seg.End * 1000)
-		if origMs < segStartMs {
-			break
-		}
-		if origMs < segEndMs {
-			return segStartMs - offset
-		}
-		offset += segEndMs - segStartMs
-	}
-	return origMs - offset
-}
-
-// adjustedToOriginalMs converts a local-file position (ms) back to the original
-// video timeline in ms, undoing the SB cuts.
-func adjustedToOriginalMs(adjMs int64, segs []db.SBSegment) int64 {
-	offset := int64(0)
-	for _, seg := range segs {
-		segDur := int64((seg.End - seg.Start) * 1000)
-		segStartAdj := int64(seg.Start*1000) - offset
-		if adjMs < segStartAdj {
-			break
-		}
-		offset += segDur
-	}
-	return adjMs + offset
 }
 
 // ── Direct overlay helpers (chapters/links without opening info panel) ────────
@@ -2760,7 +2460,7 @@ func (m Model) openLinksForVideo(v youtube.Video) (tea.Model, tea.Cmd) {
 		if cached.Links != nil {
 			links = *cached.Links
 		} else {
-			links = extractLinks(cached.Description)
+			links = media.ExtractLinks(cached.Description)
 			_ = m.db.SaveVideoLinks(v.ID, links)
 			m.vidDetailLinks = &links
 		}

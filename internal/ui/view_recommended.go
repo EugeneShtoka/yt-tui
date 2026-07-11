@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,7 +26,7 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.HideRecVideo(v.ID)
 			m.recHidden[v.ID] = true
-			m.recVideos = removeVideoByID(m.recVideos, v.ID)
+			m.recVideos = feed.RemoveVideoByID(m.recVideos, v.ID)
 			m.recommended.reclamp(len(m.recVideos), m.pageSize())
 			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
 			m.checkVideoHideAutoBlacklist(v.ChannelID, v.Channel)

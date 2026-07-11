@@ -10,6 +10,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -115,14 +116,15 @@ const (
 	subChSortTags     = 6 // sort channels alphabetically by first tag (untagged last)
 )
 
-// Video list sort modes (used by each tab view's sort field).
+// Video list sort modes (used by each tab view's sort field). Canonical
+// definitions live in internal/feed; these aliases keep the view code terse.
 const (
-	vidSortViews    = 0 // view count desc (default for recommended)
-	vidSortDate     = 1 // upload date desc
-	vidSortName     = 2 // title alphabetical asc
-	vidSortNone     = 3 // no re-sort — keep fetch/API order
-	vidSortChannel  = 4 // channel name alphabetical asc
-	vidSortDuration = 5 // duration desc (longest first)
+	vidSortViews    = feed.SortViews
+	vidSortDate     = feed.SortDate
+	vidSortName     = feed.SortName
+	vidSortNone     = feed.SortNone
+	vidSortChannel  = feed.SortChannel
+	vidSortDuration = feed.SortDuration
 )
 
 // Model is the root bubbletea model.
@@ -383,7 +385,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		}
 	}
 	if len(subscribedIDs) > 0 {
-		recCache = filterSubscribed(recCache, subscribedIDs)
+		recCache = feed.FilterSubscribed(recCache, subscribedIDs)
 	}
 
 	// Load subscriptions all-video list from channel_videos aggregate.
@@ -394,7 +396,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		}
 	}
 	subVideos, _ := database.GetAllChannelVideos(channelIDs)
-	sortVideos(subVideos, vidSortDate)
+	feed.SortVideos(subVideos, vidSortDate)
 
 	// Load YouTube playlists from DB for immediate display.
 	cachedYTPlaylists, _ := database.GetYTPlaylists()
@@ -597,7 +599,7 @@ func (m Model) tagVideos() []youtube.Video {
 			out = append(out, v)
 		}
 	}
-	sortVideos(out, m.channels.tagSort)
+	feed.SortVideos(out, m.channels.tagSort)
 	return out
 }
 
@@ -939,46 +941,6 @@ func truncate(s string, n int) string {
 		i++
 	}
 	return string(runes[:i]) + "…"
-}
-
-type vidSortKey struct {
-	viewCount  int64
-	uploadDate string
-	title      string
-	channel    string
-	duration   int
-}
-
-func sortByMode[T any](s []T, mode int, extract func(T) vidSortKey) {
-	switch mode {
-	case vidSortViews:
-		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).viewCount > extract(s[j]).viewCount })
-	case vidSortDate:
-		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).uploadDate > extract(s[j]).uploadDate })
-	case vidSortName:
-		sort.SliceStable(s, func(i, j int) bool {
-			return strings.ToLower(extract(s[i]).title) < strings.ToLower(extract(s[j]).title)
-		})
-	case vidSortChannel:
-		sort.SliceStable(s, func(i, j int) bool {
-			return strings.ToLower(extract(s[i]).channel) < strings.ToLower(extract(s[j]).channel)
-		})
-	case vidSortDuration:
-		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).duration > extract(s[j]).duration })
-		// vidSortNone: no-op — keep current order
-	}
-}
-
-func sortVideos(videos []youtube.Video, mode int) {
-	sortByMode(videos, mode, func(v youtube.Video) vidSortKey {
-		return vidSortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
-	})
-}
-
-func sortLocalVideos(videos []db.LocalVideo, mode int) {
-	sortByMode(videos, mode, func(v db.LocalVideo) vidSortKey {
-		return vidSortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
-	})
 }
 
 // currentContext returns the ContextID for the currently focused UI area.
