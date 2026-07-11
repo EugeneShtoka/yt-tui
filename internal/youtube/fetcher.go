@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -111,20 +112,20 @@ func buildArgs(cfg *config.Config, url string, limit int) []string {
 	return args
 }
 
-func tryParseVideos(args []string) ([]Video, string, error) {
-	cmd := exec.Command("yt-dlp", args...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, "", err
-	}
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-	if err := cmd.Start(); err != nil {
-		return nil, "", err
-	}
-	var videos []Video
-	scanner := bufio.NewScanner(stdout)
+// newLineScanner returns a bufio.Scanner sized for yt-dlp's long JSON lines.
+func newLineScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
+	return scanner
+}
+
+// parseVideoLines scans yt-dlp --dump-json output, keeping only real videos:
+// entries with an ID + title, not a channel/playlist tab, and with a nonzero
+// view count. It is the pure core of tryParseVideos — testable against fixtures
+// with no process spawn.
+func parseVideoLines(r io.Reader) ([]Video, error) {
+	var videos []Video
+	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "{") {
@@ -145,8 +146,68 @@ func tryParseVideos(args []string) ([]Video, string, error) {
 		}
 		videos = append(videos, e.toVideo())
 	}
+	return videos, scanner.Err()
+}
+
+// parseChannelLines scans yt-dlp output for channel entries (any entry with an ID).
+func parseChannelLines(r io.Reader) ([]Channel, error) {
+	var channels []Channel
+	scanner := newLineScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var e ytdlpEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.ID == "" {
+			continue
+		}
+		channels = append(channels, e.toChannel())
+	}
+	return channels, scanner.Err()
+}
+
+// parseMixedLines scans yt-dlp output that interleaves channels and videos
+// (used by search), routing each entry by its IEKey/type.
+func parseMixedLines(r io.Reader) (channels []Channel, videos []Video, err error) {
+	scanner := newLineScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var entry ytdlpEntry
+		if json.Unmarshal([]byte(line), &entry) != nil || entry.ID == "" {
+			continue
+		}
+		if entry.IEKey == "YoutubeTab" || entry.Type == "playlist" {
+			if entry.Title != "" {
+				channels = append(channels, entry.toChannel())
+			}
+		} else if entry.Title != "" && entry.ViewCount != 0 {
+			videos = append(videos, entry.toVideo())
+		}
+	}
+	return channels, videos, scanner.Err()
+}
+
+func tryParseVideos(args []string) ([]Video, string, error) {
+	cmd := exec.Command("yt-dlp", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, "", err
+	}
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Start(); err != nil {
+		return nil, "", err
+	}
+	videos, scanErr := parseVideoLines(stdout)
 	_ = cmd.Wait()
-	return videos, errBuf.String(), scanner.Err()
+	return videos, errBuf.String(), scanErr
 }
 
 func runAndParseVideos(args []string) ([]Video, error) {
@@ -177,20 +238,7 @@ func tryParseChannels(args []string) ([]Channel, string, error) {
 	if err != nil {
 		return nil, stderrStr, fmt.Errorf("yt-dlp: %w", err)
 	}
-	var channels []Channel
-	for _, line := range strings.Split(string(out), "\n") {
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var e ytdlpEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
-		}
-		if e.ID == "" {
-			continue
-		}
-		channels = append(channels, e.toChannel())
-	}
+	channels, _ := parseChannelLines(bytes.NewReader(out))
 	return channels, stderrStr, nil
 }
 
@@ -373,27 +421,9 @@ func tryParseMixed(args []string) (channels []Channel, videos []Video, stderrStr
 	if e := cmd.Start(); e != nil {
 		return nil, nil, "", e
 	}
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var entry ytdlpEntry
-		if json.Unmarshal([]byte(line), &entry) != nil || entry.ID == "" {
-			continue
-		}
-		if entry.IEKey == "YoutubeTab" || entry.Type == "playlist" {
-			if entry.Title != "" {
-				channels = append(channels, entry.toChannel())
-			}
-		} else if entry.Title != "" && entry.ViewCount != 0 {
-			videos = append(videos, entry.toVideo())
-		}
-	}
+	channels, videos, scanErr := parseMixedLines(stdout)
 	_ = cmd.Wait()
-	return channels, videos, errBuf.String(), scanner.Err()
+	return channels, videos, errBuf.String(), scanErr
 }
 
 func runAndParseMixed(args []string) (channels []Channel, videos []Video, err error) {
