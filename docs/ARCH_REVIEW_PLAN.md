@@ -6,6 +6,7 @@
 - ✅ **#1 goroutines → Cmd** (commit `2ee4cb8`): all 13 raw goroutines now `tea.Cmd`; `persistErrMsg` surfaces save failures; `internal/ui/commands.go` + tests.
 - ✅ **#2 extract media + feed** (commit `5ed605e`): `internal/media` (SB math, links) + `internal/feed` (filters/merge/sort). `vidSort*` aliases `feed.Sort*`. Table-driven tests added. `feed` is the seed for #5.
 - ✅ **#6(a) split parse from exec** (commit `6ebe5b4`): `parseVideoLines`/`parseChannelLines`/`parseMixedLines` take `io.Reader`; fixture tests for all filter branches + `buildArgs`/`isRateLimited`/`retryDelay`.
+- ✅ **#4 shell-outs behind boundary**: new `internal/sys` with `EditorCommand` (returns `*exec.Cmd` for `tea.ExecProcess`) + `OpenURL`; editor env-resolution now unit-tested.
 - ⬜ **#3 inputMode enum** — next; needs the overlay-stack audit + manual verification pass.
 - ⬜ **#5 feed data owner** — riskier session, gated on the above.
 

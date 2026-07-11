@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/media"
+	"github.com/EugeneShtoka/yt-tui/internal/sys"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
@@ -682,14 +682,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 }
 
 func (m Model) openConfigInEditor() (Model, tea.Cmd) {
-	editor := os.Getenv("VISUAL")
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-	}
-	if editor == "" {
-		editor = "vi"
-	}
-	cmd := exec.Command(editor, m.cfg.ConfigFile)
+	cmd := sys.EditorCommand(m.cfg.ConfigFile)
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		if err != nil {
 			return cmdErrMsg{err}
@@ -1748,7 +1741,7 @@ func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.DrillDown):
 		if n > 0 {
-			if err := exec.Command("xdg-open", m.linkOverlayURLs[m.linkOverlaySel].URL).Start(); err != nil {
+			if err := sys.OpenURL(m.linkOverlayURLs[m.linkOverlaySel].URL); err != nil {
 				m.setStatus("open URL: "+err.Error(), true)
 			} else if m.cfg.CloseOnLinkOpen {
 				m.linkOverlay = false
