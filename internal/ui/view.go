@@ -335,7 +335,7 @@ func (m Model) renderContent(height int) string {
 	case tabHistory:
 		return m.renderHistory(height)
 	case tabActivity:
-		return m.renderActivity(height)
+		return m.activity.render(m.width, height)
 	}
 	return ""
 }
@@ -1182,66 +1182,6 @@ func (m Model) renderHistoryDetail(height int) string {
 		ts := styleChannel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))
 		detail := styleDim.Render(e.Details)
 		rows = append(rows, "  "+evType+" "+ts+" "+detail)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
-}
-
-// ── Activity tab ─────────────────────────────────────────────────────────────
-
-func (m Model) renderActivity(height int) string {
-	header := styleSectionTitle.Render("Activity")
-	headerH := lipgloss.Height(header)
-
-	if len(m.actEntries) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styleDim.Render("No activity yet."))
-	}
-
-	colType := 16
-	colMeta := m.width - colNum - 1 - 2 - colType - 1
-	if colMeta < 20 {
-		colMeta = 20
-	}
-
-	start, end := scrollWindowAt(m.actVS, len(m.actEntries), height-headerH)
-	var rows []string
-	for i := start; i < end && i < len(m.actEntries); i++ {
-		e := m.actEntries[i]
-
-		indicator := "  "
-		sep := " "
-		numStyle := styleRowNum
-		typeStyle := styleWarning.Width(colType)
-		if i == m.actCursor {
-			indicator = styleSelected.Render("▶ ")
-			numStyle = numStyle.Background(colorBgSelect)
-			sep = lipgloss.NewStyle().Background(colorBgSelect).Render(" ")
-			typeStyle = typeStyle.Background(colorBgSelect)
-		}
-		numStr := numStyle.Render(fmt.Sprintf("%*d", colNum, i+1))
-
-		locality := "remote"
-		if e.IsLocal {
-			locality = "local"
-		}
-		typeLabel := typeStyle.Render(e.Type)
-
-		var meta string
-		switch e.Type {
-		case "subscribe":
-			meta = fmt.Sprintf("%s (%s)", e.ChannelName, locality)
-		case "create_playlist":
-			meta = fmt.Sprintf("%s (%s)", e.PlaylistName, locality)
-		case "add_to_playlist":
-			meta = fmt.Sprintf("%s → %s (%s)", truncate(e.VideoTitle, colMeta/2), e.PlaylistName, locality)
-		default:
-			meta = e.Type
-		}
-		metaStyle := styleNormal.Width(colMeta)
-		if i == m.actCursor {
-			metaStyle = styleSelected.Width(colMeta)
-		}
-		rows = append(rows, numStr+sep+indicator+typeLabel+sep+metaStyle.Render(truncate(meta, colMeta)))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }

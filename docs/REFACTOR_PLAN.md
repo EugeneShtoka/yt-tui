@@ -53,7 +53,7 @@ Each task is self-contained and written to be executed by a model with the recom
 | P3.2 | Single source-of-truth tab table; collapse 3 name lists | Med | Med | **Sonnet** | — | ✅ **DONE** |
 | P3.3 | Reflection/`cmp.Or` merge for `fillDefaults` | Low-Med | Low | **Sonnet** | P1.1 | ✅ **DONE** |
 | P3.4 | Memoize `chordDefs()` + sorted/filtered views | Med | Med | **Sonnet** | P4 ideally | ✅ **DONE** (chord cache only; sorted views deferred to P4) |
-| P4 | Decompose `Model` into `TabView` sub-models | Highest (long-term) | Very High | **Opus** (design + 1st slice) → Sonnet (rest) | P1.2 | |
+| P4 | Decompose `Model` into `TabView` sub-models | Highest (long-term) | Very High | **Opus** (design + 1st slice) → Sonnet (rest) | P1.2 | 🚧 design + Activity slice done; see `TABVIEW_DESIGN.md` |
 
 > Sequencing note: do **P0 → P1 → P2/P3 → P4**. P4 is the highest long-term ROI but is deliberately last because P1 (tests) and P1.2 (interfaces) are what make it *safe*. Do not start P4 without the test net.
 
@@ -225,7 +225,41 @@ Each task is self-contained and written to be executed by a model with the recom
 
 # Tier 4 — Opus tasks (architecture; design + first slice, then hand to Sonnet)
 
-## P4 — Decompose `Model` into `TabView` sub-models
+## P4 — Decompose `Model` into `TabView` sub-models — 🚧 **IN PROGRESS** (reference slice landed)
+
+> **2026-07-11 — design + reference slice landed (Opus). See `docs/TABVIEW_DESIGN.md`.**
+> Three findings from mapping the code **revise the approach below**:
+> 1. **Tabs are wildly asymmetric** — simple single-pane lists (Activity/History/Local/
+>    Downloading) vs. multi-pane/multi-mode monsters (Channels/Search/Playlists). One
+>    interface designed from a simple tab will be wrong for the complex ones.
+> 2. **"Move the tab's data into the view" is not achievable tab-by-tab.** Feed/library
+>    slices are written across tab boundaries — e.g. `m.localVideos` is written from **5
+>    sites outside the Local handler** (`clear downloads`, the Downloading Delete handler,
+>    `refresh`, …). Only cursor/scroll/sort + data with *no external writer* can move into
+>    a view; shared feed data must live in a `services` layer. **Local is therefore a poor
+>    first slice** (the plan's original suggestion).
+> 3. **The test net is pure-functions-only** (no `Update`/controller tests). Each slice must
+>    add a controller test on `fakeStore`; this slice did.
+>
+> **Revised strategy — group-into-sub-struct first, extract interface later.** Committing to
+> the `TabView` *interface* from one tab is premature abstraction (the "wrong seam" risk).
+> Phase 1 groups each tab's private state into a view struct (`activityView`, …) held as a
+> `Model` field, and delegates the switch-arms to it. After **~3 tabs** are grouped (one
+> isolated, one list-with-actions, one multi-pane) the shared method set is *observed*, and
+> the interface is extracted with confidence (or grouping alone is deemed sufficient).
+>
+> **Reference slice = Activity** (not Local): it is the only fully-isolated tab (zero external
+> readers/writers of its state), so it proves the mechanism cleanly. Delivered:
+> `internal/ui/view_activity.go` (`activityView` with `load`/`update`/`render`), `Model`'s
+> `actEntries/actCursor/actVS` collapsed to one `activity activityView` field, 5 switch-arms
+> delegating, `renderActivity` moved off `Model`, and `view_activity_test.go` (5 controller
+> tests). Behavior byte-identical; build + `-race` green.
+>
+> **Revised migration order:** Activity ✅ → History → **Downloading+Local together** (shared
+> `localVideos`/`localVideoIDs`/downloader) → Recommended/Subscriptions → Search → Channels/
+> Playlists (last; revisit whether the interface should model sub-panes). Everything below is
+> the **original** plan, kept for reference.
+
 **Why Opus.** This reshapes the program; the abstraction choice determines whether the other ~10 `switch m.activeTab` sites collapse cleanly. A wrong seam is expensive and, pre-P1, un-testable to catch. Do the **design + one reference implementation**, then Sonnet ports the remaining tabs mechanically.
 
 **Goal.** Replace the monolithic `Model` + parallel switches with per-view sub-models behind a small interface, keeping `Model` as a thin router over shared services.
@@ -275,6 +309,7 @@ Each wave ends green (`go build`, `go vet`, `go test -race`). Do not begin Wave 
 - **2026-07-10 10:45pm — P0.2 + P1.1 edge cases landed (Sonnet).** MPRIS race fixed: `poll` now takes `stopCh` as parameter (captured under lock in `exec`); `Close` also captures `stopCh` under lock. P1.1 edge cases added: `vs*` boundary invariants (n=0, clamp, circular wrap, viewport) and SponsorBlock round-trip/monotonicity. 34+ tests total, all passing under `-race`. Wave 1 complete.
 - **2026-07-10 11:00pm — P1.2 landed (Sonnet).** `Store` interface (52 methods) declared in `internal/ui/store.go`. `Model.db`, `mustWatchedIDs`, `mustVideoPositions` widened to `Store`. `NewModel` signature unchanged. Compile-time assertions for both `*db.DB` and `fakeStore` in `store_test.go`. Next: Wave 3 — P2.1 shared video-action helper.
 - **2026-07-11 — P2.1 landed (Sonnet).** `handleVideoAction(msg) bool` helper extracts the 7 shared video actions (DrillDown→downloadAndPlay, Play, PlayAudio, Download, DownloadAudio, AddList, CopyURL) from 5 sites (`updateRecommended`, `updateSubAll`, `updateSubChannelsTags` pane 1, `updateSubChVideoPane`, `updateSearch` main). Each tab's switch retains only its unique keys (HideVideo/HideChannel, Unsubscribe, VideoInfo); the helper is called after the switch. `updateSearch` DrillDown+Right case handles channel navigation with an explicit `return`, then delegates video-row DrillDown to the helper to avoid double-fire. `updateSearch` channel-drill-down context and `updatePlaylists` pane 1 kept manual (intentional action subsets). Net: ~60 lines deleted. All tests pass under `-race`.
+- **2026-07-11 — P4 design + reference slice landed (Opus).** Wrote `docs/TABVIEW_DESIGN.md` with the `TabView`/`services` end-state design and three findings that revise the plan: (1) tabs are wildly asymmetric; (2) feed-data slices are written across tab boundaries so per-tab data ownership is not achievable (`m.localVideos` written from 5 external sites → Local is a poor first slice); (3) test net is pure-functions-only. **Revised strategy: group tab state into sub-structs first, extract the interface after ~3 tabs.** Reference slice = **Activity** (only fully-isolated tab, not Local): new `view_activity.go` (`activityView` with `load`/`update`/`render`), `Model.actEntries/actCursor/actVS` → one `activity activityView` field, 5 switch-arms delegating, `renderActivity` moved off `Model`, `view_activity_test.go` (5 controller tests on `fakeStore` — first `Update`-level tests in the suite). Behavior byte-identical; build + `go vet` + `-race` green. Revised migration order: Activity ✅ → History → Downloading+Local (together) → Recommended/Subscriptions → Search → Channels/Playlists.
 - **2026-07-11 — P3.3+P3.4 landed (Sonnet).** P3.3: three behavior-locking tests added to `config_test.go` first (zero→default equality, existing values preserved, no empty fields after fill). Then the 60-line `fillDefaults` switch replaced with a 3-line body calling `fillStringDefaults(reflect.ValueOf(kb).Elem(), reflect.ValueOf(d))` — a recursive helper that walks string/struct fields only. Adding a new keybinding now only requires one entry in `defaultKeyBindings()`. P3.4: `chordCache *[]chordDef` pointer field added to `Model`; `chordDefs()` renamed to `buildChordDefs()` and a new `chordDefs()` wrapper returns `*chordCache` when set; `NewModel` builds the cache once after struct initialization. Pointer field means all BubbleTea value-copies share the same slice with no stale-copy risk. Sorted-channel view cache deferred to P4 (plan note: "ideally after P4"). All tests pass under `-race`.
 - **2026-07-11 — P3.1+P3.2 landed (Sonnet).** P3.1: replaced the discard stderr goroutine in `downloader.run` with a 20-line ring buffer; goroutine signals completion via a `stderrDone` channel that is drained before `cmd.Wait()` (satisfies StderrPipe contract); error branch appends the captured tail and truncates to 500 chars. P3.2: `tabMeta [numTabIDs]struct{name, display string}` defined in `model.go` as single source of truth; `tabNames` and `tabIDByName` derived from it in `init()`; `tabDebugNames` array in `update.go` deleted and `tabName()` updated to use `tabMeta[id].name` directly. `config.DefaultTabs` unchanged (config package cannot import ui). Net: 12 lines deleted from tab registration. All tests pass under `-race`.
 - **2026-07-11 — P2.4+P2.5 landed (Sonnet).** P2.4: `vidSortKey` extractor struct + generic `sortByMode[T any](s []T, mode int, extract func(T) vidSortKey)` unifies the switch-mode logic; `sortVideos`/`sortLocalVideos` become 2-line wrappers. Tests: parity test (all modes produce identical ID order for both types), no-op test for `vidSortNone`, expected-order test for all 5 modes. P2.5: Five input handlers (`handleLocalFilter`, `handleCmdInput`, `handleChannelEditInput`, `handleSearchInput`, `handleCreateInput`) converted from `switch msg.String()` to `switch { case key.Matches(...): }`. Esc/Enter now use `m.keys.Escape`/`m.keys.DrillDown`; Tab/ShiftTab in search input use `m.keys.Tab`/`m.keys.ShiftTab`. Up/Down in search history and f2–f8 tab-jumps stay hardcoded (arrow-only history nav avoids vim bindings firing while typing; f-keys have no configurable equivalent). `ctrl+c` in cmd mode kept as explicit `||` condition (Quit binding also includes configured `q` which must type freely). All tests pass under `-race`.

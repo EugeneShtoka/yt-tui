@@ -234,9 +234,8 @@ type Model struct {
 	histDetail        []db.HistoryEntry
 
 	// ── Activity ─────────────────────────────────────────────────────────────
-	actEntries []db.ActivityEntry
-	actCursor  int
-	actVS      int
+	// P4 reference slice: Activity's state lives in its own view struct.
+	activity activityView
 
 	// ── Local filter ─────────────────────────────────────────────────────────
 	localFilter        string

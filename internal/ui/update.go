@@ -1145,30 +1145,12 @@ func (m *Model) loadHistory() tea.Cmd {
 }
 
 func (m *Model) loadActivity() {
-	entries, err := m.db.GetActivityLog(200)
-	if err != nil {
-		m.setStatus("activity: "+err.Error(), true)
-		return
-	}
-	m.actEntries = entries
-	m.actCursor = clamp(m.actCursor, len(entries))
+	m.activity.load(m.db, func(s string) { m.setStatus(s, true) })
 }
 
 func (m Model) updateActivity(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.actEntries)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.actCursor, m.actVS = vsMove(m.actCursor, m.actVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.actCursor, m.actVS = vsPage(m.actCursor, m.actVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-		if m.actCursor < n {
-			return m.navigateToActivity(m.actEntries[m.actCursor])
-		}
+	if e, ok := m.activity.update(msg, m.keys, m.pageSize(), m.cfg.CircularNav); ok {
+		return m.navigateToActivity(e)
 	}
 	return m, nil
 }
