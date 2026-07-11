@@ -97,7 +97,7 @@ func (m Model) renderStatusBar() string {
 	// Non-context-help states (chords, status messages) always render single-row.
 	var fixed string
 	switch {
-	case m.cmdMode:
+	case m.mode == modeCommand:
 		cmdView := ":" + m.cmdInput.View()
 		space := m.width - 1 - lipgloss.Width(cmdView) - lipgloss.Width(right)
 		if space < 1 {
@@ -336,7 +336,7 @@ const (
 )
 
 func (m Model) filterBar() string {
-	if m.localFilterFocused {
+	if m.mode == modeLocalFilter {
 		return styleInputPrompt.Render("/ ") + m.localFilterInput.View()
 	}
 	if m.localFilter != "" {

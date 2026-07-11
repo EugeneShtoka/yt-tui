@@ -17,7 +17,7 @@ func (m Model) renderPlaylists(height int) string {
 	header := styleSectionTitle.Render("Playlists")
 	headerH := lipgloss.Height(header)
 
-	if m.createTypeMode {
+	if m.mode == modeCreateType {
 		opt0 := "  Local playlist"
 		opt1 := "  YouTube playlist"
 		if m.createTypeSel == 0 {
@@ -30,7 +30,7 @@ func (m Model) renderPlaylists(height int) string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, body+prompt)
 	}
 
-	if m.createMode {
+	if m.mode == modeCreatePlaylist {
 		label := "New local playlist: "
 		if m.createModeYT {
 			label = "New YouTube playlist: "

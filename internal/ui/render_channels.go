@@ -39,7 +39,7 @@ func (m Model) renderSubChannels(height int) string {
 		} else {
 			body = m.renderChannelList(m.sortedChannels(), height-headerH)
 		}
-		if m.subChEditMode != 0 {
+		if m.mode == modeChannelEdit {
 			body = m.appendEditInput(body)
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, header, body)
@@ -147,7 +147,7 @@ func (m Model) renderTagList(height int) string {
 // appendEditInput adds the inline channel edit input below the channel list body.
 func (m Model) appendEditInput(body string) string {
 	label := "Alias: "
-	if m.subChEditMode == 2 {
+	if m.subChEditKind == 2 {
 		label = "Tags (comma-separated): "
 	}
 	inputLine := "\n" + styleInputPrompt.Render(label) + m.subChEditInput.View()

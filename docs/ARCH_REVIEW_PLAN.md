@@ -7,7 +7,7 @@
 - ✅ **#2 extract media + feed** (commit `5ed605e`): `internal/media` (SB math, links) + `internal/feed` (filters/merge/sort). `vidSort*` aliases `feed.Sort*`. Table-driven tests added. `feed` is the seed for #5.
 - ✅ **#6(a) split parse from exec** (commit `6ebe5b4`): `parseVideoLines`/`parseChannelLines`/`parseMixedLines` take `io.Reader`; fixture tests for all filter branches + `buildArgs`/`isRateLimited`/`retryDelay`.
 - ✅ **#4 shell-outs behind boundary**: new `internal/sys` with `EditorCommand` (returns `*exec.Cmd` for `tea.ExecProcess`) + `OpenURL`; editor env-resolution now unit-tested.
-- ⬜ **#3 inputMode enum** — next; needs the overlay-stack audit + manual verification pass.
+- ✅ **#3 inputMode enum**: the 6 mutually-exclusive text-input bools (`cmdMode`/`searchFocused`/`localFilterFocused`/`createMode`/`createTypeMode`/`subChEditMode`) collapsed into one `mode inputMode` (see `input_mode.go`) with `enterMode`/`exitMode`; `handleKey`'s if-ladder is now an exhaustive switch. **Audit finding:** the overlays (add/link/chapter/video-detail) + `showHelp` genuinely *stack* (link/chapter open over video-detail, restored on close by ladder order) so they are NOT mutually exclusive — left as separate bools by design, documented in `input_mode.go`. `subChEditMode`(int) → `subChEditKind` keeps the alias/tags sub-state. **⚠ Needs manual verification** of every mode entry/exit + the video-info→links→esc overlay path (can't drive the TUI in-agent); build/vet/`-race` + a transition controller test pass.
 - ⬜ **#5 feed data owner** — riskier session, gated on the above.
 
 This plan operationalizes the architectural review of yt-tui conducted 2026-07-11. It is the direct

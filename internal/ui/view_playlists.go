@@ -128,14 +128,14 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 			}
 		case key.Matches(msg, keys.NewList):
 			if m.ytClient != nil {
-				m.createTypeMode = true
+				m.mode = modeCreateType
 				m.createTypeSel = 0
 			} else {
 				m.createModeYT = false
 				m.createInput.SetValue("")
 				m.createInput.Placeholder = "Playlist name…"
 				m.createInput.Focus()
-				m.createMode = true
+				m.mode = modeCreatePlaylist
 				return textinput.Blink
 			}
 		case key.Matches(msg, keys.Delete):

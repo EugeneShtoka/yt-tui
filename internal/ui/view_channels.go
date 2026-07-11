@@ -79,7 +79,8 @@ func (in channelsActionIntent) apply(m *Model) tea.Cmd {
 				m.subChEditInput.SetValue(ch.Alias)
 				m.subChEditInput.Placeholder = "alias (empty to clear)…"
 				m.subChEditInput.Focus()
-				m.subChEditMode = 1
+				m.mode = modeChannelEdit
+				m.subChEditKind = 1
 			}
 		case key.Matches(msg, keys.TagChannel):
 			if m.channels.cursor < n {
@@ -87,7 +88,8 @@ func (in channelsActionIntent) apply(m *Model) tea.Cmd {
 				m.subChEditInput.SetValue(strings.Join(ch.Tags, ", "))
 				m.subChEditInput.Placeholder = "comma-separated tags…"
 				m.subChEditInput.Focus()
-				m.subChEditMode = 2
+				m.mode = modeChannelEdit
+				m.subChEditKind = 2
 			}
 		case key.Matches(msg, keys.Unsubscribe):
 			if m.channels.cursor < n {

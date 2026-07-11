@@ -171,7 +171,7 @@ type Model struct {
 	// ── Channels: alias/tag editing ───────────────────────────────────────────
 	// Handled by the pre-dispatch edit-input gate (handleChannelEditInput), so
 	// these stay router-owned rather than moving into channelsView.
-	subChEditMode  int // 0=none, 1=editing alias, 2=editing tags
+	subChEditKind  int // 1=editing alias, 2=editing tags (valid when mode==modeChannelEdit)
 	subChEditInput textinput.Model
 
 	// ── Playlists ────────────────────────────────────────────────────────────
@@ -183,9 +183,7 @@ type Model struct {
 	playlist             playlistsView              // P4 slice: cursor/scroll/pane/sort for both panes
 	playlistVidCache     map[string][]youtube.Video // per-playlist video cache (written by async fetches)
 	playlistVidLoading   bool
-	createMode           bool
 	createModeYT         bool // true = creating a YouTube playlist (not local)
-	createTypeMode       bool // true = in type-selection dialog before creating
 	createTypeSel        int  // 0 = local, 1 = YouTube
 	createInput          textinput.Model
 	addOverlay           bool
@@ -202,7 +200,6 @@ type Model struct {
 	// flags are written by async fetches, so they stay here (router).
 	search        searchView
 	searchInput   textinput.Model
-	searchFocused bool
 	searchVideos  []youtube.Video
 	searchLoading bool
 	lastQuery     string
@@ -229,13 +226,17 @@ type Model struct {
 	activity activityView
 
 	// ── Local filter ─────────────────────────────────────────────────────────
-	localFilter        string
-	localFilterFocused bool
-	localFilterInput   textinput.Model
-	localFilterCursor  int
+	localFilter       string
+	localFilterInput  textinput.Model
+	localFilterCursor int
+
+	// ── Input mode ────────────────────────────────────────────────────────────
+	// Single source of truth for which text-input mode owns the keyboard; see
+	// input_mode.go. Replaces the former cmdMode/searchFocused/localFilterFocused/
+	// createMode/createTypeMode bools.
+	mode inputMode
 
 	// ── Command mode (:cmd) ───────────────────────────────────────────────────
-	cmdMode         bool
 	cmdInput        textinput.Model
 	cmdCompletions  []string
 	cmdCompIdx      int
@@ -1170,7 +1171,7 @@ func (m Model) buildChordDefs() []chordDef {
 				m.createInput.SetValue("")
 				m.createInput.Placeholder = "New YouTube playlist…"
 				m.createInput.Focus()
-				m.createMode = true
+				m.mode = modeCreatePlaylist
 				return m, textinput.Blink
 			},
 		},
@@ -1183,7 +1184,7 @@ func (m Model) buildChordDefs() []chordDef {
 				m.createInput.SetValue("")
 				m.createInput.Placeholder = "New local playlist…"
 				m.createInput.Focus()
-				m.createMode = true
+				m.mode = modeCreatePlaylist
 				return m, textinput.Blink
 			},
 		},

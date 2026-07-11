@@ -33,7 +33,7 @@ func (in searchActionIntent) apply(m *Model) tea.Cmd {
 	keys := m.keys
 	// Filter key refocuses the search input when results are shown.
 	if key.Matches(msg, keys.Filter) {
-		m.searchFocused = true
+		m.mode = modeSearchInput
 		m.searchInput.Focus()
 		return textinput.Blink
 	}

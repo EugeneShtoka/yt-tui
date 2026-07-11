@@ -374,17 +374,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.downloader.WaitForEvent()
 
 	case cursor.BlinkMsg:
-		if m.cmdMode {
+		if m.mode == modeCommand {
 			var cmd tea.Cmd
 			m.cmdInput, cmd = m.cmdInput.Update(msg)
 			return m, cmd
 		}
-		if m.searchFocused {
+		if m.mode == modeSearchInput {
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(msg)
 			return m, cmd
 		}
-		if m.createMode {
+		if m.mode == modeCreatePlaylist {
 			var cmd tea.Cmd
 			m.createInput, cmd = m.createInput.Update(msg)
 			return m, cmd
@@ -473,13 +473,13 @@ func (m Model) handleLocalFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	prev := m.localFilterInput.Value()
 	switch {
 	case key.Matches(msg, m.keys.Escape):
-		m.localFilterFocused = false
+		m.exitMode()
 		m.localFilterInput.SetValue("")
 		m.localFilter = ""
 		m.localFilterCursor = 0
 		return m, nil
 	case key.Matches(msg, m.keys.DrillDown):
-		m.localFilterFocused = false
+		m.exitMode()
 		return m, nil
 	default:
 		var cmd tea.Cmd
@@ -549,7 +549,7 @@ func cmdCompletionsFor(input string) []string {
 func (m Model) handleCmdInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Escape) || msg.String() == "ctrl+c":
-		m.cmdMode = false
+		m.exitMode()
 		m.cmdCompletions = nil
 		m.cmdLastTabValue = ""
 		m.cmdInput.SetValue("")
@@ -557,7 +557,7 @@ func (m Model) handleCmdInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, m.keys.DrillDown):
 		val := strings.TrimSpace(m.cmdInput.Value())
-		m.cmdMode = false
+		m.exitMode()
 		m.cmdCompletions = nil
 		m.cmdLastTabValue = ""
 		m.cmdInput.SetValue("")
@@ -623,7 +623,7 @@ func (m Model) execCommand(input string) (Model, tea.Cmd) {
 			if t == id {
 				m.activeTab = id
 				if id == tabSearch {
-					m.searchFocused = true
+					m.mode = modeSearchInput
 					m.searchInput.Focus()
 					return m, textinput.Blink
 				}
@@ -701,34 +701,38 @@ func tabName(id int) string {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	debug.Log("key=%q tab=%s localFilterFocused=%v localFilter=%q searchFocused=%v createMode=%v addOverlay=%v showHelp=%v pendingChord=%q gPending=%v numPrefix=%q",
-		msg.String(), tabName(m.activeTab), m.localFilterFocused, m.localFilter, m.searchFocused,
-		m.createMode, m.addOverlay, m.showHelp, m.pendingChord, m.gPending, m.numPrefix)
+	debug.Log("key=%q tab=%s mode=%d localFilter=%q addOverlay=%v showHelp=%v pendingChord=%q gPending=%v numPrefix=%q",
+		msg.String(), tabName(m.activeTab), m.mode, m.localFilter,
+		m.addOverlay, m.showHelp, m.pendingChord, m.gPending, m.numPrefix)
 
-	if m.cmdMode {
-		debug.Log("→ handleCmdInput (cmdMode=true)")
+	// Text-input modes capture all keys ahead of navigation dispatch. Exactly one
+	// can be active (see input_mode.go); this switch replaces the former ordered
+	// if-ladder over independent bools.
+	switch m.mode {
+	case modeCommand:
+		debug.Log("→ handleCmdInput")
 		return m.handleCmdInput(msg)
-	}
-	if m.localFilterFocused {
-		debug.Log("→ handleLocalFilter (localFilterFocused=true)")
+	case modeLocalFilter:
+		debug.Log("→ handleLocalFilter")
 		return m.handleLocalFilter(msg)
-	}
-	if m.searchFocused {
-		debug.Log("→ handleSearchInput (searchFocused=true)")
+	case modeSearchInput:
+		debug.Log("→ handleSearchInput")
 		return m.handleSearchInput(msg)
-	}
-	if m.createTypeMode {
-		debug.Log("→ handleCreateTypeInput (createTypeMode=true)")
+	case modeCreateType:
+		debug.Log("→ handleCreateTypeInput")
 		return m.handleCreateTypeInput(msg)
-	}
-	if m.createMode {
-		debug.Log("→ handleCreateInput (createMode=true)")
+	case modeCreatePlaylist:
+		debug.Log("→ handleCreateInput")
 		return m.handleCreateInput(msg)
+	case modeChannelEdit:
+		if m.activeTab == tabChannels {
+			debug.Log("→ handleChannelEditInput (kind=%d)", m.subChEditKind)
+			return m.handleChannelEditInput(msg)
+		}
 	}
-	if m.activeTab == tabChannels && m.subChEditMode != 0 {
-		debug.Log("→ handleChannelEditInput (subChEditMode=%d)", m.subChEditMode)
-		return m.handleChannelEditInput(msg)
-	}
+
+	// Overlays stack (link/chapter over video-detail); ladder order restores the
+	// base panel on close. Kept as separate bools — not part of the mode enum.
 	if m.addOverlay {
 		debug.Log("→ handleAddOverlay (addOverlay=true)")
 		return m.handleAddOverlay(msg)
@@ -806,7 +810,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ── Command mode trigger ──────────────────────────────────────────────
 	if s == ":" {
-		m.cmdMode = true
+		m.enterMode(modeCommand)
 		m.cmdInput.SetValue("")
 		m.cmdInput.Focus()
 		return m, textinput.Blink
@@ -878,7 +882,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.localFilterInput.SetValue("")
 		m.localFilter = ""
 		m.localFilterCursor = 0
-		m.localFilterFocused = true
+		m.enterMode(modeLocalFilter)
 		m.localFilterInput.Focus()
 		return m, textinput.Blink
 	}
@@ -1045,17 +1049,19 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 // ── Tab activation ────────────────────────────────────────────────────────────
 
 func (m *Model) onTabActivated() tea.Cmd {
-	// Always clear search focus when switching tabs — prevents searchFocused
+	// Always clear search focus when switching tabs — prevents modeSearchInput
 	// leaking to other tabs (e.g. t+chord while search box is active types
 	// into the input instead of triggering the chord).
-	if m.activeTab != tabSearch {
-		m.searchFocused = false
+	if m.activeTab != tabSearch && m.mode == modeSearchInput {
+		m.exitMode()
 		m.searchInput.Blur()
 	}
 	// Clear local filter state on tab switch so it can't block tab-specific keys.
 	m.localFilter = ""
 	m.localFilterInput.SetValue("")
-	m.localFilterFocused = false
+	if m.mode == modeLocalFilter {
+		m.exitMode()
+	}
 	m.localFilterCursor = 0
 	switch m.activeTab {
 	case tabRecommended:
@@ -1066,7 +1072,7 @@ func (m *Model) onTabActivated() tea.Cmd {
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSearch:
-		m.searchFocused = true
+		m.mode = modeSearchInput
 		m.searchInput.Focus()
 		if queries, err := m.db.SearchQueries(50); err == nil {
 			m.searchHistory = queries
@@ -1378,13 +1384,13 @@ func parseLocalPlaylistID(key string) int64 {
 func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Escape):
-		m.subChEditMode = 0
+		m.exitMode()
 		m.subChEditInput.Blur()
 	case key.Matches(msg, m.keys.DrillDown):
 		val := strings.TrimSpace(m.subChEditInput.Value())
 		chID := m.editTargetChannelID()
 		if chID != "" {
-			if m.subChEditMode == 1 {
+			if m.subChEditKind == 1 {
 				_ = m.db.SetChannelAlias(chID, val)
 				for i, ch := range m.subChannels {
 					if ch.ID == chID {
@@ -1409,7 +1415,7 @@ func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus("Tags updated", false)
 			}
 		}
-		m.subChEditMode = 0
+		m.exitMode()
 		m.subChEditInput.Blur()
 	default:
 		var cmd tea.Cmd
@@ -1421,7 +1427,7 @@ func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	blurSearch := func() {
-		m.searchFocused = false
+		m.exitMode()
 		m.searchInput.Blur()
 	}
 	switch {
@@ -1521,18 +1527,17 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleCreateTypeInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.createTypeMode = false
+		m.exitMode()
 	case "up", "k":
 		m.createTypeSel = 0
 	case "down", "j":
 		m.createTypeSel = 1
 	case "enter":
-		m.createTypeMode = false
 		m.createModeYT = m.createTypeSel == 1
 		m.createInput.SetValue("")
 		m.createInput.Placeholder = "Playlist name…"
 		m.createInput.Focus()
-		m.createMode = true
+		m.mode = modeCreatePlaylist // transition: type-selector → name entry
 		return m, textinput.Blink
 	}
 	return m, nil
@@ -1545,7 +1550,7 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.DrillDown):
 		name := m.createInput.Value()
 		isYT := m.createModeYT
-		m.createMode = false
+		m.exitMode()
 		m.createModeYT = false
 		m.createInput.Blur()
 		if name != "" {
@@ -1581,7 +1586,7 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Escape):
 		m.addAfterCreate = false
-		m.createMode = false
+		m.exitMode()
 		m.createModeYT = false
 		m.createInput.Blur()
 	default:
