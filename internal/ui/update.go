@@ -82,9 +82,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ytPlaylists = msg.Playlists
 				m.playlistVidCache = make(map[string][]youtube.Video)
 			}
-			go func(pls []youtube.YTPlaylist) {
-				_ = m.db.SaveYTPlaylists(pls)
-			}(msg.Playlists)
+			return m, saveYTPlaylistsCmd(m.db, msg.Playlists)
 		}
 		return m, nil
 
@@ -98,9 +96,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			vids := msg.Videos
 			sortVideos(vids, m.playlist.sort)
 			m.playlistVidCache[msg.PlaylistID] = vids
-			go func(id string, v []youtube.Video) {
-				_ = m.db.SaveYTPlaylistVideos(id, v)
-			}(msg.PlaylistID, msg.Videos)
+			return m, saveYTPlaylistVideosCmd(m.db, msg.PlaylistID, msg.Videos)
 		}
 		return m, nil
 
@@ -128,7 +124,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
 			m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
-			go m.db.DeleteChannelVideos(msg.ChannelID)
+			return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
 		}
 		return m, nil
 
@@ -139,6 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case youtube.CreatePlaylistMsg:
+		var addCmd tea.Cmd
 		if msg.Err != nil {
 			m.addAfterCreate = false
 			m.setStatus("create playlist: "+msg.Err.Error(), true)
@@ -152,7 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addAfterCreate = false
 				v := m.addVideo
 				plID := msg.ID
-				go func() { _ = m.ytClient.AddToPlaylist(plID, v.ID) }()
+				addCmd = addToPlaylistCmd(m.ytClient, plID, v.ID)
 				delete(m.playlistVidCache, plID)
 				_ = m.db.LogActivity(db.ActivityEntry{
 					Type: "add_to_playlist", IsLocal: false,
@@ -164,7 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("Created playlist: "+msg.Name, false)
 			}
 		}
-		return m, nil
+		return m, addCmd
 
 	case youtube.VideoDetailsMsg:
 		if msg.Err != nil {
@@ -294,12 +291,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.recVideos = filterSubscribed(m.recVideos, m.subscribedChannelIDs)
-			go func(channels []youtube.Channel, videos []youtube.Video) {
-				_ = m.db.SaveSubscribedChannels(channels)
-				_ = m.db.SaveFeedCache("recommended", videos)
-			}(m.subChannels, m.recVideos)
+			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subChannels, m.recVideos)}
 			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
-			var bgCmds []tea.Cmd
 			for _, ch := range msg.Channels {
 				if ch.ID == "" {
 					continue
@@ -307,13 +300,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ch := ch
 				bgCmds = append(bgCmds, youtube.FetchChannelLatestN(m.cfg, ch.URL, ch.ID, m.cfg.ChannelLatestCount))
 			}
-			if len(bgCmds) > 0 {
-				return m, tea.Batch(bgCmds...)
-			}
+			return m, tea.Batch(bgCmds...)
 		}
 		return m, nil
 
 	case youtube.ChannelVideosMsg:
+		var saveCmd tea.Cmd
 		if msg.Source == "search" {
 			m.searchChLoading = false
 			if msg.Err != nil {
@@ -332,9 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				existing, ok := m.subChLatest[msg.ChannelID]
 				if !ok || newest.UploadDate > existing.UploadDate {
 					m.subChLatest[msg.ChannelID] = newest
-					go func(chID string, vids []youtube.Video) {
-						_ = m.db.SaveChannelVideos(chID, vids)
-					}(msg.ChannelID, msg.Videos)
+					saveCmd = saveChannelVideosCmd(m.db, msg.ChannelID, msg.Videos)
 					m.rebuildSubVideos()
 				}
 			}
@@ -346,9 +336,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.ChannelID != m.subChActiveID || m.channels.pane != 1 {
 				// Stale response — user navigated away; save to DB but don't touch UI.
 				if len(msg.Videos) > 0 {
-					go func(chID string, vids []youtube.Video) {
-						_ = m.db.SaveChannelVideos(chID, vids)
-					}(msg.ChannelID, msg.Videos)
+					saveCmd = saveChannelVideosCmd(m.db, msg.ChannelID, msg.Videos)
 				}
 			} else {
 				// Merge fetched videos with any already-loaded DB cache.
@@ -362,14 +350,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if existing, ok := m.subChLatest[msg.ChannelID]; !ok || latest.UploadDate > existing.UploadDate {
 						m.subChLatest[msg.ChannelID] = latest
 					}
-					go func(chID string, vids []youtube.Video) {
-						_ = m.db.SaveChannelVideos(chID, vids)
-					}(msg.ChannelID, merged)
+					saveCmd = saveChannelVideosCmd(m.db, msg.ChannelID, merged)
 					m.rebuildSubVideos()
 				}
 			}
 		}
-		return m, nil
+		return m, saveCmd
 
 	case youtube.SearchResultMsg:
 		m.searchLoading = false
@@ -410,6 +396,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setStatus("editor: "+msg.err.Error(), true)
 		return m, nil
 
+	case persistErrMsg:
+		m.setStatus("save: "+msg.err.Error(), true)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -439,7 +429,7 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 			sortVideos(filtered, m.recommended.sort)
 			m.recommended.cursor = preserveCursor(m.recVideos, m.recommended.cursor, filtered)
 			m.recVideos = filtered
-			go m.db.SaveFeedCache("recommended", filtered)
+			saveCmd := saveFeedCacheCmd(m.db, "recommended", filtered)
 
 			// If too few results and we haven't hit the page cap, fetch again.
 			maxPages := m.cfg.RecommendedMaxPages
@@ -449,8 +439,9 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 			if len(filtered) < 20 && m.recPage < maxPages {
 				m.recLoading = true
 				m.recRefreshing = true
-				return m, youtube.FetchRecommended(m.cfg)
+				return m, tea.Batch(saveCmd, youtube.FetchRecommended(m.cfg))
 			}
+			return m, saveCmd
 		}
 	}
 	return m, nil
@@ -649,6 +640,7 @@ func (m Model) execCommand(input string) (Model, tea.Cmd) {
 }
 
 func (m Model) execClear(what string) (Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch what {
 	case "cache":
 		if err := m.db.ClearVideoDetailsCache(); err != nil {
@@ -669,11 +661,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 		if err != nil {
 			m.setStatus("clear downloads: "+err.Error(), true)
 		} else {
-			go func() {
-				for _, p := range paths {
-					_ = os.Remove(p)
-				}
-			}()
+			cmd = deleteFilesCmd(paths)
 			m.localVideos = nil
 			m.localVideoIDs = make(map[string]db.LocalVideo)
 			m.local.cursor = 0
@@ -691,7 +679,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 	default:
 		m.setStatus("unknown: clear "+what+" (cache|history|downloads|recommended)", true)
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m Model) openConfigInEditor() (Model, tea.Cmd) {
@@ -1835,6 +1823,7 @@ func extractLinks(desc string) []db.Link {
 }
 
 func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var addCmd tea.Cmd
 	if m.addOverlayCreateMode {
 		return m.handleAddOverlayCreate(msg)
 	}
@@ -1868,7 +1857,7 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
 			pl := m.ytPlaylists[idx]
-			go func() { _ = m.ytClient.AddToPlaylist(pl.ID, v.ID) }()
+			addCmd = addToPlaylistCmd(m.ytClient, pl.ID, v.ID)
 			delete(m.playlistVidCache, pl.ID)
 			_ = m.db.LogActivity(db.ActivityEntry{
 				Type: "add_to_playlist", IsLocal: false,
@@ -1889,7 +1878,7 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.addOverlay = false
 	}
-	return m, nil
+	return m, addCmd
 }
 
 func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2498,13 +2487,12 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
-	go m.db.DeleteChannelVideos(chID)
 	m.setStatus("Removed local subscription: "+chName, false)
 	// Trigger a fresh recommended fetch so the channel's videos drip back in.
 	m.recPage = 0
 	m.recLoading = true
 	m.recRefreshing = m.recLoaded
-	return m, youtube.FetchRecommended(m.cfg)
+	return m, tea.Batch(deleteChannelVideosCmd(m.db, chID), youtube.FetchRecommended(m.cfg))
 }
 
 func (m Model) unsubscribeChannel(chID, chName string) (tea.Model, tea.Cmd) {

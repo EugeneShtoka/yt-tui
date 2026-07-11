@@ -144,9 +144,10 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 				return nil // Watch Later cannot be deleted
 			}
 			idx := m.playlist.cursor
+			var delCmd tea.Cmd
 			if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
 				pl := m.ytPlaylists[idx]
-				go func() { _ = m.ytClient.DeletePlaylist(pl.ID) }()
+				delCmd = deletePlaylistCmd(m.ytClient, pl.ID)
 				delete(m.playlistVidCache, pl.ID)
 				m.ytPlaylists = append(m.ytPlaylists[:idx], m.ytPlaylists[idx+1:]...)
 			} else {
@@ -163,6 +164,7 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 				}
 			}
 			m.playlist.cursor, m.playlist.vs = vsMove(clamp(m.playlist.cursor, m.playlistCount()), m.playlist.vs, m.playlistCount(), 0, m.pageSize(), false)
+			return delCmd
 		}
 		return nil
 	}
