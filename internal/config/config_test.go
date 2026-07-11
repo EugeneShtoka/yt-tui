@@ -21,7 +21,7 @@ func TestFillDefaultsZeroInput(t *testing.T) {
 
 func TestFillDefaultsPreservesExisting(t *testing.T) {
 	kb := KeyBindings{
-		Play:    "space",
+		Play:     "space",
 		SortKeys: SortKeys{Date: "D"},
 		TabKeys:  TabKeys{Recommended: "1"},
 	}

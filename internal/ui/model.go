@@ -998,7 +998,7 @@ func sortByMode[T any](s []T, mode int, extract func(T) vidSortKey) {
 		})
 	case vidSortDuration:
 		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).duration > extract(s[j]).duration })
-	// vidSortNone: no-op — keep current order
+		// vidSortNone: no-op — keep current order
 	}
 }
 

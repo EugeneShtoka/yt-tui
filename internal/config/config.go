@@ -182,33 +182,33 @@ type BlacklistedChannel struct {
 }
 
 type Config struct {
-	DownloadDir           string               `toml:"download_dir"`
-	Browser               string               `toml:"browser"`
-	Player                string               `toml:"player"`
-	PlayerBackend         string               `toml:"player_backend"`
-	MaxDownloads          int                  `toml:"max_concurrent_downloads"`
-	SponsorBlock          bool                 `toml:"sponsorblock"`
-	SponsorBlockCats      []string             `toml:"sponsorblock_categories"`
-	AudioFormat           string               `toml:"audio_format"`
-	Theme                 string               `toml:"theme,omitempty"`
-	Tabs                  []string             `toml:"tabs"`
-	HintMode              string               `toml:"hint_mode"` // "full" | "minimal" | "none"
-	RecommendedMaxAgeDays      int `toml:"recommended_max_age_days"`
-	RecommendedMinDurationSecs int `toml:"recommended_min_duration_secs"`
-	RecommendedMinViews        int `toml:"recommended_min_views"`
-	RecommendedFetchCount int                  `toml:"recommended_fetch_count"`
-	RecommendedMaxPages   int                  `toml:"recommended_max_pages"`
-	ChannelLatestCount    int                  `toml:"channel_latest_count"`
-	ChannelStrikes        int                  `toml:"channel_strikes"`
-	StripEmojis           bool                 `toml:"strip_emojis"`
-	CloseOnLinkOpen       bool                 `toml:"close_on_link_open"`
-	CircularNav           bool                 `toml:"circular_nav"`
-	Subtitles             bool                 `toml:"subtitles"`
-	SubtitleLangs         []string             `toml:"subtitle_langs"`
-	Keybindings           KeyBindings          `toml:"keybindings"`
-	BlacklistedChannels   []BlacklistedChannel `toml:"blacklisted_channels"`
-	DataDir               string               `toml:"-"`
-	ConfigFile            string               `toml:"-"`
+	DownloadDir                string               `toml:"download_dir"`
+	Browser                    string               `toml:"browser"`
+	Player                     string               `toml:"player"`
+	PlayerBackend              string               `toml:"player_backend"`
+	MaxDownloads               int                  `toml:"max_concurrent_downloads"`
+	SponsorBlock               bool                 `toml:"sponsorblock"`
+	SponsorBlockCats           []string             `toml:"sponsorblock_categories"`
+	AudioFormat                string               `toml:"audio_format"`
+	Theme                      string               `toml:"theme,omitempty"`
+	Tabs                       []string             `toml:"tabs"`
+	HintMode                   string               `toml:"hint_mode"` // "full" | "minimal" | "none"
+	RecommendedMaxAgeDays      int                  `toml:"recommended_max_age_days"`
+	RecommendedMinDurationSecs int                  `toml:"recommended_min_duration_secs"`
+	RecommendedMinViews        int                  `toml:"recommended_min_views"`
+	RecommendedFetchCount      int                  `toml:"recommended_fetch_count"`
+	RecommendedMaxPages        int                  `toml:"recommended_max_pages"`
+	ChannelLatestCount         int                  `toml:"channel_latest_count"`
+	ChannelStrikes             int                  `toml:"channel_strikes"`
+	StripEmojis                bool                 `toml:"strip_emojis"`
+	CloseOnLinkOpen            bool                 `toml:"close_on_link_open"`
+	CircularNav                bool                 `toml:"circular_nav"`
+	Subtitles                  bool                 `toml:"subtitles"`
+	SubtitleLangs              []string             `toml:"subtitle_langs"`
+	Keybindings                KeyBindings          `toml:"keybindings"`
+	BlacklistedChannels        []BlacklistedChannel `toml:"blacklisted_channels"`
+	DataDir                    string               `toml:"-"`
+	ConfigFile                 string               `toml:"-"`
 
 	// mu guards the mutable config fields (currently BlacklistedChannels) and
 	// serializes file writes so a save can never observe a half-mutated slice.
