@@ -1,6 +1,13 @@
 # Architecture Review — Execution Plan (P5)
 
-**Created:** 2026-07-11 · **Status:** planned, not started · **Prereq:** P4 tabView migration complete (all 9 tabs behind `tabView`).
+**Created:** 2026-07-11 · **Status:** in progress — #1, #2, #6(a) landed (2026-07-12); #3, #5 remain · **Prereq:** P4 tabView migration complete (all 9 tabs behind `tabView`).
+
+**Progress log:**
+- ✅ **#1 goroutines → Cmd** (commit `2ee4cb8`): all 13 raw goroutines now `tea.Cmd`; `persistErrMsg` surfaces save failures; `internal/ui/commands.go` + tests.
+- ✅ **#2 extract media + feed** (commit `5ed605e`): `internal/media` (SB math, links) + `internal/feed` (filters/merge/sort). `vidSort*` aliases `feed.Sort*`. Table-driven tests added. `feed` is the seed for #5.
+- ✅ **#6(a) split parse from exec** (commit `6ebe5b4`): `parseVideoLines`/`parseChannelLines`/`parseMixedLines` take `io.Reader`; fixture tests for all filter branches + `buildArgs`/`isRateLimited`/`retryDelay`.
+- ⬜ **#3 inputMode enum** — next; needs the overlay-stack audit + manual verification pass.
+- ⬜ **#5 feed data owner** — riskier session, gated on the above.
 
 This plan operationalizes the architectural review of yt-tui conducted 2026-07-11. It is the direct
 follow-on to `docs/REFACTOR_PLAN.md` (P1–P4) and builds on the data-ownership finding recorded in
