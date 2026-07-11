@@ -34,6 +34,14 @@ type viewCtx struct {
 	searchVideos   []youtube.Video
 	searchChVideos []youtube.Video
 
+	// Channels tab (multi-pane): the active pane's nav needs live element counts,
+	// and the drill actions/rendering read the router-owned channel/video data.
+	// Only populated when the Channels tab is active.
+	chSorted    []youtube.Channel // sorted channel list (flat pane 0)
+	chTagItems  []string          // tag list (tags pane 0)
+	chTagVideos []youtube.Video   // aggregated videos for the selected tag (tags pane 1)
+	subChVideos []youtube.Video   // selected channel's videos (flat pane 1)
+
 	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
 	recLoading        bool
 	recRefreshing     bool
@@ -46,6 +54,9 @@ type viewCtx struct {
 	// renderSearch is the router's bespoke Search renderer (m.renderSearch),
 	// captured per frame; the searchView passes its own cursor/scroll into it.
 	renderSearch func(height, cursor, vs, vidCursor, vidVS int) string
+	// renderChannels is the router's bespoke Channels renderer (m.renderSubChannels),
+	// captured per frame; it reads the view's cursor/scroll off m.channels directly.
+	renderChannels func(height int) string
 }
 
 // viewIntent is an action a view decided on but cannot perform itself because it
@@ -74,7 +85,7 @@ type tabView interface {
 
 // viewCtx builds the shared context handed to the active view this frame.
 func (m *Model) viewCtx() viewCtx {
-	return viewCtx{
+	vc := viewCtx{
 		keys:        m.keys,
 		width:       m.width,
 		pageSize:    m.pageSize(),
@@ -99,7 +110,18 @@ func (m *Model) viewCtx() viewCtx {
 		localFilterCursor: m.localFilterCursor,
 		renderList:        m.renderVideoList,
 		renderSearch:      m.renderSearch,
+		renderChannels:    m.renderSubChannels,
 	}
+	// The Channels tab is multi-pane; its nav/actions need live element counts and
+	// the router-owned channel/video slices. Computing sortedChannels/tagVideos is
+	// non-trivial, so only do it when that tab is active.
+	if m.activeTab == tabChannels {
+		vc.chSorted = m.sortedChannels()
+		vc.chTagItems = m.tagListItems()
+		vc.chTagVideos = m.tagVideos()
+		vc.subChVideos = m.subChVideos
+	}
+	return vc
 }
 
 // activeView returns the tabView for the current tab, or nil if the active tab
@@ -121,6 +143,8 @@ func (m *Model) activeView() tabView {
 		return &m.subscriptions
 	case tabSearch:
 		return &m.search
+	case tabChannels:
+		return &m.channels
 	}
 	return nil
 }

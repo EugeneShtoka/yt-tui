@@ -237,7 +237,7 @@ var hintRegistry = map[string]hintFn{
 	"open_chapters":  hintK(func(km keyMap) key.Binding { return km.OpenChapters }, "chapters"),
 	"toggle_mode": func(m Model) []hintEntry {
 		label := "tag view"
-		if m.subChTagsMode {
+		if m.channels.tagsMode {
 			label = "flat view"
 		}
 		return []hintEntry{{m.keys.ToggleMode.Help().Key, label}}
@@ -253,13 +253,13 @@ func (m Model) tabHintIDs() []string {
 	case tabSubscriptions:
 		return append(videoBase, "unsubscribe")
 	case tabChannels:
-		if m.subChTagsMode {
-			if m.subChPane == 0 {
+		if m.channels.tagsMode {
+			if m.channels.pane == 0 {
 				return []string{"move", "open_tag", "toggle_mode"}
 			}
 			return append(videoBase, "back", "toggle_mode")
 		}
-		if m.subChPane == 0 {
+		if m.channels.pane == 0 {
 			return []string{"move", "open", "chords", "rename", "edit_tags", "unsubscribe", "toggle_mode"}
 		}
 		return []string{"move", "play", "play_audio", "info", "open_links", "open_chapters", "download", "download_audio", "copy_url", "back"}
@@ -319,8 +319,6 @@ func (m Model) renderContent(height int) string {
 		return v.render(m.viewCtx(), height)
 	}
 	switch m.activeTab {
-	case tabChannels:
-		return m.renderSubChannels(height)
 	case tabPlaylists:
 		return m.renderPlaylists(height)
 	}
@@ -497,18 +495,18 @@ func (m Model) renderSubChannels(height int) string {
 	if m.subChLoading {
 		headerText += "  " + styleDim.Render(m.spinner.View()+" loading…")
 	}
-	if m.subChTagsMode {
+	if m.channels.tagsMode {
 		headerText += "  " + styleDim.Render("[tags]")
 	}
 	header := styleSectionTitle.Render(headerText)
 	headerH := lipgloss.Height(header)
 
-	if m.subChTagsMode {
+	if m.channels.tagsMode {
 		return m.renderSubChannelsTags(header, headerH, height)
 	}
 
 	// ── Flat mode ─────────────────────────────────────────────────────────────
-	if m.subChPane == 0 {
+	if m.channels.pane == 0 {
 		var body string
 		if m.subChLoading && len(m.subChannels) == 0 {
 			body = m.spinner.View() + " Loading channels…"
@@ -525,11 +523,11 @@ func (m Model) renderSubChannels(height int) string {
 
 	// ── Flat mode: channel videos pane ────────────────────────────────────────
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.renderSubChannelsVideoPane(header, headerH, height, m.sortedChannels(), m.subChCursor)...)
+		m.renderSubChannelsVideoPane(header, headerH, height, m.sortedChannels(), m.channels.cursor)...)
 }
 
 func (m Model) renderSubChannelsTags(header string, headerH, height int) string {
-	switch m.subChPane {
+	switch m.channels.pane {
 	case 0: // tag list
 		var body string
 		if m.subChLoading && len(m.subChannels) == 0 {
@@ -540,15 +538,15 @@ func (m Model) renderSubChannelsTags(header string, headerH, height int) string 
 		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 
 	case 1: // video list for selected tag
-		tagHeader := styleSectionTitle.Render("← " + tagDisplayName(m.subChTagSel))
+		tagHeader := styleSectionTitle.Render("← " + tagDisplayName(m.channels.tagSel))
 		tagH := lipgloss.Height(tagHeader)
 		filterLine := m.filterBar()
 		filterH := 0
 		if filterLine != "" {
 			filterH = 1
 		}
-		vids, cur := m.contentVideos(m.tagVideos(), m.subChCursor)
-		body := m.renderVideoRows(vids, cur, m.subChVS, height-headerH-tagH-filterH)
+		vids, cur := m.contentVideos(m.tagVideos(), m.channels.cursor)
+		body := m.renderVideoRows(vids, cur, m.channels.vs, height-headerH-tagH-filterH)
 		parts := []string{header, tagHeader}
 		if filterLine != "" {
 			parts = append(parts, filterLine)
@@ -579,8 +577,8 @@ func (m Model) renderSubChannelsVideoPane(header string, headerH, height int, so
 	if m.subChVidLoading {
 		body = m.spinner.View() + " Loading…"
 	} else {
-		vids, cur := m.contentVideos(m.subChVideos, m.subChVidCursor)
-		body = m.renderVideoRows(vids, cur, m.subChVidVS, height-headerH-subH-filterH)
+		vids, cur := m.contentVideos(m.subChVideos, m.channels.vidCursor)
+		body = m.renderVideoRows(vids, cur, m.channels.vidVS, height-headerH-subH-filterH)
 	}
 	parts := []string{header, subHeader}
 	if filterLine != "" {
@@ -597,14 +595,14 @@ func (m Model) renderTagList(height int) string {
 		styleColHeader.Width(labelW).Render("Tag")
 
 	windowH := height - 1
-	start, end := scrollWindowAt(m.subChTagVS, len(items), windowH)
+	start, end := scrollWindowAt(m.channels.tagVS, len(items), windowH)
 	rows := []string{colHeader}
 
 	for i := start; i < end && i < len(items); i++ {
 		tag := items[i]
 		count := len(m.channelsInTag(tag))
 		label := fmt.Sprintf("%s (%d)", tagDisplayName(tag), count)
-		selected := i == m.subChTagCursor
+		selected := i == m.channels.tagCursor
 
 		numStyle := styleRowNum
 		rowStyle := styleNormal.Width(labelW)
@@ -659,13 +657,13 @@ func (m Model) renderChannelList(channels []youtube.Channel, height int) string 
 		styleColHeader.Width(colDate).Render("Date")
 
 	windowH := height - 1
-	start, end := scrollWindowAt(m.subChVS, len(channels), windowH)
+	start, end := scrollWindowAt(m.channels.vs, len(channels), windowH)
 	rows := []string{colHeader}
 
 	for i := start; i < end && i < len(channels); i++ {
 		ch := channels[i]
 		latest := m.subChLatest[ch.ID]
-		selected := i == m.subChCursor
+		selected := i == m.channels.cursor
 
 		chName := truncate(ch.DisplayName(), colChName-2)
 		tagsStr := truncate(strings.Join(ch.Tags, ", "), colTags)

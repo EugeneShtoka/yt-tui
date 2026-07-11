@@ -127,7 +127,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.subVideos = removeChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
 			m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
-			m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
+			m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 			go m.db.DeleteChannelVideos(msg.ChannelID)
 		}
 		return m, nil
@@ -324,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else if msg.Source == "ch-background" {
 			// Background latest-video fetch: merge and persist; rebuild subVideos if newer found.
-			if msg.ChannelID == m.subChActiveID && m.subChPane == 1 {
+			if msg.ChannelID == m.subChActiveID && m.channels.pane == 1 {
 				m.subChVidRefreshing = false
 			}
 			if msg.Err == nil && len(msg.Videos) > 0 {
@@ -343,7 +343,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.subChVidRefreshing = false
 			if msg.Err != nil {
 				m.setStatus("channel videos: "+msg.Err.Error(), true)
-			} else if msg.ChannelID != m.subChActiveID || m.subChPane != 1 {
+			} else if msg.ChannelID != m.subChActiveID || m.channels.pane != 1 {
 				// Stale response — user navigated away; save to DB but don't touch UI.
 				if len(msg.Videos) > 0 {
 					go func(chID string, vids []youtube.Video) {
@@ -353,9 +353,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				// Merge fetched videos with any already-loaded DB cache.
 				merged := mergeVideos(m.subChVideos, msg.Videos)
-				sortVideos(merged, m.subChVidSort)
+				sortVideos(merged, m.channels.vidSort)
 				m.subChVideos = merged
-				m.subChVidCursor = 0
+				m.channels.vidCursor = 0
 				// Update latest-video entry and persist.
 				if len(merged) > 0 {
 					latest := merged[0]
@@ -934,8 +934,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch m.activeTab {
-	case tabChannels:
-		return m.updateSubChannels(msg)
 	case tabPlaylists:
 		return m.updatePlaylists(msg)
 	}
@@ -992,37 +990,37 @@ func (m Model) resolveChord(s string) (tea.Model, tea.Cmd) {
 func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model, tea.Cmd) {
 	if ctx == CtxChannelList {
 		activeSorted := m.sortedChannels()
-		if m.subChTagsMode && m.subChPane == 1 {
-			activeSorted = m.sortedChannelsInTag(m.subChTagSel)
+		if m.channels.tagsMode && m.channels.pane == 1 {
+			activeSorted = m.sortedChannelsInTag(m.channels.tagSel)
 		}
 		var selID string
-		if m.subChCursor < len(activeSorted) {
-			selID = activeSorted[m.subChCursor].ID
+		if m.channels.cursor < len(activeSorted) {
+			selID = activeSorted[m.channels.cursor].ID
 		}
 		switch action {
 		case "date":
-			m.subChSort = subChSortDate
+			m.channels.sort = subChSortDate
 		case "name":
-			m.subChSort = subChSortVidName
+			m.channels.sort = subChSortVidName
 		case "channel":
-			m.subChSort = subChSortName
+			m.channels.sort = subChSortName
 		case "subscribers":
-			m.subChSort = subChSortSubs
+			m.channels.sort = subChSortSubs
 		case "views":
-			m.subChSort = subChSortViews
+			m.channels.sort = subChSortViews
 		case "duration":
-			m.subChSort = subChSortDuration
+			m.channels.sort = subChSortDuration
 		case "tags":
-			m.subChSort = subChSortTags
+			m.channels.sort = subChSortTags
 		}
 		afterSort := m.sortedChannels()
-		if m.subChTagsMode && m.subChPane == 1 {
-			afterSort = m.sortedChannelsInTag(m.subChTagSel)
+		if m.channels.tagsMode && m.channels.pane == 1 {
+			afterSort = m.sortedChannelsInTag(m.channels.tagSel)
 		}
 		if selID != "" {
 			for i, ch := range afterSort {
 				if ch.ID == selID {
-					m.subChCursor = i
+					m.channels.cursor = i
 					break
 				}
 			}
@@ -1045,10 +1043,10 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 		m.subscriptions.sort = vidSort
 		sortVideos(m.subVideos, vidSort)
 	case tabChannels:
-		if m.subChTagsMode && m.subChPane == 1 {
-			m.subChTagSort = vidSort
-		} else if !m.subChTagsMode && m.subChPane == 1 {
-			m.subChVidSort = vidSort
+		if m.channels.tagsMode && m.channels.pane == 1 {
+			m.channels.tagSort = vidSort
+		} else if !m.channels.tagsMode && m.channels.pane == 1 {
+			m.channels.vidSort = vidSort
 			sortVideos(m.subChVideos, vidSort)
 		}
 	case tabSearch:
@@ -1139,7 +1137,7 @@ func (m *Model) navigateToActivity(e db.ActivityEntry) tea.Cmd {
 		channels := m.sortedChannels()
 		for i, ch := range channels {
 			if ch.ID == e.ChannelID {
-				m.subChCursor = i
+				m.channels.cursor = i
 				return m.openChannelVideos(ch, false)
 			}
 		}
@@ -1187,7 +1185,7 @@ func (m *Model) refresh() tea.Cmd {
 		m.subChLoading = true
 		return youtube.FetchSubscribedChannels(m.cfg)
 	case tabChannels:
-		if !m.subChTagsMode && m.subChPane == 1 {
+		if !m.channels.tagsMode && m.channels.pane == 1 {
 			return m.fetchChannelLatest(m.subChActiveID)
 		}
 		m.subChLoading = true
@@ -1229,7 +1227,7 @@ func (m *Model) forceRefresh() tea.Cmd {
 	case tabSubscriptions:
 		return m.forceRefreshAllChannels()
 	case tabChannels:
-		if !m.subChTagsMode && m.subChPane == 1 {
+		if !m.channels.tagsMode && m.channels.pane == 1 {
 			return youtube.FetchChannelVideos(m.cfg, m.channelURL(m.subChActiveID), m.subChActiveID, "subscriptions")
 		}
 		return m.forceRefreshAllChannels()
@@ -1312,117 +1310,15 @@ func (m *Model) fetchCurrentPlaylistVideos() tea.Cmd {
 
 // ── Video tabs: Recommended ───────────────────────────────────────────────────
 
-func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// ToggleMode: switch between flat channel list and tags-grouped view.
-	if key.Matches(msg, m.keys.ToggleMode) {
-		m.subChTagsMode = !m.subChTagsMode
-		m.subChPane = 0
-		m.subChTagCursor = 0
-		m.subChTagVS = 0
-		return m, nil
-	}
-
-	if m.subChTagsMode {
-		return m.updateSubChannelsTags(msg)
-	}
-
-	// ── Flat mode ─────────────────────────────────────────────────────────────
-	if m.subChPane == 0 {
-		sorted := m.sortedChannels()
-		n := len(sorted)
-		switch {
-		case key.Matches(msg, m.keys.Up):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Down):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-			if m.subChCursor < n {
-				return m, m.openChannelVideos(sorted[m.subChCursor], false)
-			}
-		case key.Matches(msg, m.keys.RenameChannel):
-			if m.subChCursor < n {
-				ch := sorted[m.subChCursor]
-				m.subChEditInput.SetValue(ch.Alias)
-				m.subChEditInput.Placeholder = "alias (empty to clear)…"
-				m.subChEditInput.Focus()
-				m.subChEditMode = 1
-			}
-		case key.Matches(msg, m.keys.TagChannel):
-			if m.subChCursor < n {
-				ch := sorted[m.subChCursor]
-				m.subChEditInput.SetValue(strings.Join(ch.Tags, ", "))
-				m.subChEditInput.Placeholder = "comma-separated tags…"
-				m.subChEditInput.Focus()
-				m.subChEditMode = 2
-			}
-		case key.Matches(msg, m.keys.Unsubscribe):
-			if m.subChCursor < n {
-				ch := sorted[m.subChCursor]
-				return m.unsubscribeChannel(ch.ID, ch.Name)
-			}
-		}
-		return m, nil
-	}
-
-	// ── Flat mode: video pane ─────────────────────────────────────────────────
-	return m.updateSubChVideoPane(msg, 0)
-}
-
-// updateSubChannelsTags handles key events for the tags-grouped view.
-func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch m.subChPane {
-	case 0: // tag list
-		items := m.tagListItems()
-		n := len(items)
-		switch {
-		case key.Matches(msg, m.keys.Up):
-			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Down):
-			m.subChTagCursor, m.subChTagVS = vsMove(m.subChTagCursor, m.subChTagVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.DrillDown), key.Matches(msg, m.keys.Right):
-			if m.subChTagCursor < n {
-				m.subChTagSel = items[m.subChTagCursor]
-				m.subChCursor = 0
-				m.subChVS = 0
-				m.subChPane = 1
-			}
-		}
-
-	case 1: // video list for selected tag (reuses subChCursor/subChVS)
-		vids := m.tagVideos()
-		n := len(vids)
-		switch {
-		case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
-			m.subChPane = 0
-			m.subChCursor = 0
-			m.subChVS = 0
-		case key.Matches(msg, m.keys.Up):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.Down):
-			m.subChCursor, m.subChVS = vsMove(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.PageUp):
-			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.PageDown):
-			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.VideoInfo):
-			if v, ok := m.currentVideo(); ok && v.URL != "" {
-				return m, (&m).openVideoDetail(v)
-			}
-		}
-		m.handleVideoAction(msg)
-	}
-	return m, nil
-}
-
-// openChannelVideos loads videos for ch, setting subChPane to nextPane+1.
-// inTagsMode=true means we're going to pane 2; false means pane 1.
+// openChannelVideos loads videos for ch and switches to the channel video pane.
+// inTagsMode is retained for the (currently unused) tags-mode drill path.
 func (m *Model) openChannelVideos(ch youtube.Channel, inTagsMode bool) tea.Cmd {
 	targetPane := 1
 	if inTagsMode {
 		targetPane = 2
 	}
-	m.subChVidCursor = 0
-	m.subChPane = targetPane
+	m.channels.vidCursor = 0
+	m.channels.pane = targetPane
 	if ch.ID == m.subChActiveID && len(m.subChVideos) > 0 {
 		m.subChVidLoading = false
 		m.subChVidRefreshing = true
@@ -1441,33 +1337,11 @@ func (m *Model) openChannelVideos(ch youtube.Channel, inTagsMode bool) tea.Cmd {
 	return youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "subscriptions")
 }
 
-// updateSubChVideoPane handles key events for the channel video pane.
-// backPane is the pane to return to on Back (0 for flat, 1 for tags mode).
-func (m Model) updateSubChVideoPane(msg tea.KeyMsg, backPane int) (tea.Model, tea.Cmd) {
-	n := len(m.subChVideos)
-	switch {
-	case key.Matches(msg, m.keys.Left), key.Matches(msg, m.keys.Escape):
-		m.subChPane = backPane
-	case key.Matches(msg, m.keys.Up):
-		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.subChVidCursor, m.subChVidVS = vsMove(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Unsubscribe):
-		return m.unsubscribeCurrentChannel()
-	}
-	m.handleVideoAction(msg)
-	return m, nil
-}
-
 // editTargetChannelID returns the channel ID of the channel being edited (flat mode only).
 func (m Model) editTargetChannelID() string {
 	sorted := m.sortedChannels()
-	if m.subChCursor < len(sorted) {
-		return sorted[m.subChCursor].ID
+	if m.channels.cursor < len(sorted) {
+		return sorted[m.channels.cursor].ID
 	}
 	return ""
 }
@@ -2740,7 +2614,7 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	m.subVideos = removeChannelVideos(m.subVideos, chID, chName)
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
-	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
+	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	go m.db.DeleteChannelVideos(chID)
 	m.setStatus("Removed local subscription: "+chName, false)
 	// Trigger a fresh recommended fetch so the channel's videos drip back in.
@@ -2764,10 +2638,10 @@ func (m Model) unsubscribeChannel(chID, chName string) (tea.Model, tea.Cmd) {
 
 // currentChannelInfo returns the channel ID and name for the currently focused item.
 func (m Model) currentChannelInfo() (id, name string) {
-	if m.activeTab == tabChannels && !m.subChTagsMode && m.subChPane == 0 {
+	if m.activeTab == tabChannels && !m.channels.tagsMode && m.channels.pane == 0 {
 		sorted := m.sortedChannels()
-		if m.subChCursor < len(sorted) {
-			ch := sorted[m.subChCursor]
+		if m.channels.cursor < len(sorted) {
+			ch := sorted[m.channels.cursor]
 			return ch.ID, ch.Name
 		}
 	}
@@ -2835,7 +2709,7 @@ func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
 	m.subVideos = removeChannelVideos(m.subVideos, channelID, channelName)
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = removeChannelVideos(m.subChVideos, channelID, channelName)
-	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
+	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 }
 
 // ── SponsorBlock chapter processing ──────────────────────────────────────────

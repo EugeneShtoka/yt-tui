@@ -153,31 +153,24 @@ type Model struct {
 	subVideos     []youtube.Video
 	subscriptions subscriptionsView
 	// ── Channels ─────────────────────────────────────────────────────────────
+	// P4 slice: private cursor/scroll/pane/mode/sort live in channelsView; the
+	// channel/video slices, loading flags, activeID, and latest map stay here
+	// (shared / async-written — docs/TABVIEW_DESIGN.md, Finding 2).
+	channels           channelsView
 	subChannels        []youtube.Channel
-	subChCursor        int
-	subChVS            int
 	subChLoading       bool
 	subChLoaded        bool
 	subChVideos        []youtube.Video
-	subChVidCursor     int
-	subChVidVS         int
 	subChVidLoading    bool
 	subChVidRefreshing bool // has cached data; background fetch running
-	subChPane          int
 	subChActiveID      string
-	subChSort          int                      // subChSortDate or subChSortName
 	subChLatest        map[string]youtube.Video // channelID → latest known video
 
 	// ── Channels: alias/tag editing ───────────────────────────────────────────
+	// Handled by the pre-dispatch edit-input gate (handleChannelEditInput), so
+	// these stay router-owned rather than moving into channelsView.
 	subChEditMode  int // 0=none, 1=editing alias, 2=editing tags
 	subChEditInput textinput.Model
-
-	// ── Channels: tags-grouped view ───────────────────────────────────────────
-	subChTagsMode  bool   // true = grouped-by-tags view
-	subChTagCursor int    // cursor in tag list (tags mode, pane 0)
-	subChTagVS     int    // viewStart for tag list
-	subChTagSel    string // selected tag name
-	subChTagSort   int    // video sort mode for tag video list
 
 	// ── Playlists ────────────────────────────────────────────────────────────
 	playlists            []db.Playlist        // local playlists (fallback when no YT)
@@ -274,7 +267,6 @@ type Model struct {
 	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
 
 	// ── Sort state per tab ────────────────────────────────────────────────
-	subChVidSort int // subscriptions channel drill-down: vidSortDate default
 	playlistSort int // playlist video pane: vidSortNone default
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
@@ -437,7 +429,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		createInput:          ci,
 		subChEditInput:       ei,
 		addOverlayInput:      oi,
-		subChTagSort:         vidSortDate,
+		channels:             channelsView{sort: subChSortDate, vidSort: vidSortDate, tagSort: vidSortDate},
 		spinner:              sp,
 		localVideos:          localVideos,
 		localVideoIDs:        localIDMap,
@@ -460,7 +452,6 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		recommended:          recommendedView{sort: vidSortViews},
 		subscriptions:        subscriptionsView{sort: vidSortDate},
 		search:               searchView{sort: vidSortNone},
-		subChVidSort:         vidSortDate,
 		local:                localView{sort: vidSortNone},
 		playlistSort:         vidSortNone,
 		searchHistIdx:        -1,
@@ -474,7 +465,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 func (m Model) sortChannelSlice(channels []youtube.Channel) []youtube.Channel {
 	out := make([]youtube.Channel, len(channels))
 	copy(out, channels)
-	switch m.subChSort {
+	switch m.channels.sort {
 	case subChSortDate:
 		sort.SliceStable(out, func(i, j int) bool {
 			di := m.subChLatest[out[i].ID].UploadDate
@@ -595,9 +586,9 @@ func tagDisplayName(tag string) string {
 }
 
 // tagVideos returns videos from subVideos that belong to channels in the selected tag,
-// sorted by subChTagSort. The returned slice is always a fresh copy.
+// sorted by m.channels.tagSort. The returned slice is always a fresh copy.
 func (m Model) tagVideos() []youtube.Video {
-	chans := m.channelsInTag(m.subChTagSel)
+	chans := m.channelsInTag(m.channels.tagSel)
 	if len(chans) == 0 {
 		return nil
 	}
@@ -613,7 +604,7 @@ func (m Model) tagVideos() []youtube.Video {
 			out = append(out, v)
 		}
 	}
-	sortVideos(out, m.subChTagSort)
+	sortVideos(out, m.channels.tagSort)
 	return out
 }
 
@@ -751,9 +742,9 @@ func (m *Model) localFilteredVideos() []youtube.Video {
 	case tabSubscriptions:
 		raw = m.subVideos
 	case tabChannels:
-		if m.subChTagsMode && m.subChPane == 1 {
+		if m.channels.tagsMode && m.channels.pane == 1 {
 			raw = m.tagVideos()
-		} else if !m.subChTagsMode && m.subChPane == 1 {
+		} else if !m.channels.tagsMode && m.channels.pane == 1 {
 			raw = m.subChVideos
 		}
 	case tabSearch:
@@ -786,13 +777,13 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 			return m.subVideos[i], true
 		}
 	case tabChannels:
-		if m.subChTagsMode && m.subChPane == 1 {
+		if m.channels.tagsMode && m.channels.pane == 1 {
 			vids := m.tagVideos()
-			if i := m.subChCursor; i >= 0 && i < len(vids) {
+			if i := m.channels.cursor; i >= 0 && i < len(vids) {
 				return vids[i], true
 			}
-		} else if !m.subChTagsMode && m.subChPane == 1 {
-			if i := m.subChVidCursor; i >= 0 && i < len(m.subChVideos) {
+		} else if !m.channels.tagsMode && m.channels.pane == 1 {
+			if i := m.channels.vidCursor; i >= 0 && i < len(m.subChVideos) {
 				return m.subChVideos[i], true
 			}
 		}
@@ -845,16 +836,16 @@ func (m *Model) jumpToLine(idx int) {
 	case tabSubscriptions:
 		m.subscriptions.jumpTo(idx, len(m.subVideos), ps)
 	case tabChannels:
-		if m.subChTagsMode {
-			if m.subChPane == 1 {
-				m.subChCursor, m.subChVS = vsJump(idx, len(m.tagVideos()), ps)
+		if m.channels.tagsMode {
+			if m.channels.pane == 1 {
+				m.channels.cursor, m.channels.vs = vsJump(idx, len(m.tagVideos()), ps)
 			} else {
-				m.subChTagCursor, m.subChTagVS = vsJump(idx, len(m.tagListItems()), ps)
+				m.channels.tagCursor, m.channels.tagVS = vsJump(idx, len(m.tagListItems()), ps)
 			}
-		} else if m.subChPane == 0 {
-			m.subChCursor, m.subChVS = vsJump(idx, len(m.sortedChannels()), ps)
+		} else if m.channels.pane == 0 {
+			m.channels.cursor, m.channels.vs = vsJump(idx, len(m.sortedChannels()), ps)
 		} else {
-			m.subChVidCursor, m.subChVidVS = vsJump(idx, len(m.subChVideos), ps)
+			m.channels.vidCursor, m.channels.vidVS = vsJump(idx, len(m.subChVideos), ps)
 		}
 	case tabPlaylists:
 		if m.playlistPane == 0 {
@@ -882,19 +873,19 @@ func (m *Model) jumpToLast() {
 	case tabSubscriptions:
 		m.subscriptions.jumpToLast(len(m.subVideos), ps)
 	case tabChannels:
-		if m.subChTagsMode {
-			if m.subChPane == 1 {
+		if m.channels.tagsMode {
+			if m.channels.pane == 1 {
 				vids := m.tagVideos()
-				m.subChCursor, m.subChVS = vsJump(len(vids)-1, len(vids), ps)
+				m.channels.cursor, m.channels.vs = vsJump(len(vids)-1, len(vids), ps)
 			} else {
 				n := len(m.tagListItems())
-				m.subChTagCursor, m.subChTagVS = vsJump(n-1, n, ps)
+				m.channels.tagCursor, m.channels.tagVS = vsJump(n-1, n, ps)
 			}
-		} else if m.subChPane == 0 {
+		} else if m.channels.pane == 0 {
 			sc := m.sortedChannels()
-			m.subChCursor, m.subChVS = vsJump(len(sc)-1, len(sc), ps)
+			m.channels.cursor, m.channels.vs = vsJump(len(sc)-1, len(sc), ps)
 		} else {
-			m.subChVidCursor, m.subChVidVS = vsJump(len(m.subChVideos)-1, len(m.subChVideos), ps)
+			m.channels.vidCursor, m.channels.vidVS = vsJump(len(m.subChVideos)-1, len(m.subChVideos), ps)
 		}
 	case tabPlaylists:
 		if m.playlistPane == 0 {
@@ -1013,17 +1004,6 @@ func (m Model) currentContext() ContextID {
 		return v.context(m.viewCtx())
 	}
 	switch m.activeTab {
-	case tabChannels:
-		if m.subChTagsMode {
-			if m.subChPane == 1 {
-				return CtxVideoList
-			}
-			return CtxTagList
-		}
-		if m.subChPane == 0 {
-			return CtxChannelList
-		}
-		return CtxVideoList
 	case tabPlaylists:
 		if m.playlistPane == 0 {
 			return CtxPlaylistList
@@ -1299,7 +1279,7 @@ func vidSortLabel(mode int) string {
 // videoShowChannel returns false when the Channel column is redundant
 // (drilling into a specific channel's videos).
 func (m Model) videoShowChannel() bool {
-	if m.activeTab == tabChannels && !m.subChTagsMode && m.subChPane == 1 {
+	if m.activeTab == tabChannels && !m.channels.tagsMode && m.channels.pane == 1 {
 		return false
 	}
 	if m.activeTab == tabSearch && m.searchChSel != nil {
