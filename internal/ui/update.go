@@ -674,7 +674,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 			}()
 			m.localVideos = nil
 			m.localVideoIDs = make(map[string]db.LocalVideo)
-			m.localCursor = 0
+			m.local.cursor = 0
 			m.setStatus(fmt.Sprintf("cleared %d downloads", len(paths)), false)
 		}
 	case "recommended":
@@ -1036,7 +1036,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 	}
 
 	if ctx == CtxLocal {
-		m.localSort = vidSort
+		m.local.sort = vidSort
 		sortLocalVideos(m.localVideos, vidSort)
 		return m, nil
 	}
@@ -1935,52 +1935,38 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Downloading ───────────────────────────────────────────────────────────────
 
 func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	items := m.downloader.Items()
-	n := len(items)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.dlCursor, m.dlVS = vsMove(m.dlCursor, m.dlVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Play):
-		if m.dlCursor < n {
-			item := items[m.dlCursor]
-			if item.Status == downloader.StatusComplete {
-				if lv, ok := m.localVideoIDs[item.Video.ID]; ok {
-					m.launchVideo(lv)
-				}
-			} else {
-				m.playVideo(item.Video)
+	intent := m.downloading.update(msg, m.keys, m.downloader.Items(), m.pageSize(), m.cfg.CircularNav)
+	switch intent.kind {
+	case dlIntentPlay:
+		item := intent.item
+		if item.Status == downloader.StatusComplete {
+			if lv, ok := m.localVideoIDs[item.Video.ID]; ok {
+				m.launchVideo(lv)
 			}
+		} else {
+			m.playVideo(item.Video)
 		}
-	case key.Matches(msg, m.keys.PlayAudio):
-		if m.dlCursor < n {
-			m.playAudio(items[m.dlCursor].Video)
+	case dlIntentPlayAudio:
+		m.playAudio(intent.item.Video)
+	case dlIntentHide:
+		v := intent.item.Video
+		m.hideChannel(v.ChannelID, v.Channel)
+	case dlIntentDelete:
+		item := intent.item
+		m.downloader.Remove(item.Video.ID)
+		// Also remove any downloaded or partial file and DB record.
+		if item.FilePath != "" {
+			_ = os.Remove(item.FilePath)
 		}
-	case key.Matches(msg, m.keys.HideChannel):
-		if m.dlCursor < n {
-			v := items[m.dlCursor].Video
-			m.hideChannel(v.ChannelID, v.Channel)
+		_ = m.db.DeleteLocalVideo(item.Video.ID)
+		_ = m.db.AddHistory(item.Video.ID, "delete", "")
+		if lv, err := m.db.LocalVideos(); err == nil {
+			m.localVideos = lv
 		}
-	case key.Matches(msg, m.keys.Delete):
-		if m.dlCursor < n {
-			item := items[m.dlCursor]
-			m.downloader.Remove(item.Video.ID)
-			// Also remove any downloaded or partial file and DB record.
-			if item.FilePath != "" {
-				_ = os.Remove(item.FilePath)
-			}
-			_ = m.db.DeleteLocalVideo(item.Video.ID)
-			_ = m.db.AddHistory(item.Video.ID, "delete", "")
-			if lv, err := m.db.LocalVideos(); err == nil {
-				m.localVideos = lv
-			}
-			m.dlCursor, m.dlVS = vsMove(clamp(m.dlCursor, len(m.downloader.Items())), m.dlVS, len(m.downloader.Items()), 0, m.pageSize(), false)
-			m.setStatus("Deleted: "+truncate(item.Video.Title, 50), false)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
+		m.downloading.reclamp(len(m.downloader.Items()), m.pageSize())
+		m.setStatus("Deleted: "+truncate(item.Video.Title, 50), false)
+	case dlIntentCopyURL:
 		m.copyCurrentURL()
-
 	}
 	return m, nil
 }
@@ -1988,35 +1974,22 @@ func (m Model) updateDownloading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Local ─────────────────────────────────────────────────────────────────────
 
 func (m Model) updateLocal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.localVideos)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.localCursor, m.localVS = vsMove(m.localCursor, m.localVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.localCursor, m.localVS = vsPage(m.localCursor, m.localVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Play):
-		if m.localCursor < n {
-			m.launchVideo(m.localVideos[m.localCursor])
+	intent := m.local.update(msg, m.keys, m.localVideos, m.pageSize(), m.cfg.CircularNav)
+	switch intent.kind {
+	case localIntentPlay:
+		m.launchVideo(intent.video)
+	case localIntentDelete:
+		lv := intent.video
+		_ = os.Remove(lv.FilePath)
+		_ = m.db.DeleteLocalVideo(lv.ID)
+		_ = m.db.AddHistory(lv.ID, "delete", "")
+		if lv2, err := m.db.LocalVideos(); err == nil {
+			m.localVideos = lv2
 		}
-	case key.Matches(msg, m.keys.Delete):
-		if m.localCursor < n {
-			lv := m.localVideos[m.localCursor]
-			_ = os.Remove(lv.FilePath)
-			_ = m.db.DeleteLocalVideo(lv.ID)
-			_ = m.db.AddHistory(lv.ID, "delete", "")
-			if lv2, err := m.db.LocalVideos(); err == nil {
-				m.localVideos = lv2
-			}
-			m.localCursor, m.localVS = vsMove(clamp(m.localCursor, len(m.localVideos)), m.localVS, len(m.localVideos), 0, m.pageSize(), false)
-			m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
+		m.local.reclamp(len(m.localVideos), m.pageSize())
+		m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
+	case localIntentCopyURL:
 		m.copyCurrentURL()
-
 	}
 	return m, nil
 }

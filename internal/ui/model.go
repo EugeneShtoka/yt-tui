@@ -217,13 +217,14 @@ type Model struct {
 	searchDraft   string   // saved current input text when history nav starts
 
 	// ── Downloading ───────────────────────────────────────────────────────────
-	dlCursor int
-	dlVS     int
+	// P4 slice: Downloading's private cursor/scroll lives in its own view struct.
+	downloading downloadingView
 
 	// ── Local ────────────────────────────────────────────────────────────────
+	// P4 slice: Local's private cursor/scroll/sort lives in its own view struct.
+	// The library slice itself is written across tabs, so it stays here (router).
 	localVideos []db.LocalVideo
-	localCursor int
-	localVS     int
+	local       localView
 
 	// ── History ──────────────────────────────────────────────────────────────
 	// P4 slice: History's state lives in its own view struct.
@@ -276,7 +277,6 @@ type Model struct {
 	subSort      int // subscriptions all videos: vidSortDate default
 	subChVidSort int // subscriptions channel drill-down: vidSortDate default
 	searchSort   int // search results: vidSortNone default
-	localSort    int // local library: vidSortNone default
 	playlistSort int // playlist video pane: vidSortNone default
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
@@ -463,7 +463,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		subSort:              vidSortDate,
 		subChVidSort:         vidSortDate,
 		searchSort:           vidSortNone,
-		localSort:            vidSortNone,
+		local:                localView{sort: vidSortNone},
 		playlistSort:         vidSortNone,
 		searchHistIdx:        -1,
 	}
@@ -819,19 +819,11 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 			}
 		}
 	case tabDownloading:
-		items := m.downloader.Items()
-		if i := m.dlCursor; i >= 0 && i < len(items) {
-			return items[i].Video, true
+		if item, ok := m.downloading.currentItem(m.downloader.Items()); ok {
+			return item.Video, true
 		}
 	case tabLocal:
-		if i := m.localCursor; i >= 0 && i < len(m.localVideos) {
-			lv := m.localVideos[i]
-			return youtube.Video{
-				ID:    lv.ID,
-				Title: lv.Title,
-				URL:   "https://www.youtube.com/watch?v=" + lv.ID,
-			}, true
-		}
+		return m.local.currentVideo(m.localVideos)
 	}
 	return youtube.Video{}, false
 }
@@ -878,9 +870,9 @@ func (m *Model) jumpToLine(idx int) {
 		m.searchCursor = clamp(nCh+idx, nCh+len(m.searchVideos))
 		m.updateSearchVS(nCh, len(m.searchVideos))
 	case tabDownloading:
-		m.dlCursor, m.dlVS = vsJump(idx, len(m.downloader.Items()), ps)
+		m.downloading.jumpTo(idx, len(m.downloader.Items()), ps)
 	case tabLocal:
-		m.localCursor, m.localVS = vsJump(idx, len(m.localVideos), ps)
+		m.local.jumpTo(idx, len(m.localVideos), ps)
 	case tabHistory:
 		m.history.jumpTo(idx, ps)
 	}
@@ -921,10 +913,9 @@ func (m *Model) jumpToLast() {
 		m.searchCursor = nCh + clamp(nVid-1, nVid)
 		m.updateSearchVS(nCh, nVid)
 	case tabDownloading:
-		items := m.downloader.Items()
-		m.dlCursor, m.dlVS = vsJump(len(items)-1, len(items), ps)
+		m.downloading.jumpToLast(len(m.downloader.Items()), ps)
 	case tabLocal:
-		m.localCursor, m.localVS = vsJump(len(m.localVideos)-1, len(m.localVideos), ps)
+		m.local.jumpToLast(len(m.localVideos), ps)
 	case tabHistory:
 		m.history.jumpToLast(ps)
 	}

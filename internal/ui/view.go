@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
@@ -329,9 +328,9 @@ func (m Model) renderContent(height int) string {
 	case tabSearch:
 		return m.renderSearch(height)
 	case tabDownloading:
-		return m.renderDownloading(height)
+		return m.downloading.render(m.downloader.Items(), m.playAfterDownload, m.width, m.keys.Download.Help().Key, height)
 	case tabLocal:
-		return m.renderLocal(height)
+		return m.local.render(m.localVideos, m.videoListTitleW(), height)
 	case tabHistory:
 		return m.history.render(m.width, height)
 	case tabActivity:
@@ -903,177 +902,6 @@ func max(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// ── Downloading ───────────────────────────────────────────────────────────────
-
-func (m Model) renderDownloading(height int) string {
-	header := styleSectionTitle.Render("Downloading")
-	headerH := lipgloss.Height(header)
-
-	items := m.downloader.Items()
-	if len(items) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header, "",
-			styleDim.PaddingLeft(1).Render("No active downloads. Press "+m.keys.Download.Help().Key+" on any video to start."))
-	}
-
-	titleW := m.width - colNum - 1 - colChannel - colDuration - 42 - 6
-	if titleW < 20 {
-		titleW = 20
-	}
-	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
-		styleColHeader.Width(titleW).Render("Title") + " " +
-		styleColHeader.Width(colChannel).Render("Channel") + " " +
-		styleColHeader.Width(colDuration).Render("Duration") + " " +
-		styleColHeader.Render("Status")
-
-	start, end := scrollWindowAt(m.dlVS, len(items), height-headerH-1)
-	var rows []string
-	rows = append(rows, colHeader)
-	for i := start; i < end && i < len(items); i++ {
-		rows = append(rows, m.renderDownloadRow(items[i], i == m.dlCursor, i+1))
-	}
-	parts := []string{header, "", strings.Join(rows, "\n")}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (m Model) renderDownloadRow(item downloader.Item, selected bool, num int) string {
-	titleW := m.width - colNum - 1 - colChannel - colDuration - 42 - 6
-	if titleW < 20 {
-		titleW = 20
-	}
-
-	titleSuffix := ""
-	if m.playAfterDownload[item.Video.ID] {
-		titleSuffix = " ♪►"
-	}
-	title := truncate(item.Video.Title, titleW)
-	channel := truncate(item.Video.Channel, colChannel-2)
-	dur := item.Video.DurationStr()
-	dlType := ""
-	if item.Type == downloader.TypeAudio {
-		dlType = styleChannel.Render("[audio]")
-	}
-
-	var statusPart string
-	switch item.Status {
-	case downloader.StatusPending:
-		statusPart = stylePendingTag.Render("pending")
-	case downloader.StatusActive:
-		barW := 20
-		bar := progressBar(item.Progress, barW)
-		statusPart = fmt.Sprintf("%s %5.1f%%  %s  ETA %s",
-			bar, item.Progress, styleActiveTag.Render(item.Speed), item.ETA)
-	case downloader.StatusComplete:
-		statusPart = styleCompleteTag.Render("done ✓")
-	case downloader.StatusFailed:
-		msg := "failed"
-		if item.Err != nil {
-			msg = "failed: " + truncate(item.Err.Error(), 30)
-		}
-		statusPart = styleFailedTag.Render(msg)
-	}
-
-	numStr := fmt.Sprintf("%*d", colNum, num)
-	indicator := "  "
-	if selected {
-		indicator = styleSelected.Render("▶ ")
-	}
-
-	titleStyled := styleNormal.Width(titleW).Render(title + titleSuffix)
-	if selected {
-		titleStyled = styleSelected.Width(titleW).Render(title + titleSuffix)
-	}
-
-	return numStr + " " + indicator + titleStyled + " " +
-		styleChannel.Width(colChannel).Render(channel) + " " +
-		styleDuration.Width(colDuration).Render(dur) + " " +
-		dlType + " " + statusPart
-}
-
-// ── Local ─────────────────────────────────────────────────────────────────────
-
-func (m Model) renderLocal(height int) string {
-	header := styleSectionTitle.Render("Local Library")
-	headerH := lipgloss.Height(header)
-
-	if len(m.localVideos) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styleDim.Render("No local videos. Download some with s."))
-	}
-
-	titleW := m.videoListTitleW()
-	colHeader := strings.Repeat(" ", colNum) + " " + "  " +
-		styleColHeader.Width(titleW).Render("Title") + " " +
-		styleColHeader.Width(colChannel).Render("Channel") + " " +
-		styleColHeader.Width(colDuration).Render("Duration") + " " +
-		styleColHeader.Width(colViews).Render("Views") + " " +
-		styleColHeader.Width(colDate).Render("Date")
-
-	start, end := scrollWindowAt(m.localVS, len(m.localVideos), height-headerH-1)
-	var rows []string
-	rows = append(rows, colHeader)
-	for i := start; i < end && i < len(m.localVideos); i++ {
-		rows = append(rows, m.renderLocalRow(m.localVideos[i], i == m.localCursor, i+1))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
-}
-
-func (m Model) renderLocalRow(lv db.LocalVideo, selected bool, num int) string {
-	titleW := m.videoListTitleW()
-
-	title := truncate(lv.Title, titleW)
-	channel := truncate(lv.Channel, colChannel-2)
-	dur := fmtDuration(lv.Duration)
-	if lv.Status == db.StatusStarted && lv.LastPositionMs > 0 {
-		dur = fmtDurWithPos(lv.LastPositionMs, lv.Duration)
-	}
-	views := fmtViews(lv.ViewCount)
-	date := fmtDate(lv.UploadDate)
-	dlType := ""
-	if lv.DownloadType == "audio" {
-		dlType = " ♪"
-	}
-
-	indicator := "  "
-	sep := " "
-	numStyle := styleRowNum
-	chStyle := styleChannel.Width(colChannel)
-	durStyle := styleDuration.Width(colDuration)
-	viewsStyle := styleDuration.Width(colViews)
-	dateStyle := styleChannel.Width(colDate)
-	var ts lipgloss.Style
-
-	switch {
-	case selected:
-		indicator = styleSelected.Render("▶ ")
-		ts = styleSelected.Width(titleW)
-		numStyle = numStyle.Background(colorBgSelect)
-		sep = lipgloss.NewStyle().Background(colorBgSelect).Render(" ")
-		chStyle = chStyle.Background(colorBgSelect)
-		durStyle = durStyle.Background(colorBgSelect)
-		viewsStyle = viewsStyle.Background(colorBgSelect)
-		dateStyle = dateStyle.Background(colorBgSelect)
-	case lv.Status == db.StatusNew:
-		ts = styleBold.Width(titleW)
-		indicator = styleSuccess.Render("● ")
-	case lv.Status == db.StatusStarted:
-		ts = styleNormal.Width(titleW)
-		indicator = styleDim.Render("○ ")
-	case lv.Status == db.StatusWatched:
-		ts = styleDim.Width(titleW)
-		indicator = styleDim.Render("  ")
-	default:
-		ts = styleNormal.Width(titleW)
-	}
-
-	numStr := numStyle.Render(fmt.Sprintf("%*d", colNum, num))
-	return numStr + sep + indicator +
-		ts.Render(title+dlType) + sep +
-		chStyle.Render(channel) + sep +
-		durStyle.Render(dur) + sep +
-		viewsStyle.Render(views) + sep +
-		dateStyle.Render(date)
 }
 
 // ── Video detail overlay ──────────────────────────────────────────────────────
