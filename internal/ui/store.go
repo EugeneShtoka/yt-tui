@@ -29,6 +29,7 @@ type Store interface {
 	DeleteLocalVideo(id string) error
 	LocalVideos() ([]db.LocalVideo, error)
 	SaveVideoPosition(videoID string, ms int64) error
+	DeleteVideoPosition(videoID string) error
 	VideoPosition(videoID string) (int64, bool)
 	AllVideoPositions() (map[string]int64, error)
 	WatchedVideoIDs() (map[string]bool, error)

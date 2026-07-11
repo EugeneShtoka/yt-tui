@@ -34,6 +34,7 @@ func (f *fakeStore) SetVideoStatus(string, db.VideoStatus) error         { retur
 func (f *fakeStore) DeleteLocalVideo(string) error                       { return nil }
 func (f *fakeStore) LocalVideos() ([]db.LocalVideo, error)               { return nil, nil }
 func (f *fakeStore) SaveVideoPosition(string, int64) error               { return nil }
+func (f *fakeStore) DeleteVideoPosition(string) error                    { return nil }
 func (f *fakeStore) VideoPosition(string) (int64, bool)                  { return 0, false }
 func (f *fakeStore) AllVideoPositions() (map[string]int64, error)        { return nil, nil }
 func (f *fakeStore) WatchedVideoIDs() (map[string]bool, error)           { return nil, nil }

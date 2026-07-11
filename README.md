@@ -14,7 +14,10 @@ A terminal UI for browsing, searching, and downloading YouTube videos, built wit
 - Queue a video to auto-play as soon as its download finishes
 - Automatic [SponsorBlock](https://sponsor.ajay.app/) segment removal
 - All feeds and channel lists load from local cache instantly, refresh in background
+- Video detail overlay (`i`) — full description, thumbnail, subscriber count, chapters, links
 - History tracking with per-video event log; search entries replayable from history
+- Resume position tracking for all videos (local and streamed) — picks up where you left off
+- Visual indicators for downloaded, streamed, and partially-watched videos
 - Subscribe / unsubscribe to channels from any tab (requires YouTube connection)
 - Block channels from recommended from any tab
 - Vim-style navigation, two-level configurable chord system for tab switching and sorting
@@ -189,7 +192,7 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 
 | Where | Action |
 | --- | --- |
-| Video row (Recommended, Subscriptions, Playlists, channel drill-down) | Play / queue video |
+| Video row (Recommended, Subscriptions, Playlists, channel drill-down) | Stream video (or play local file if already downloaded) |
 | Channel row (Subscriptions channel pane, Search) | Open channel video list |
 | Playlist list | Open playlist |
 | History — video entry | Show event detail |
@@ -199,10 +202,12 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 
 | Key | Action |
 | --- | --- |
-| `p` | Download and queue for playback |
-| `P` | Download audio and queue for playback |
+| `Enter` | Stream video (or play local file if downloaded); in channel/playlist contexts: open |
+| `p` | Play video — streams directly; plays local file if already downloaded |
+| `P` | Play audio — streams directly; plays local audio if already downloaded |
 | `d` | Download video |
 | `D` | Download audio |
+| `i` | Open video detail overlay (description, thumbnail, chapters, links) |
 | `x` | Delete local file / remove from queue |
 | `c` | Copy video URL to clipboard |
 | `b` | Hide video from recommended |
@@ -227,9 +232,9 @@ Press `s`; the status bar shows options valid for the current context. The sort 
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Video entry: show detail; search entry: jump to Search with query pre-filled |
-| `p` | Play video (video entries only; checks file exists before launching) |
-| `x` | Delete local file and all history records for that video |
+| `Enter` | Video entry: show event detail; search entry: jump to Search with query pre-filled |
+| `p` | Stream video (or play local file if downloaded) |
+| `x` | Total cleanup: deletes local file, all history events, and resume position for that video |
 
 ### Subscriptions tab
 

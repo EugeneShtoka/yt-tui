@@ -129,6 +129,12 @@ func (d *DB) SaveVideoPosition(videoID string, ms int64) error {
 	return err
 }
 
+// DeleteVideoPosition removes the saved playback position for a video.
+func (d *DB) DeleteVideoPosition(videoID string) error {
+	_, err := d.sql.Exec(`DELETE FROM video_positions WHERE video_id = ?`, videoID)
+	return err
+}
+
 // VideoPosition returns the last saved position for any video, or 0 if none.
 func (d *DB) VideoPosition(videoID string) (int64, bool) {
 	var ms int64

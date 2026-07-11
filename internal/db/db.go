@@ -25,7 +25,7 @@ func New(dataDir string, stripEmojis bool, recommendedMaxAgeDays int) (*DB, erro
 	}
 	// Single connection serializes all writes; prevents SQLITE_BUSY from concurrent goroutines.
 	sqlDB.SetMaxOpenConns(1)
-	if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`); err != nil {
+	if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
 		return nil, err
 	}
 	d := &DB{sql: sqlDB}
@@ -79,6 +79,55 @@ var versionedMigrations = []struct {
 			_, err := db.Exec(`
 				INSERT OR IGNORE INTO video_positions (video_id, position_ms)
 				SELECT id, last_position_ms FROM local_videos WHERE last_position_ms > 0
+			`)
+			return err
+		},
+	},
+	{
+		// Recreate video_positions with FK → videos ON DELETE CASCADE.
+		// Orphaned rows (no matching videos entry) are dropped.
+		version: 3,
+		run: func(db *sql.DB) error {
+			_, err := db.Exec(`
+				CREATE TABLE video_positions_new (
+					video_id    TEXT PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+					position_ms INTEGER NOT NULL DEFAULT 0,
+					updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+				);
+				INSERT INTO video_positions_new (video_id, position_ms, updated_at)
+					SELECT video_id, position_ms, updated_at
+					FROM video_positions
+					WHERE video_id IN (SELECT id FROM videos);
+				DROP TABLE video_positions;
+				ALTER TABLE video_positions_new RENAME TO video_positions;
+			`)
+			return err
+		},
+	},
+	{
+		// Recreate history with nullable video_id FK → videos ON DELETE CASCADE.
+		// Search entries (video_id = '') become NULL; orphaned video entries are dropped.
+		version: 4,
+		run: func(db *sql.DB) error {
+			_, err := db.Exec(`
+				CREATE TABLE history_new (
+					id         INTEGER PRIMARY KEY AUTOINCREMENT,
+					video_id   TEXT REFERENCES videos(id) ON DELETE CASCADE,
+					event_type TEXT NOT NULL,
+					details    TEXT,
+					timestamp  DATETIME DEFAULT CURRENT_TIMESTAMP
+				);
+				INSERT INTO history_new (id, video_id, event_type, details, timestamp)
+					SELECT id,
+					       CASE WHEN video_id = '' THEN NULL ELSE video_id END,
+					       event_type, details, timestamp
+					FROM history
+					WHERE video_id = ''
+					   OR video_id IN (SELECT id FROM videos);
+				DROP TABLE history;
+				ALTER TABLE history_new RENAME TO history;
+				CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
+				CREATE INDEX IF NOT EXISTS idx_history_video ON history(video_id);
 			`)
 			return err
 		},

@@ -38,10 +38,11 @@ Key tables and their purpose:
 
 | Table | Purpose |
 | --- | --- |
-| `videos` | Canonical video metadata (id, title, channel, duration, views, upload date, url) |
+| `videos` | Canonical video metadata (id, title, channel, duration, views, upload date, url). Parent table — all streaming/play paths call `UpsertVideo` before writing to child tables. |
 | `feed_cache` | Serialised feed snapshots (recommended) for instant startup |
-| `local_videos` | Downloaded files with path, status, last play position |
-| `history` | Every user action (download, play, search, delete) keyed by video_id |
+| `local_videos` | Downloaded files with path, status; FK → `videos(id)` |
+| `history` | Every user action (play, stream, search, delete). `video_id` is nullable FK → `videos(id) ON DELETE CASCADE`; search events store `NULL`. |
+| `video_positions` | Last known playback position for any video (local or streamed). FK → `videos(id) ON DELETE CASCADE`. |
 | `subscribed_channels` | Full channel list (id, name, url, subscribers) persisted after fetch |
 | `channel_videos` | All fetched videos per channel; latest-per-channel is derived at query time |
 | `yt_playlists` | Cached YouTube playlist list (id, title) |
@@ -50,7 +51,7 @@ Key tables and their purpose:
 | `watch_later` | Local Watch Later entries (fallback when no YouTube connection) |
 | `hidden_rec_videos` | Block list for recommended feed filtering |
 
-The DB is opened with `SetMaxOpenConns(1)` so all access — including fire-and-forget save goroutines — is serialised through a single connection. `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` are set at open time as additional safety.
+The DB is opened with `SetMaxOpenConns(1)` so all access is serialised through a single connection. `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`, and `PRAGMA foreign_keys=ON` are set at open time. Foreign key cascade means deleting a `videos` row automatically removes its `history` and `video_positions` rows.
 
 ### `downloader`
 
@@ -66,10 +67,10 @@ On delete (`x`), the downloader cancels the subprocess via `context.CancelFunc`,
 
 Two backends selectable via config:
 
-- **`mpris`** — launches the player, then polls D-Bus for the MPRIS2 `Position` property while the file is playing. On stop/close it writes `last_position_ms` to `local_videos`. Next time the same file is opened, playback resumes from that offset.
+- **`mpris`** — launches the player, then polls D-Bus for the MPRIS2 `Position` property while the file is playing. On stop/close it writes the position to `video_positions` (via `SaveVideoPosition`). Next time the same video is opened — local or streamed — playback resumes from that offset.
 - **`simple`** — spawns the player process with no position tracking.
 
-Both backends implement a `Backend` interface with a single `Play(filePath, startAt)` method.
+Both backends implement `Backend`: `Launch(source, startAt)`, `LaunchAudio(source, startAt)`, `Position() (Duration, bool)`, `Close()`. `source` is a file path or a streaming URL.
 
 ### `youtube`
 
@@ -170,6 +171,8 @@ The `Update` function dispatches on message type. Key structural decisions:
 **`currentVideo()`** — a single function that returns the focused video regardless of active tab and sub-mode (recommended, subscriptions all-videos, subscriptions channel drill-down, search results, search channel drill-down, playlists). This lets action handlers (`d`, `p`, `c`, `S`, `B`, etc.) be written once and work everywhere.
 
 **`currentChannelInfo()`** — similarly returns the channel ID/name for the focused item, with a special case for the subscriptions channels pane (where the item is a `Channel`, not a `Video`) and the history tab (where channel info comes from `HistoryEntry.ChannelID`).
+
+**`handleVideoAction(msg) bool`** — shared helper called after each tab's switch statement. Dispatches the 7 standard video actions (DrillDown→downloadAndPlay, Play, PlayAudio, Download, DownloadAudio, AddList, CopyURL) via `currentVideo()`. Returns `true` if a key matched. Tabs with a non-standard DrillDown (search: channel-row navigation) handle it explicitly with an early `return` before calling the helper. Tabs with intentionally absent actions (search channel-drill-down: no AddList; playlists: no Play/AddList) bypass the helper entirely.
 
 **`hideChannel()`** — shared helper called from recommended, downloading, and history tab handlers. Writes to DB, filters the in-memory recommended feed, triggers auto-blacklist check.
 

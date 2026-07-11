@@ -40,11 +40,15 @@ func nullInt64(v int64) interface{} {
 	return v
 }
 
-// AddHistory records an event.
+// AddHistory records an event. An empty videoID is stored as NULL (search events).
 func (d *DB) AddHistory(videoID, eventType, details string) error {
+	var vid interface{}
+	if videoID != "" {
+		vid = videoID
+	}
 	_, err := d.sql.Exec(`
 		INSERT INTO history (video_id, event_type, details) VALUES (?, ?, ?)
-	`, videoID, eventType, details)
+	`, vid, eventType, details)
 	return err
 }
 
@@ -84,7 +88,7 @@ func (d *DB) HistoryVideos(limit int) ([]HistoryEntry, error) {
 			       h.event_type, COALESCE(h.details,'') AS details, h.timestamp
 			FROM history h
 			LEFT JOIN videos v ON v.id = h.video_id
-			WHERE h.video_id != ''
+			WHERE h.video_id IS NOT NULL
 			AND h.id = (
 			    SELECT h2.id FROM history h2
 			    WHERE h2.video_id = h.video_id
