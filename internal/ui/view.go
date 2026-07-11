@@ -319,11 +319,6 @@ func (m Model) renderContent(height int) string {
 		return v.render(m.viewCtx(), height)
 	}
 	switch m.activeTab {
-	case tabRecommended:
-		vids, cur := m.contentVideos(m.recVideos, m.recCursor)
-		return m.renderVideoList(vids, cur, m.recVS, m.recLoading, m.recRefreshing, height, "Recommended for you")
-	case tabSubscriptions:
-		return m.renderSubscriptions(height)
 	case tabChannels:
 		return m.renderSubChannels(height)
 	case tabPlaylists:
@@ -497,12 +492,6 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 		durStyle.Render(dur) + sep +
 		viewsStyle.Render(views) + sep +
 		dateStyle.Render(date)
-}
-
-// ── Subscriptions ─────────────────────────────────────────────────────────────
-
-func (m Model) renderSubscriptions(height int) string {
-	return m.renderVideoList(m.subVideos, m.subCursor, m.subVS, false, m.subChLoading && len(m.subVideos) == 0, height, "Subscriptions")
 }
 
 func (m Model) renderSubChannels(height int) string {

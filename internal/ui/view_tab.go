@@ -3,6 +3,7 @@ package ui
 import (
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -24,6 +25,18 @@ type viewCtx struct {
 	playAfter   map[string]bool
 	localVideos []db.LocalVideo
 	localTitleW int
+	recVideos   []youtube.Video
+	subVideos   []youtube.Video
+
+	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
+	recLoading        bool
+	recRefreshing     bool
+	subLoading        bool
+	localFilter       string
+	localFilterCursor int
+	// renderList is the router's shared video-list renderer (m.renderVideoList),
+	// captured per frame so views can draw without a Model handle.
+	renderList func(videos []youtube.Video, cursor, vs int, loading, refreshing bool, height int, title string) string
 }
 
 // viewIntent is an action a view decided on but cannot perform itself because it
@@ -60,6 +73,15 @@ func (m *Model) viewCtx() viewCtx {
 		playAfter:   m.playAfterDownload,
 		localVideos: m.localVideos,
 		localTitleW: m.videoListTitleW(),
+		recVideos:   m.recVideos,
+		subVideos:   m.subVideos,
+
+		recLoading:        m.recLoading,
+		recRefreshing:     m.recRefreshing,
+		subLoading:        m.subChLoading && len(m.subVideos) == 0,
+		localFilter:       m.localFilter,
+		localFilterCursor: m.localFilterCursor,
+		renderList:        m.renderVideoList,
 	}
 }
 
@@ -76,6 +98,10 @@ func (m *Model) activeView() tabView {
 		return &m.downloading
 	case tabLocal:
 		return &m.local
+	case tabRecommended:
+		return &m.recommended
+	case tabSubscriptions:
+		return &m.subscriptions
 	}
 	return nil
 }

@@ -125,7 +125,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
 			m.subChannels = removeChannelByID(m.subChannels, msg.ChannelID)
 			m.subVideos = removeChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
-			m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
+			m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 			m.subChVideos = removeChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
 			m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 			go m.db.DeleteChannelVideos(msg.ChannelID)
@@ -436,8 +436,8 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 			filtered = filterHidden(filtered, m.recHidden)
 			filtered = filterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
 			filtered = filterSubscribed(filtered, m.subscribedChannelIDs)
-			sortVideos(filtered, m.recSort)
-			m.recCursor = preserveCursor(m.recVideos, m.recCursor, filtered)
+			sortVideos(filtered, m.recommended.sort)
+			m.recommended.cursor = preserveCursor(m.recVideos, m.recommended.cursor, filtered)
 			m.recVideos = filtered
 			go m.db.SaveFeedCache("recommended", filtered)
 
@@ -684,7 +684,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 			m.setStatus("clear recommended: "+err.Error(), true)
 		} else {
 			m.recVideos = nil
-			m.recCursor = 0
+			m.recommended.cursor = 0
 			m.recLoaded = false
 			m.setStatus("recommended cleared", false)
 		}
@@ -934,10 +934,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch m.activeTab {
-	case tabRecommended:
-		return m.updateRecommended(msg)
-	case tabSubscriptions:
-		return m.updateSubscriptions(msg)
 	case tabChannels:
 		return m.updateSubChannels(msg)
 	case tabPlaylists:
@@ -1045,10 +1041,10 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 	// Video-list contexts: apply to the appropriate tab slice.
 	switch m.activeTab {
 	case tabRecommended:
-		m.recSort = vidSort
+		m.recommended.sort = vidSort
 		sortVideos(m.recVideos, vidSort)
 	case tabSubscriptions:
-		m.subSort = vidSort
+		m.subscriptions.sort = vidSort
 		sortVideos(m.subVideos, vidSort)
 	case tabChannels:
 		if m.subChTagsMode && m.subChPane == 1 {
@@ -1282,7 +1278,7 @@ func (m *Model) channelByID(id string) youtube.Channel {
 	return youtube.Channel{ID: id}
 }
 
-// rebuildSubVideos re-queries GetAllChannelVideos and re-sorts by the current subSort.
+// rebuildSubVideos re-queries GetAllChannelVideos and re-sorts by the current sort.
 func (m *Model) rebuildSubVideos() {
 	ids := make([]string, 0, len(m.subChannels))
 	for _, ch := range m.subChannels {
@@ -1291,8 +1287,8 @@ func (m *Model) rebuildSubVideos() {
 		}
 	}
 	if videos, err := m.db.GetAllChannelVideos(ids); err == nil {
-		sortVideos(videos, m.subSort)
-		m.subCursor = preserveCursor(m.subVideos, m.subCursor, videos)
+		sortVideos(videos, m.subscriptions.sort)
+		m.subscriptions.cursor = preserveCursor(m.subVideos, m.subscriptions.cursor, videos)
 		m.subVideos = videos
 	}
 }
@@ -1317,62 +1313,6 @@ func (m *Model) fetchCurrentPlaylistVideos() tea.Cmd {
 }
 
 // ── Video tabs: Recommended ───────────────────────────────────────────────────
-
-func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.recVideos)
-	debug.Log("updateRecommended: key=%q hideVideo=%q hideChannel=%q",
-		msg.String(), m.cfg.Keybindings.HideVideo, m.cfg.Keybindings.HideChannel)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.recCursor, m.recVS = vsMove(m.recCursor, m.recVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.recCursor, m.recVS = vsPage(m.recCursor, m.recVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.HideVideo):
-		if v, ok := m.currentVideo(); ok {
-			_ = m.db.HideRecVideo(v.ID)
-			m.recHidden[v.ID] = true
-			m.recVideos = removeVideoByID(m.recVideos, v.ID)
-			m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize(), false)
-			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
-			m.checkVideoHideAutoBlacklist(v.ChannelID, v.Channel)
-		}
-	case key.Matches(msg, m.keys.HideChannel):
-		debug.Log("recommended: hide channel matched")
-		if v, ok := m.currentVideo(); ok {
-			m.hideChannel(v.ChannelID, v.Channel)
-		}
-	}
-	m.handleVideoAction(msg)
-	return m, nil
-}
-
-// ── Subscriptions ─────────────────────────────────────────────────────────────
-
-func (m Model) updateSubscriptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return m.updateSubAll(msg)
-}
-
-func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.subVideos)
-	switch {
-	case key.Matches(msg, m.keys.Up):
-		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Down):
-		m.subCursor, m.subVS = vsMove(m.subCursor, m.subVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageUp):
-		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, -1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.PageDown):
-		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.Unsubscribe):
-		return m.unsubscribeCurrentChannel()
-	}
-	m.handleVideoAction(msg)
-	return m, nil
-}
 
 func (m Model) updateSubChannels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ToggleMode: switch between flat channel list and tags-grouped view.
@@ -2894,7 +2834,7 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
 	// Strip the channel's videos from subscription feeds and purge from DB.
 	m.subVideos = removeChannelVideos(m.subVideos, chID, chName)
-	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
+	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = removeChannelVideos(m.subChVideos, chID, chName)
 	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	go m.db.DeleteChannelVideos(chID)
@@ -2987,9 +2927,9 @@ func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
 // removeChannelFromFeeds strips a channel's videos from all in-memory video lists.
 func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
 	m.recVideos = removeChannelVideos(m.recVideos, channelID, channelName)
-	m.recCursor, m.recVS = vsMove(clamp(m.recCursor, len(m.recVideos)), m.recVS, len(m.recVideos), 0, m.pageSize(), false)
+	m.recommended.reclamp(len(m.recVideos), m.pageSize())
 	m.subVideos = removeChannelVideos(m.subVideos, channelID, channelName)
-	m.subCursor, m.subVS = vsMove(clamp(m.subCursor, len(m.subVideos)), m.subVS, len(m.subVideos), 0, m.pageSize(), false)
+	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = removeChannelVideos(m.subChVideos, channelID, channelName)
 	m.subChVidCursor, m.subChVidVS = vsMove(clamp(m.subChVidCursor, len(m.subChVideos)), m.subChVidVS, len(m.subChVideos), 0, m.pageSize(), false)
 }

@@ -115,7 +115,7 @@ const (
 	subChSortTags     = 6 // sort channels alphabetically by first tag (untagged last)
 )
 
-// Video list sort modes (used by recSort, subSort, searchSort, localSort).
+// Video list sort modes (used by each tab view's sort field + searchSort).
 const (
 	vidSortViews    = 0 // view count desc (default for recommended)
 	vidSortDate     = 1 // upload date desc
@@ -139,18 +139,19 @@ type Model struct {
 	activeTab int // one of the tabXxx constants above
 
 	// ── Recommended ─────────────────────────────────────────────────────────
+	// P4 slice: private cursor/scroll/sort live in recommendedView; the feed
+	// slice + fetch-lifecycle flags stay here (shared / async-written).
 	recVideos     []youtube.Video
-	recCursor     int
-	recVS         int // nvim-style viewStart: first visible row
+	recommended   recommendedView
 	recLoading    bool
 	recLoaded     bool
 	recRefreshing bool // true when background refresh is running over stale cache
 
 	// ── Subscriptions ────────────────────────────────────────────────────────
-	// subVideos — all-channel feed (Subscriptions tab)
-	subVideos []youtube.Video
-	subCursor int
-	subVS     int
+	// subVideos — all-channel feed (Subscriptions tab); shared with Channels.
+	// P4 slice: private cursor/scroll/sort live in subscriptionsView.
+	subVideos     []youtube.Video
+	subscriptions subscriptionsView
 	// ── Channels ─────────────────────────────────────────────────────────────
 	subChannels        []youtube.Channel
 	subChCursor        int
@@ -273,8 +274,6 @@ type Model struct {
 	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
 
 	// ── Sort state per tab ────────────────────────────────────────────────
-	recSort      int // recommended: vidSortViews default
-	subSort      int // subscriptions all videos: vidSortDate default
 	subChVidSort int // subscriptions channel drill-down: vidSortDate default
 	searchSort   int // search results: vidSortNone default
 	playlistSort int // playlist video pane: vidSortNone default
@@ -459,8 +458,8 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		playlistVidCache:     make(map[string][]youtube.Video),
 		keys:                 buildKeyMap(cfg.Keybindings),
 		playerBackend:        backend,
-		recSort:              vidSortViews,
-		subSort:              vidSortDate,
+		recommended:          recommendedView{sort: vidSortViews},
+		subscriptions:        subscriptionsView{sort: vidSortDate},
 		subChVidSort:         vidSortDate,
 		searchSort:           vidSortNone,
 		local:                localView{sort: vidSortNone},
@@ -780,11 +779,11 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 	}
 	switch m.activeTab {
 	case tabRecommended:
-		if i := m.recCursor; i >= 0 && i < len(m.recVideos) {
+		if i := m.recommended.cursor; i >= 0 && i < len(m.recVideos) {
 			return m.recVideos[i], true
 		}
 	case tabSubscriptions:
-		if i := m.subCursor; i >= 0 && i < len(m.subVideos) {
+		if i := m.subscriptions.cursor; i >= 0 && i < len(m.subVideos) {
 			return m.subVideos[i], true
 		}
 	case tabChannels:
@@ -843,9 +842,9 @@ func (m *Model) jumpToLine(idx int) {
 	ps := m.pageSize()
 	switch m.activeTab {
 	case tabRecommended:
-		m.recCursor, m.recVS = vsJump(idx, len(m.recVideos), ps)
+		m.recommended.jumpTo(idx, len(m.recVideos), ps)
 	case tabSubscriptions:
-		m.subCursor, m.subVS = vsJump(idx, len(m.subVideos), ps)
+		m.subscriptions.jumpTo(idx, len(m.subVideos), ps)
 	case tabChannels:
 		if m.subChTagsMode {
 			if m.subChPane == 1 {
@@ -882,9 +881,9 @@ func (m *Model) jumpToLast() {
 	ps := m.pageSize()
 	switch m.activeTab {
 	case tabRecommended:
-		m.recCursor, m.recVS = vsJump(len(m.recVideos)-1, len(m.recVideos), ps)
+		m.recommended.jumpToLast(len(m.recVideos), ps)
 	case tabSubscriptions:
-		m.subCursor, m.subVS = vsJump(len(m.subVideos)-1, len(m.subVideos), ps)
+		m.subscriptions.jumpToLast(len(m.subVideos), ps)
 	case tabChannels:
 		if m.subChTagsMode {
 			if m.subChPane == 1 {
@@ -1020,10 +1019,6 @@ func (m Model) currentContext() ContextID {
 		return v.context()
 	}
 	switch m.activeTab {
-	case tabRecommended:
-		return CtxVideoList
-	case tabSubscriptions:
-		return CtxVideoList
 	case tabChannels:
 		if m.subChTagsMode {
 			if m.subChPane == 1 {
