@@ -1409,34 +1409,8 @@ func (m Model) updateRecommended(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := m.currentVideo(); ok {
 			m.hideChannel(v.ChannelID, v.Channel)
 		}
-	case key.Matches(msg, m.keys.DrillDown):
-		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
-		}
-	case key.Matches(msg, m.keys.Play):
-		if v, ok := m.currentVideo(); ok {
-			m.playVideo(v)
-		}
-	case key.Matches(msg, m.keys.PlayAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.playAudio(v)
-		}
-	case key.Matches(msg, m.keys.Download):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeVideo)
-		}
-	case key.Matches(msg, m.keys.DownloadAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeAudio)
-		}
-	case key.Matches(msg, m.keys.AddList):
-		if v, ok := m.currentVideo(); ok {
-			m.openAddOverlay(v)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
-		m.copyCurrentURL()
-
 	}
+	m.handleVideoAction(msg)
 	return m, nil
 }
 
@@ -1457,35 +1431,10 @@ func (m Model) updateSubAll(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
 		m.subCursor, m.subVS = vsPage(m.subCursor, m.subVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.DrillDown):
-		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
-		}
-	case key.Matches(msg, m.keys.Play):
-		if v, ok := m.currentVideo(); ok {
-			m.playVideo(v)
-		}
-	case key.Matches(msg, m.keys.PlayAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.playAudio(v)
-		}
-	case key.Matches(msg, m.keys.Download):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeVideo)
-		}
-	case key.Matches(msg, m.keys.DownloadAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeAudio)
-		}
-	case key.Matches(msg, m.keys.AddList):
-		if v, ok := m.currentVideo(); ok {
-			m.openAddOverlay(v)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
-		m.copyCurrentURL()
 	case key.Matches(msg, m.keys.Unsubscribe):
 		return m.unsubscribeCurrentChannel()
 	}
+	m.handleVideoAction(msg)
 	return m, nil
 }
 
@@ -1581,32 +1530,6 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 		case key.Matches(msg, m.keys.PageDown):
 			m.subChCursor, m.subChVS = vsPage(m.subChCursor, m.subChVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-		case key.Matches(msg, m.keys.DrillDown):
-			if v, ok := m.currentVideo(); ok {
-				m.downloadAndPlay(v)
-			}
-		case key.Matches(msg, m.keys.Play):
-			if v, ok := m.currentVideo(); ok {
-				m.playVideo(v)
-			}
-		case key.Matches(msg, m.keys.PlayAudio):
-			if v, ok := m.currentVideo(); ok {
-				m.playAudio(v)
-			}
-		case key.Matches(msg, m.keys.Download):
-			if v, ok := m.currentVideo(); ok {
-				m.startDownload(v, downloader.TypeVideo)
-			}
-		case key.Matches(msg, m.keys.DownloadAudio):
-			if v, ok := m.currentVideo(); ok {
-				m.startDownload(v, downloader.TypeAudio)
-			}
-		case key.Matches(msg, m.keys.AddList):
-			if v, ok := m.currentVideo(); ok {
-				m.openAddOverlay(v)
-			}
-		case key.Matches(msg, m.keys.CopyURL):
-			m.copyCurrentURL()
 		case key.Matches(msg, m.keys.VideoInfo):
 			if v, ok := m.currentVideo(); ok && v.URL != "" {
 				m.vidDetailOverlay = true
@@ -1633,6 +1556,7 @@ func (m Model) updateSubChannelsTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, youtube.FetchVideoDetails(m.cfg, v.URL)
 			}
 		}
+		m.handleVideoAction(msg)
 	}
 	return m, nil
 }
@@ -1679,35 +1603,10 @@ func (m Model) updateSubChVideoPane(msg tea.KeyMsg, backPane int) (tea.Model, te
 		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, -1, m.pageSize(), m.cfg.CircularNav)
 	case key.Matches(msg, m.keys.PageDown):
 		m.subChVidCursor, m.subChVidVS = vsPage(m.subChVidCursor, m.subChVidVS, n, +1, m.pageSize(), m.cfg.CircularNav)
-	case key.Matches(msg, m.keys.DrillDown):
-		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
-		}
-	case key.Matches(msg, m.keys.Play):
-		if v, ok := m.currentVideo(); ok {
-			m.playVideo(v)
-		}
-	case key.Matches(msg, m.keys.PlayAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.playAudio(v)
-		}
-	case key.Matches(msg, m.keys.Download):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeVideo)
-		}
-	case key.Matches(msg, m.keys.DownloadAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeAudio)
-		}
-	case key.Matches(msg, m.keys.AddList):
-		if v, ok := m.currentVideo(); ok {
-			m.openAddOverlay(v)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
-		m.copyCurrentURL()
 	case key.Matches(msg, m.keys.Unsubscribe):
 		return m.unsubscribeCurrentChannel()
 	}
+	m.handleVideoAction(msg)
 	return m, nil
 }
 
@@ -1961,34 +1860,12 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchChLoading = true
 			return m, youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "search")
 		}
-		// DrillDown on a video row plays it.
-		if v, ok := m.currentVideo(); ok {
-			m.downloadAndPlay(v)
-		}
-	case key.Matches(msg, m.keys.Play):
-		if v, ok := m.currentVideo(); ok {
-			m.playVideo(v)
-		}
-	case key.Matches(msg, m.keys.PlayAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.playAudio(v)
-		}
-	case key.Matches(msg, m.keys.Download):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeVideo)
-		}
-	case key.Matches(msg, m.keys.DownloadAudio):
-		if v, ok := m.currentVideo(); ok {
-			m.startDownload(v, downloader.TypeAudio)
-		}
-	case key.Matches(msg, m.keys.AddList):
-		if v, ok := m.currentVideo(); ok {
-			m.openAddOverlay(v)
-		}
-	case key.Matches(msg, m.keys.CopyURL):
-		m.copyCurrentURL()
-
+		// DrillDown on a video row: delegate to shared helper below.
+		// Explicit return prevents helper from firing a second DrillDown.
+		m.handleVideoAction(msg)
+		return m, nil
 	}
+	m.handleVideoAction(msg)
 	return m, nil
 }
 
@@ -2281,6 +2158,9 @@ func (m Model) updateHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				_ = m.db.DeleteVideoHistory(e.VideoID)
+				_ = m.db.DeleteVideoPosition(e.VideoID)
+				delete(m.streamedVideoIDs, e.VideoID)
+				delete(m.videoPositions, e.VideoID)
 				m.setStatus("Deleted: "+truncate(e.Title, 50), false)
 			}
 			m.histEntries = append(m.histEntries[:m.histCursor], m.histEntries[m.histCursor+1:]...)
@@ -2477,35 +2357,52 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.linkOverlayURLs)
+// moveOverlayCursor handles gg/G/Up/Down navigation shared by all overlays.
+// Returns (newSel, true) when a nav key was consumed; clears m.gPending on any
+// non-GotoPrefix key so callers need not do it themselves.
+func (m *Model) moveOverlayCursor(sel, n int, msg tea.KeyMsg) (int, bool) {
 	if msg.String() == m.cfg.Keybindings.GotoPrefix {
 		if m.gPending {
 			m.gPending = false
-			m.linkOverlaySel = 0
-		} else {
-			m.gPending = true
+			return 0, true
 		}
-		return m, nil
+		m.gPending = true
+		return sel, true
 	}
 	m.gPending = false
 	switch {
 	case key.Matches(msg, m.keys.GotoBottom):
 		if n > 0 {
-			m.linkOverlaySel = n - 1
+			return n - 1, true
 		}
+		return sel, true
 	case key.Matches(msg, m.keys.Up):
-		if m.linkOverlaySel > 0 {
-			m.linkOverlaySel--
-		} else if m.cfg.CircularNav && n > 0 {
-			m.linkOverlaySel = n - 1
+		if sel > 0 {
+			return sel - 1, true
 		}
+		if m.cfg.CircularNav && n > 0 {
+			return n - 1, true
+		}
+		return sel, true
 	case key.Matches(msg, m.keys.Down):
-		if m.linkOverlaySel < n-1 {
-			m.linkOverlaySel++
-		} else if m.cfg.CircularNav {
-			m.linkOverlaySel = 0
+		if sel < n-1 {
+			return sel + 1, true
 		}
+		if m.cfg.CircularNav {
+			return 0, true
+		}
+		return sel, true
+	}
+	return sel, false
+}
+
+func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.linkOverlayURLs)
+	if newSel, handled := (&m).moveOverlayCursor(m.linkOverlaySel, n, msg); handled {
+		m.linkOverlaySel = newSel
+		return m, nil
+	}
+	switch {
 	case key.Matches(msg, m.keys.DrillDown):
 		if n > 0 {
 			if err := exec.Command("xdg-open", m.linkOverlayURLs[m.linkOverlaySel].URL).Start(); err != nil {
@@ -2531,33 +2428,11 @@ func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleChapterOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.chapterOverlayItems)
-	if msg.String() == m.cfg.Keybindings.GotoPrefix {
-		if m.gPending {
-			m.gPending = false
-			m.chapterOverlaySel = 0
-		} else {
-			m.gPending = true
-		}
+	if newSel, handled := (&m).moveOverlayCursor(m.chapterOverlaySel, n, msg); handled {
+		m.chapterOverlaySel = newSel
 		return m, nil
 	}
-	m.gPending = false
 	switch {
-	case key.Matches(msg, m.keys.GotoBottom):
-		if n > 0 {
-			m.chapterOverlaySel = n - 1
-		}
-	case key.Matches(msg, m.keys.Up):
-		if m.chapterOverlaySel > 0 {
-			m.chapterOverlaySel--
-		} else if m.cfg.CircularNav && n > 0 {
-			m.chapterOverlaySel = n - 1
-		}
-	case key.Matches(msg, m.keys.Down):
-		if m.chapterOverlaySel < n-1 {
-			m.chapterOverlaySel++
-		} else if m.cfg.CircularNav {
-			m.chapterOverlaySel = 0
-		}
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
 		m.chapterOverlay = false
 	case key.Matches(msg, m.keys.Play):
@@ -2608,27 +2483,13 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddOverlayCreate(msg)
 	}
 	n := m.overlayPlaylistCount()
-	if msg.String() == m.cfg.Keybindings.GotoPrefix {
-		if m.gPending {
-			m.gPending = false
-			m.addOverlaySel = 0
-		} else {
-			m.gPending = true
-		}
+	if newSel, handled := (&m).moveOverlayCursor(m.addOverlaySel, n, msg); handled {
+		m.addOverlaySel = newSel
 		return m, nil
 	}
-	m.gPending = false
 	switch {
-	case key.Matches(msg, m.keys.GotoBottom):
-		if n > 0 {
-			m.addOverlaySel = n - 1
-		}
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
 		m.addOverlay = false
-	case key.Matches(msg, m.keys.Up):
-		m.addOverlaySel = clamp(m.addOverlaySel-1, n)
-	case key.Matches(msg, m.keys.Down):
-		m.addOverlaySel = clamp(m.addOverlaySel+1, n)
 	case key.Matches(msg, m.keys.DrillDown):
 		v := m.addVideo
 		idx := m.addOverlaySel
@@ -2754,6 +2615,7 @@ func (m *Model) streamVideo(v youtube.Video) {
 	m.playingVideoID = v.ID
 	m.playingSBSegments = nil // mpv handles SponsorBlock live; MPRIS reports original timeline
 	m.streamedVideoIDs[v.ID] = true
+	_ = m.db.UpsertVideo(v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL)
 	_ = m.db.AddHistory(v.ID, "streamVideo", "")
 	label := truncate(v.Title, 50)
 	if startAt > 0 {
@@ -2776,6 +2638,7 @@ func (m *Model) streamAudio(v youtube.Video) {
 	m.playingVideoID = v.ID
 	m.playingSBSegments = nil // mpv handles SponsorBlock live; MPRIS reports original timeline
 	m.streamedVideoIDs[v.ID] = true
+	_ = m.db.UpsertVideo(v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL)
 	_ = m.db.AddHistory(v.ID, "streamAudio", "")
 	label := truncate(v.Title, 50)
 	if startAt > 0 {
@@ -2783,6 +2646,44 @@ func (m *Model) streamAudio(v youtube.Video) {
 	} else {
 		m.setStatus("Streaming audio: "+label, false)
 	}
+}
+
+// handleVideoAction dispatches the shared video actions present in most tabs.
+// Returns true when msg matched a key. DrillDown maps to downloadAndPlay; tabs with
+// a different DrillDown meaning should handle it before calling this and return early.
+func (m *Model) handleVideoAction(msg tea.KeyMsg) bool {
+	v, ok := m.currentVideo()
+	switch {
+	case key.Matches(msg, m.keys.DrillDown):
+		if ok {
+			m.downloadAndPlay(v)
+		}
+	case key.Matches(msg, m.keys.Play):
+		if ok {
+			m.playVideo(v)
+		}
+	case key.Matches(msg, m.keys.PlayAudio):
+		if ok {
+			m.playAudio(v)
+		}
+	case key.Matches(msg, m.keys.Download):
+		if ok {
+			m.startDownload(v, downloader.TypeVideo)
+		}
+	case key.Matches(msg, m.keys.DownloadAudio):
+		if ok {
+			m.startDownload(v, downloader.TypeAudio)
+		}
+	case key.Matches(msg, m.keys.AddList):
+		if ok {
+			m.openAddOverlay(v)
+		}
+	case key.Matches(msg, m.keys.CopyURL):
+		m.copyCurrentURL()
+	default:
+		return false
+	}
+	return true
 }
 
 func (m *Model) startDownload(v youtube.Video, dlType downloader.DownloadType) {
@@ -3517,6 +3418,7 @@ func (m *Model) playVideoFromChapter(ch db.Chapter) {
 		m.playingVideoID = v.ID
 		m.playingSBSegments = nil
 		m.streamedVideoIDs[v.ID] = true
+		_ = m.db.UpsertVideo(v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL)
 		_ = m.db.AddHistory(v.ID, "streamVideo", "")
 		m.setStatus(fmt.Sprintf("Streaming (from %s): %s", fmtChapterTime(ch.OriginalStart), label), false)
 	}
@@ -3552,6 +3454,7 @@ func (m *Model) playAudioFromChapter(ch db.Chapter) {
 		m.playingVideoID = v.ID
 		m.playingSBSegments = nil
 		m.streamedVideoIDs[v.ID] = true
+		_ = m.db.UpsertVideo(v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL)
 		_ = m.db.AddHistory(v.ID, "streamAudio", "")
 		m.setStatus(fmt.Sprintf("Streaming audio (from %s): %s", fmtChapterTime(ch.OriginalStart), label), false)
 	}
