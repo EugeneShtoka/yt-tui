@@ -146,9 +146,16 @@ func (d *Downloader) run(item *Item) {
 		return
 	}
 
+	var stderrLines []string
+	stderrDone := make(chan struct{})
 	go func() {
+		defer close(stderrDone)
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
+			stderrLines = append(stderrLines, sc.Text())
+			if len(stderrLines) > 20 {
+				stderrLines = stderrLines[1:]
+			}
 		}
 	}()
 
@@ -174,8 +181,17 @@ func (d *Downloader) run(item *Item) {
 		}
 	}
 
+	<-stderrDone // drain stderr before Wait (StderrPipe contract)
 	if err := cmd.Wait(); err != nil {
-		d.fail(item, fmt.Errorf("yt-dlp: %w", err))
+		tail := strings.TrimSpace(strings.Join(stderrLines, "\n"))
+		errMsg := fmt.Sprintf("yt-dlp: %v", err)
+		if tail != "" {
+			errMsg += ": " + tail
+		}
+		if len(errMsg) > 500 {
+			errMsg = errMsg[:500]
+		}
+		d.fail(item, fmt.Errorf("%s", errMsg))
 		return
 	}
 

@@ -34,21 +34,33 @@ const (
 // ytWatchLaterID is YouTube's internal Watch Later playlist ID.
 const ytWatchLaterID = "WL"
 
-var tabNames = [numTabIDs]string{
-	"Recommended", "Subscriptions", "Channels", "Playlists",
-	"Search", "Downloading", "Local", "History", "Activity",
+// tabMeta is the single source of truth for tab identity.
+// name: lowercase key used in config, commands, and debug logs.
+// display: title-case label shown in the tab bar.
+var tabMeta = [numTabIDs]struct {
+	name    string
+	display string
+}{
+	tabRecommended:   {"recommended", "Recommended"},
+	tabSubscriptions: {"subscriptions", "Subscriptions"},
+	tabChannels:      {"channels", "Channels"},
+	tabPlaylists:     {"playlists", "Playlists"},
+	tabSearch:        {"search", "Search"},
+	tabDownloading:   {"downloading", "Downloading"},
+	tabLocal:         {"local", "Local"},
+	tabHistory:       {"history", "History"},
+	tabActivity:      {"activity", "Activity"},
 }
 
-var tabIDByName = map[string]int{
-	"recommended":   tabRecommended,
-	"subscriptions": tabSubscriptions,
-	"channels":      tabChannels,
-	"playlists":     tabPlaylists,
-	"search":        tabSearch,
-	"downloading":   tabDownloading,
-	"local":         tabLocal,
-	"history":       tabHistory,
-	"activity":      tabActivity,
+var tabNames [numTabIDs]string
+var tabIDByName map[string]int
+
+func init() {
+	tabIDByName = make(map[string]int, numTabIDs)
+	for id, m := range tabMeta {
+		tabNames[id] = m.display
+		tabIDByName[m.name] = id
+	}
 }
 
 // ContextID identifies the UI context for key dispatch and sort-matrix filtering.

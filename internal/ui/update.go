@@ -714,13 +714,9 @@ func (m Model) openConfigInEditor() (Model, tea.Cmd) {
 
 type cmdErrMsg struct{ err error }
 
-var tabDebugNames = [numTabIDs]string{
-	"recommended", "subscriptions", "channels", "playlists", "search", "downloading", "local", "history", "activity",
-}
-
 func tabName(id int) string {
-	if id >= 0 && id < len(tabDebugNames) {
-		return tabDebugNames[id]
+	if id >= 0 && id < numTabIDs {
+		return tabMeta[id].name
 	}
 	return "unknown"
 }
