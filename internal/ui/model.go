@@ -972,55 +972,44 @@ func truncate(s string, n int) string {
 	return string(runes[:i]) + "…"
 }
 
-func sortVideos(videos []youtube.Video, mode int) {
+type vidSortKey struct {
+	viewCount  int64
+	uploadDate string
+	title      string
+	channel    string
+	duration   int
+}
+
+func sortByMode[T any](s []T, mode int, extract func(T) vidSortKey) {
 	switch mode {
 	case vidSortViews:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].ViewCount > videos[j].ViewCount
-		})
+		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).viewCount > extract(s[j]).viewCount })
 	case vidSortDate:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].UploadDate > videos[j].UploadDate
-		})
+		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).uploadDate > extract(s[j]).uploadDate })
 	case vidSortName:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return strings.ToLower(videos[i].Title) < strings.ToLower(videos[j].Title)
+		sort.SliceStable(s, func(i, j int) bool {
+			return strings.ToLower(extract(s[i]).title) < strings.ToLower(extract(s[j]).title)
 		})
 	case vidSortChannel:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return strings.ToLower(videos[i].Channel) < strings.ToLower(videos[j].Channel)
+		sort.SliceStable(s, func(i, j int) bool {
+			return strings.ToLower(extract(s[i]).channel) < strings.ToLower(extract(s[j]).channel)
 		})
 	case vidSortDuration:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].Duration > videos[j].Duration
-		})
-		// vidSortNone: no-op — keep current order
+		sort.SliceStable(s, func(i, j int) bool { return extract(s[i]).duration > extract(s[j]).duration })
+	// vidSortNone: no-op — keep current order
 	}
 }
 
+func sortVideos(videos []youtube.Video, mode int) {
+	sortByMode(videos, mode, func(v youtube.Video) vidSortKey {
+		return vidSortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
+	})
+}
+
 func sortLocalVideos(videos []db.LocalVideo, mode int) {
-	switch mode {
-	case vidSortViews:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].ViewCount > videos[j].ViewCount
-		})
-	case vidSortDate:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].UploadDate > videos[j].UploadDate
-		})
-	case vidSortName:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return strings.ToLower(videos[i].Title) < strings.ToLower(videos[j].Title)
-		})
-	case vidSortChannel:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return strings.ToLower(videos[i].Channel) < strings.ToLower(videos[j].Channel)
-		})
-	case vidSortDuration:
-		sort.SliceStable(videos, func(i, j int) bool {
-			return videos[i].Duration > videos[j].Duration
-		})
-	}
+	sortByMode(videos, mode, func(v db.LocalVideo) vidSortKey {
+		return vidSortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
+	})
 }
 
 // currentContext returns the ContextID for the currently focused UI area.

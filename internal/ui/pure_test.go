@@ -406,3 +406,87 @@ func TestSBInsideSegmentMapsToStart(t *testing.T) {
 		t.Errorf("SB inside segment: adj=%d, want %d", adj, wantAdj)
 	}
 }
+
+// sortByMode parity: sortVideos and sortLocalVideos must produce the same
+// relative order on equivalent input for every mode.
+func TestSortParityAllModes(t *testing.T) {
+	videos := []youtube.Video{
+		{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
+		{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
+		{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},
+	}
+	locals := []db.LocalVideo{
+		{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
+		{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
+		{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},
+	}
+	modes := []struct {
+		mode int
+		name string
+	}{
+		{vidSortViews, "views"},
+		{vidSortDate, "date"},
+		{vidSortName, "name"},
+		{vidSortChannel, "channel"},
+		{vidSortDuration, "duration"},
+		{vidSortNone, "none"},
+	}
+	for _, tc := range modes {
+		vs := append([]youtube.Video(nil), videos...)
+		ls := append([]db.LocalVideo(nil), locals...)
+		sortVideos(vs, tc.mode)
+		sortLocalVideos(ls, tc.mode)
+		for i := range vs {
+			if vs[i].ID != ls[i].ID {
+				t.Errorf("mode=%s pos=%d: sortVideos id=%s, sortLocalVideos id=%s", tc.name, i, vs[i].ID, ls[i].ID)
+			}
+		}
+	}
+}
+
+func TestSortNoneIsNoOp(t *testing.T) {
+	videos := []youtube.Video{
+		{ID: "c"}, {ID: "a"}, {ID: "b"},
+	}
+	orig := make([]string, len(videos))
+	for i, v := range videos {
+		orig[i] = v.ID
+	}
+	sortVideos(videos, vidSortNone)
+	for i, v := range videos {
+		if v.ID != orig[i] {
+			t.Errorf("vidSortNone changed order at pos %d: got %s, want %s", i, v.ID, orig[i])
+		}
+	}
+}
+
+func TestSortExpectedOrders(t *testing.T) {
+	vids := func() []youtube.Video {
+		return []youtube.Video{
+			{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
+			{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
+			{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},
+		}
+	}
+	cases := []struct {
+		mode  int
+		order string // expected IDs joined
+	}{
+		{vidSortViews, "b c a"},    // 500 > 200 > 100
+		{vidSortDate, "b c a"},     // 20240601 > 20230601 > 20230101
+		{vidSortName, "b c a"},     // apple < Mango < Zebra (case-insensitive)
+		{vidSortChannel, "b a c"},  // alpha < Beta < Gamma (case-insensitive)
+		{vidSortDuration, "c a b"}, // 600 > 300 > 60
+	}
+	for _, tc := range cases {
+		s := vids()
+		sortVideos(s, tc.mode)
+		got := s[0].ID + " " + s[1].ID + " " + s[2].ID
+		if got != tc.order {
+			t.Errorf("mode=%d: got order %q, want %q", tc.mode, got, tc.order)
+		}
+	}
+}
+
+// suppress unused import warning — strings is used in other tests
+var _ = strings.ToLower

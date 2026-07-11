@@ -479,14 +479,14 @@ func (m *Model) handleDownloadEvent(ev downloader.Event) {
 
 func (m Model) handleLocalFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	prev := m.localFilterInput.Value()
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, m.keys.Escape):
 		m.localFilterFocused = false
 		m.localFilterInput.SetValue("")
 		m.localFilter = ""
 		m.localFilterCursor = 0
 		return m, nil
-	case "enter":
+	case key.Matches(msg, m.keys.DrillDown):
 		m.localFilterFocused = false
 		return m, nil
 	default:
@@ -555,15 +555,15 @@ func cmdCompletionsFor(input string) []string {
 }
 
 func (m Model) handleCmdInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "ctrl+c":
+	switch {
+	case key.Matches(msg, m.keys.Escape) || msg.String() == "ctrl+c":
 		m.cmdMode = false
 		m.cmdCompletions = nil
 		m.cmdLastTabValue = ""
 		m.cmdInput.SetValue("")
 		m.cmdInput.Blur()
 		return m, nil
-	case "enter":
+	case key.Matches(msg, m.keys.DrillDown):
 		val := strings.TrimSpace(m.cmdInput.Value())
 		m.cmdMode = false
 		m.cmdCompletions = nil
@@ -571,7 +571,7 @@ func (m Model) handleCmdInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cmdInput.SetValue("")
 		m.cmdInput.Blur()
 		return m.execCommand(val)
-	case "tab":
+	case msg.String() == "tab":
 		input := m.cmdInput.Value()
 		// Recompute if input changed since last Tab, or no completions yet.
 		if len(m.cmdCompletions) == 0 || input != m.cmdLastTabValue {
@@ -1827,11 +1827,11 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, m.keys.Escape):
 		m.subChEditMode = 0
 		m.subChEditInput.Blur()
-	case "enter":
+	case key.Matches(msg, m.keys.DrillDown):
 		val := strings.TrimSpace(m.subChEditInput.Value())
 		chID := m.editTargetChannelID()
 		if chID != "" {
@@ -1875,8 +1875,8 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchFocused = false
 		m.searchInput.Blur()
 	}
-	switch msg.String() {
-	case "up":
+	switch {
+	case msg.String() == "up": // arrow-only: avoid vim Up binding ('k') typing in box
 		if len(m.searchHistory) == 0 {
 			return m, nil
 		}
@@ -1890,7 +1890,7 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchInput.CursorEnd()
 		}
 		return m, nil
-	case "down":
+	case msg.String() == "down": // arrow-only: avoid vim Down binding ('j') typing in box
 		if m.searchHistIdx == -1 {
 			return m, nil
 		}
@@ -1905,7 +1905,7 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchInput.CursorEnd()
 		}
 		return m, nil
-	case "enter":
+	case key.Matches(msg, m.keys.DrillDown):
 		q := m.searchInput.Value()
 		if q == "" {
 			blurSearch()
@@ -1917,7 +1917,7 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		blurSearch()
 		_ = m.db.AddHistory("", "search", q)
 		return m, youtube.Search(m.cfg, q)
-	case "esc":
+	case key.Matches(msg, m.keys.Escape):
 		if m.searchHistIdx != -1 {
 			m.searchHistIdx = -1
 			m.searchInput.SetValue(m.searchDraft)
@@ -1926,35 +1926,35 @@ func (m Model) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		blurSearch()
 		return m, nil
-	case "tab":
+	case key.Matches(msg, m.keys.Tab):
 		blurSearch()
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+1)%len(m.tabs)]
 		return m, m.onTabActivated()
-	case "shift+tab":
+	case key.Matches(msg, m.keys.ShiftTab):
 		blurSearch()
 		idx := m.currentTabIndex()
 		m.activeTab = m.tabs[(idx+len(m.tabs)-1)%len(m.tabs)]
 		return m, m.onTabActivated()
-	case "f2":
+	case msg.String() == "f2":
 		blurSearch()
 		return m.switchToTabPos(0)
-	case "f3":
+	case msg.String() == "f3":
 		blurSearch()
 		return m.switchToTabPos(1)
-	case "f4":
+	case msg.String() == "f4":
 		blurSearch()
 		return m.switchToTabPos(2)
-	case "f5":
+	case msg.String() == "f5":
 		blurSearch()
 		return m.switchToTabPos(3)
-	case "f6":
+	case msg.String() == "f6":
 		blurSearch()
 		return m.switchToTabPos(4)
-	case "f7":
+	case msg.String() == "f7":
 		blurSearch()
 		return m.switchToTabPos(5)
-	case "f8":
+	case msg.String() == "f8":
 		blurSearch()
 		return m.switchToTabPos(6)
 	default:
@@ -2162,8 +2162,8 @@ func (m Model) handleCreateTypeInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Playlist create input ─────────────────────────────────────────────────────
 
 func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
+	switch {
+	case key.Matches(msg, m.keys.DrillDown):
 		name := m.createInput.Value()
 		isYT := m.createModeYT
 		m.createMode = false
@@ -2200,7 +2200,7 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.addAfterCreate = false
 		}
-	case "esc":
+	case key.Matches(msg, m.keys.Escape):
 		m.addAfterCreate = false
 		m.createMode = false
 		m.createModeYT = false
