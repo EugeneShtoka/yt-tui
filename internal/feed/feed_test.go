@@ -25,6 +25,20 @@ func TestNewStarting(t *testing.T) {
 	}
 }
 
+func TestNew(t *testing.T) {
+	// New holds videos with no fetch in flight (Subscriptions-style feed).
+	f := New([]youtube.Video{{ID: "a"}, {ID: "b"}})
+	if f.Loading() || f.Refreshing() {
+		t.Errorf("New feed should not be fetching: loading=%v refreshing=%v", f.Loading(), f.Refreshing())
+	}
+	if !f.Loaded() || f.Len() != 2 {
+		t.Errorf("New feed: loaded=%v len=%d, want true/2", f.Loaded(), f.Len())
+	}
+	if e := New(nil); e.Loaded() {
+		t.Errorf("New(nil) loaded=true, want false")
+	}
+}
+
 func TestFeedFetchLifecycle(t *testing.T) {
 	var f Feed
 	f.StartRefresh()

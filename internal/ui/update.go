@@ -119,8 +119,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.subscribedChannelIDs, msg.ChannelID)
 			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
 			m.subChannels = feed.RemoveChannelByID(m.subChannels, msg.ChannelID)
-			m.subVideos = feed.RemoveChannelVideos(m.subVideos, msg.ChannelID, msg.ChannelName)
-			m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
+			m.subFeed.RemoveChannel(msg.ChannelID, msg.ChannelName)
+			m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
 			m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
 			m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 			return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
@@ -1016,7 +1016,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 		m.recFeed.Sort(vidSort)
 	case tabSubscriptions:
 		m.subscriptions.sort = vidSort
-		feed.SortVideos(m.subVideos, vidSort)
+		m.subFeed.Sort(vidSort)
 	case tabChannels:
 		if m.channels.tagsMode && m.channels.pane == 1 {
 			m.channels.tagSort = vidSort
@@ -1255,8 +1255,8 @@ func (m *Model) rebuildSubVideos() {
 	}
 	if videos, err := m.db.GetAllChannelVideos(ids); err == nil {
 		feed.SortVideos(videos, m.subscriptions.sort)
-		m.subscriptions.cursor = feed.PreserveCursor(m.subVideos, m.subscriptions.cursor, videos)
-		m.subVideos = videos
+		m.subscriptions.cursor = feed.PreserveCursor(m.subFeed.Videos(), m.subscriptions.cursor, videos)
+		m.subFeed.SetVideos(videos)
 	}
 }
 
@@ -2266,8 +2266,8 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	delete(m.subscribedChannelIDs, chID)
 	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
 	// Strip the channel's videos from subscription feeds and purge from DB.
-	m.subVideos = feed.RemoveChannelVideos(m.subVideos, chID, chName)
-	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
+	m.subFeed.RemoveChannel(chID, chName)
+	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
 	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, chID, chName)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	m.setStatus("Removed local subscription: "+chName, false)
@@ -2358,8 +2358,8 @@ func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
 func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
 	m.recFeed.RemoveChannel(channelID, channelName)
 	m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
-	m.subVideos = feed.RemoveChannelVideos(m.subVideos, channelID, channelName)
-	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
+	m.subFeed.RemoveChannel(channelID, channelName)
+	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
 	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, channelID, channelName)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 }

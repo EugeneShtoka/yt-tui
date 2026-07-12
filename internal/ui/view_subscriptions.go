@@ -6,9 +6,9 @@ import (
 )
 
 // subscriptionsView owns the Subscriptions (all-channel feed) tab's private
-// cursor/scroll/sort. The feed slice (subVideos) is shared with the Channels
-// tab (tag grouping) and rewritten by unsubscribe/refresh, so it stays on the
-// router (docs/TABVIEW_DESIGN.md, Finding 2).
+// cursor/scroll/sort. The feed slice now lives in the router's feed.Feed
+// (m.subFeed), reached via viewCtx.subFeed; it is shared with the Channels tab
+// (tag grouping) and rewritten by unsubscribe/refresh. P5 item #5 data-owner.
 type subscriptionsView struct {
 	cursor int
 	vs     int
@@ -49,7 +49,7 @@ func (v *subscriptionsView) reclamp(n, pageSize int) {
 // handleVideoAction after its navigation/unsubscribe switch).
 func (v *subscriptionsView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 	keys := ctx.keys
-	n := len(ctx.subVideos)
+	n := ctx.subFeed.Len()
 	switch {
 	case key.Matches(msg, keys.Up):
 		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
@@ -67,5 +67,5 @@ func (v *subscriptionsView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 // Note: like the original renderSubscriptions, this does NOT apply the local
 // filter to the rendered list (currentVideo does, preserving prior behavior).
 func (v subscriptionsView) render(ctx viewCtx, height int) string {
-	return ctx.renderList(ctx.subVideos, v.cursor, v.vs, false, ctx.subLoading, height, "Subscriptions")
+	return ctx.renderList(ctx.subFeed.Videos(), v.cursor, v.vs, false, ctx.subLoading, height, "Subscriptions")
 }

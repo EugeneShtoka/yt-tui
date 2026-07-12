@@ -32,6 +32,13 @@ func NewStarting(cache []youtube.Video) Feed {
 	return f
 }
 
+// New builds a Feed holding videos with no fetch in flight. Used for feeds whose
+// loading state is derived externally (e.g. Subscriptions, rebuilt from the
+// channel data rather than owning its own fetch lifecycle).
+func New(videos []youtube.Video) Feed {
+	return Feed{videos: videos, loaded: len(videos) > 0}
+}
+
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
 func (f *Feed) Videos() []youtube.Video { return f.videos }

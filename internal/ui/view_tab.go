@@ -29,8 +29,8 @@ type viewCtx struct {
 	// recFeed is the Recommended tab's data-owner (internal/feed.Feed); the view
 	// reads videos + loading/refreshing flags through it. Pointer into the live
 	// Model, valid for the frame.
-	recFeed   *feed.Feed
-	subVideos []youtube.Video
+	recFeed *feed.Feed
+	subFeed *feed.Feed
 
 	// Search result data + drill-down selection (written by async fetches).
 	searchChSel    *youtube.Channel
@@ -107,14 +107,14 @@ func (m *Model) viewCtx() viewCtx {
 		localVideos: m.localVideos,
 		localTitleW: m.videoListTitleW(),
 		recFeed:     &m.recFeed,
-		subVideos:   m.subVideos,
+		subFeed:     &m.subFeed,
 
 		searchChSel:    m.searchChSel,
 		searchChannels: m.searchChannels,
 		searchVideos:   m.searchVideos,
 		searchChVideos: m.searchChVideos,
 
-		subLoading:        m.subChLoading && len(m.subVideos) == 0,
+		subLoading:        m.subChLoading && m.subFeed.Len() == 0,
 		localFilter:       m.localFilter,
 		localFilterCursor: m.localFilterCursor,
 		renderList:        m.renderVideoList,

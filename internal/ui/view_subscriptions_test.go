@@ -3,12 +3,14 @@ package ui
 import (
 	"testing"
 
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func subCtx(videos []youtube.Video, pageSize int) viewCtx {
-	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, subVideos: videos}
+	f := feed.New(videos)
+	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, subFeed: &f}
 }
 
 func TestSubscriptionsDownMovesCursor(t *testing.T) {

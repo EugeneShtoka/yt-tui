@@ -148,9 +148,10 @@ type Model struct {
 	recommended recommendedView
 
 	// ── Subscriptions ────────────────────────────────────────────────────────
-	// subVideos — all-channel feed (Subscriptions tab); shared with Channels.
-	// P4 slice: private cursor/scroll/sort live in subscriptionsView.
-	subVideos     []youtube.Video
+	// subFeed — all-channel feed (Subscriptions tab); shared with Channels'
+	// tagVideos. P5 item #5 data-owner: it owns the slice; its display loading
+	// state is derived from subChLoading (it has no independent fetch lifecycle).
+	subFeed       feed.Feed
 	subscriptions subscriptionsView
 	// ── Channels ─────────────────────────────────────────────────────────────
 	// P4 slice: private cursor/scroll/pane/mode/sort live in channelsView; the
@@ -417,7 +418,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		tabs:                 tabs,
 		activeTab:            firstTab,
 		recFeed:              feed.NewStarting(recCache),
-		subVideos:            subVideos,
+		subFeed:              feed.New(subVideos),
 		searchInput:          si,
 		createInput:          ci,
 		subChEditInput:       ei,
@@ -578,7 +579,7 @@ func tagDisplayName(tag string) string {
 	return tag
 }
 
-// tagVideos returns videos from subVideos that belong to channels in the selected tag,
+// tagVideos returns videos from the subscriptions feed (m.subFeed) that belong to channels in the selected tag,
 // sorted by m.channels.tagSort. The returned slice is always a fresh copy.
 func (m Model) tagVideos() []youtube.Video {
 	chans := m.channelsInTag(m.channels.tagSel)
@@ -592,7 +593,7 @@ func (m Model) tagVideos() []youtube.Video {
 		}
 	}
 	var out []youtube.Video
-	for _, v := range m.subVideos {
+	for _, v := range m.subFeed.Videos() {
 		if idSet[v.ChannelID] {
 			out = append(out, v)
 		}
@@ -733,7 +734,7 @@ func (m *Model) localFilteredVideos() []youtube.Video {
 	case tabRecommended:
 		raw = m.recFeed.Videos()
 	case tabSubscriptions:
-		raw = m.subVideos
+		raw = m.subFeed.Videos()
 	case tabChannels:
 		if m.channels.tagsMode && m.channels.pane == 1 {
 			raw = m.tagVideos()
@@ -764,9 +765,7 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 	case tabRecommended:
 		return m.recFeed.At(m.recommended.cursor)
 	case tabSubscriptions:
-		if i := m.subscriptions.cursor; i >= 0 && i < len(m.subVideos) {
-			return m.subVideos[i], true
-		}
+		return m.subFeed.At(m.subscriptions.cursor)
 	case tabChannels:
 		if m.channels.tagsMode && m.channels.pane == 1 {
 			vids := m.tagVideos()
@@ -825,7 +824,7 @@ func (m *Model) jumpToLine(idx int) {
 	case tabRecommended:
 		m.recommended.jumpTo(idx, m.recFeed.Len(), ps)
 	case tabSubscriptions:
-		m.subscriptions.jumpTo(idx, len(m.subVideos), ps)
+		m.subscriptions.jumpTo(idx, m.subFeed.Len(), ps)
 	case tabChannels:
 		if m.channels.tagsMode {
 			if m.channels.pane == 1 {
@@ -857,7 +856,7 @@ func (m *Model) jumpToLast() {
 	case tabRecommended:
 		m.recommended.jumpToLast(m.recFeed.Len(), ps)
 	case tabSubscriptions:
-		m.subscriptions.jumpToLast(len(m.subVideos), ps)
+		m.subscriptions.jumpToLast(m.subFeed.Len(), ps)
 	case tabChannels:
 		if m.channels.tagsMode {
 			if m.channels.pane == 1 {
