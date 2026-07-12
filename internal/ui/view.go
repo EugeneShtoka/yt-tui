@@ -26,12 +26,12 @@ func (m Model) View() string {
 	var kittyOverlay string
 	if m.showHelp {
 		content = m.renderHelp(contentH)
-	} else if m.vidDetailOverlay {
+	} else if m.hasOverlay(overlayVideoDetail) {
 		_, thumbH := m.thumbDimensions()
 
 		m.width -= vidDetailPanelW
 		left := m.renderContent(contentH)
-		if m.addOverlay {
+		if m.hasOverlay(overlayAdd) {
 			left = m.renderAddOverlay(left)
 		}
 		m.width += vidDetailPanelW
@@ -42,7 +42,7 @@ func (m Model) View() string {
 		}
 	} else {
 		content = m.renderContent(contentH)
-		if m.addOverlay {
+		if m.hasOverlay(overlayAdd) {
 			content = m.renderAddOverlay(content)
 		}
 		// Delete the Kitty image if the panel just closed. BubbleTea's differential
@@ -52,10 +52,10 @@ func (m Model) View() string {
 		}
 	}
 
-	if m.linkOverlay {
+	if m.hasOverlay(overlayLinks) {
 		content = m.renderLinkOverlay(content)
 	}
-	if m.chapterOverlay {
+	if m.hasOverlay(overlayChapters) {
 		content = m.renderChapterOverlay(content)
 	}
 
@@ -106,7 +106,7 @@ func (m Model) renderStatusBar() string {
 		return cmdView + strings.Repeat(" ", space) + right
 	case m.pendingChord != "":
 		fixed = styleWarning.Render(m.chordHint())
-	case m.gPending && !m.vidDetailOverlay && !m.linkOverlay && !m.chapterOverlay && !m.addOverlay:
+	case m.gPending && len(m.overlays) == 0:
 		fixed = styleWarning.Render(kb.GotoPrefix + " → " + kb.GotoPrefix + ": top")
 	case m.numPrefix != "":
 		fixed = styleWarning.Render(m.numPrefix + "G: jump to row")
@@ -601,7 +601,7 @@ func (m Model) renderVideoDetailPanel(panelW, panelH, thumbH int) string {
 	kb := m.cfg.Keybindings
 	closeKey := m.keys.Escape.Help().Key
 	closeHint := closeKey + ": close"
-	if m.gPending && !m.linkOverlay {
+	if m.gPending && !m.hasOverlay(overlayLinks) {
 		footerLine = func(_ string) string {
 			return styleWarning.Width(innerW).Render(kb.GotoPrefix + "→" + kb.GotoPrefix + ": top")
 		}

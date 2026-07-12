@@ -186,7 +186,6 @@ type Model struct {
 	createModeYT         bool // true = creating a YouTube playlist (not local)
 	createTypeSel        int  // 0 = local, 1 = YouTube
 	createInput          textinput.Model
-	addOverlay           bool
 	addOverlaySel        int
 	addVideo             youtube.Video
 	addAfterCreate       bool
@@ -284,8 +283,14 @@ type Model struct {
 	// ── Pending direct overlay (chapters/links opened without info panel) ──
 	pendingDirectOverlay string // "links" or "chapters"; cleared after VideoDetailsMsg handled
 
+	// ── Overlay stack ─────────────────────────────────────────────────────
+	// Modal overlays layered above tab content; see overlay.go. Replaces the
+	// former addOverlay/vidDetailOverlay/linkOverlay/chapterOverlay bools. The
+	// links/chapters overlays stack on top of video-detail, so a single scalar
+	// (unlike inputMode) can't represent them — hence a stack.
+	overlays []overlayKind
+
 	// ── Video detail overlay ──────────────────────────────────────────────
-	vidDetailOverlay       bool
 	vidDetailVideo         *youtube.VideoDetails
 	vidDetailLoading       bool
 	vidDetailDescVS        int           // description scroll start line
@@ -298,12 +303,10 @@ type Model struct {
 	vidDetailKittyOverlay  string        // full Kitty sequence; recomputed only on thumbnail load or resize
 
 	// ── Link list overlay (opened from video detail) ───────────────────────
-	linkOverlay     bool
 	linkOverlaySel  int
 	linkOverlayURLs []db.Link
 
 	// ── Chapter list overlay (opened from video detail) ────────────────────
-	chapterOverlay      bool
 	chapterOverlaySel   int
 	chapterOverlayItems []db.Chapter
 }

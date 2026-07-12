@@ -165,7 +165,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case youtube.VideoDetailsMsg:
 		if msg.Err != nil {
 			m.vidDetailLoading = false
-			m.vidDetailOverlay = false
+			m.closeOverlaysFrom(overlayVideoDetail)
 			m.pendingDirectOverlay = ""
 			m.setStatus("video details: "+msg.Err.Error(), true)
 			return m, nil
@@ -197,7 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.vidDetailChapters != nil && len(*m.vidDetailChapters) > 0 {
 					m.chapterOverlayItems = *m.vidDetailChapters
 					m.chapterOverlaySel = 0
-					m.chapterOverlay = true
+					m.pushOverlay(overlayChapters)
 				} else {
 					m.setStatus("no chapters available", false)
 				}
@@ -210,7 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.linkOverlayURLs = urls
 					m.linkOverlaySel = 0
-					m.linkOverlay = true
+					m.pushOverlay(overlayLinks)
 				}
 			}
 			m.vidDetailLoading = false
@@ -701,9 +701,9 @@ func tabName(id int) string {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	debug.Log("key=%q tab=%s mode=%d localFilter=%q addOverlay=%v showHelp=%v pendingChord=%q gPending=%v numPrefix=%q",
+	debug.Log("key=%q tab=%s mode=%d localFilter=%q overlay=%d showHelp=%v pendingChord=%q gPending=%v numPrefix=%q",
 		msg.String(), tabName(m.activeTab), m.mode, m.localFilter,
-		m.addOverlay, m.showHelp, m.pendingChord, m.gPending, m.numPrefix)
+		m.topOverlay(), m.showHelp, m.pendingChord, m.gPending, m.numPrefix)
 
 	// Text-input modes capture all keys ahead of navigation dispatch. Exactly one
 	// can be active (see input_mode.go); this switch replaces the former ordered
@@ -731,24 +731,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Overlays stack (link/chapter over video-detail); ladder order restores the
-	// base panel on close. Kept as separate bools — not part of the mode enum.
-	if m.addOverlay {
-		debug.Log("→ handleAddOverlay (addOverlay=true)")
+	// Overlays form a stack (link/chapter open over video-detail); key dispatch
+	// goes to the frontmost. Popping it reveals whatever was beneath. See
+	// overlay.go — not part of the mode enum since two can be active at once.
+	switch m.topOverlay() {
+	case overlayAdd:
+		debug.Log("→ handleAddOverlay")
 		return m.handleAddOverlay(msg)
-	}
-	if m.linkOverlay {
-		debug.Log("→ handleLinkOverlay (linkOverlay=true)")
+	case overlayLinks:
+		debug.Log("→ handleLinkOverlay")
 		return m.handleLinkOverlay(msg)
-	}
-	if m.chapterOverlay {
-		debug.Log("→ handleChapterOverlay (chapterOverlay=true)")
+	case overlayChapters:
+		debug.Log("→ handleChapterOverlay")
 		return m.handleChapterOverlay(msg)
-	}
-	if m.vidDetailOverlay {
-		debug.Log("→ handleVideoDetailKey (vidDetailOverlay=true)")
+	case overlayVideoDetail:
+		debug.Log("→ handleVideoDetailKey")
 		return m.handleVideoDetailKey(msg)
 	}
+
 	if m.showHelp {
 		debug.Log("→ dismiss help")
 		m.showHelp = false
@@ -1602,13 +1602,14 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) openAddOverlay(v youtube.Video) {
 	_ = m.db.UpsertVideo(v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL)
 	m.addVideo = v
-	m.addOverlay = true
+	m.pushOverlay(overlayAdd)
 	m.addOverlaySel = 0
 	m.addOverlayCreateMode = false
 }
 
 func (m Model) closeVideoDetail() Model {
-	m.vidDetailOverlay = false
+	// Removes the video-detail overlay and any links/chapters stacked above it.
+	m.closeOverlaysFrom(overlayVideoDetail)
 	m.vidDetailVideo = nil
 	m.vidDetailThumb = nil
 	m.vidDetailLinks = nil
@@ -1618,7 +1619,6 @@ func (m Model) closeVideoDetail() Model {
 	m.vidDetailThumbRendered = ""
 	m.vidDetailKittyOverlay = ""
 	m.vidDetailLoading = false
-	m.chapterOverlay = false
 	return m
 }
 
@@ -1683,14 +1683,14 @@ func (m Model) handleVideoDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.linkOverlayURLs = *m.vidDetailLinks
 				m.linkOverlaySel = 0
-				m.linkOverlay = true
+				m.pushOverlay(overlayLinks)
 			}
 		}
 	case key.Matches(msg, m.keys.OpenChapters):
 		if m.vidDetailChapters != nil && len(*m.vidDetailChapters) > 0 {
 			m.chapterOverlayItems = *m.vidDetailChapters
 			m.chapterOverlaySel = 0
-			m.chapterOverlay = true
+			m.pushOverlay(overlayChapters)
 		} else {
 			m.setStatus("no chapters available", false)
 		}
@@ -1749,11 +1749,11 @@ func (m Model) handleLinkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := sys.OpenURL(m.linkOverlayURLs[m.linkOverlaySel].URL); err != nil {
 				m.setStatus("open URL: "+err.Error(), true)
 			} else if m.cfg.CloseOnLinkOpen {
-				m.linkOverlay = false
+				m.popOverlay()
 			}
 		}
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
-		m.linkOverlay = false
+		m.popOverlay()
 	case key.Matches(msg, m.keys.CopyURL):
 		if n > 0 {
 			u := m.linkOverlayURLs[m.linkOverlaySel].URL
@@ -1775,7 +1775,7 @@ func (m Model) handleChapterOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
-		m.chapterOverlay = false
+		m.popOverlay()
 	case key.Matches(msg, m.keys.Play):
 		if n > 0 && m.vidDetailVideo != nil {
 			m.playVideoFromChapter(m.chapterOverlayItems[m.chapterOverlaySel])
@@ -1811,7 +1811,7 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keys.Escape), key.Matches(msg, m.keys.Quit):
-		m.addOverlay = false
+		m.popOverlay()
 	case key.Matches(msg, m.keys.DrillDown):
 		v := m.addVideo
 		idx := m.addOverlaySel
@@ -1853,7 +1853,7 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			})
 			m.setStatus(fmt.Sprintf("Added to '%s'", pl.Name), false)
 		}
-		m.addOverlay = false
+		m.popOverlay()
 	}
 	return m, addCmd
 }
@@ -1867,7 +1867,7 @@ func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		name := m.addOverlayInput.Value()
 		m.addOverlayCreateMode = false
 		m.addOverlayInput.Blur()
-		m.addOverlay = false
+		m.popOverlay()
 		if name != "" {
 			if m.addOverlayCreateYT && m.ytClient != nil {
 				m.addAfterCreate = true
@@ -2391,7 +2391,7 @@ func (m *Model) loadSBSegmentsForVideo(id string) []db.SBSegment {
 // openVideoDetail opens the video-detail overlay for v, resetting all detail
 // state and serving from cache when available.
 func (m *Model) openVideoDetail(v youtube.Video) tea.Cmd {
-	m.vidDetailOverlay = true
+	m.pushOverlay(overlayVideoDetail)
 	m.vidDetailLoading = true
 	m.vidDetailVideo = nil
 	m.vidDetailThumb = nil
@@ -2432,7 +2432,7 @@ func (m Model) openChaptersForVideo(v youtube.Video) (tea.Model, tea.Cmd) {
 		if len(*cached.Chapters) > 0 {
 			m.chapterOverlayItems = *cached.Chapters
 			m.chapterOverlaySel = 0
-			m.chapterOverlay = true
+			m.pushOverlay(overlayChapters)
 		} else {
 			m.setStatus("no chapters available", false)
 		}
@@ -2467,7 +2467,7 @@ func (m Model) openLinksForVideo(v youtube.Video) (tea.Model, tea.Cmd) {
 		} else {
 			m.linkOverlayURLs = links
 			m.linkOverlaySel = 0
-			m.linkOverlay = true
+			m.pushOverlay(overlayLinks)
 		}
 		return m, nil
 	}
