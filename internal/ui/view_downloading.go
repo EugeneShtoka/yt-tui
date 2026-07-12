@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -39,13 +40,21 @@ type downloadingIntent struct {
 }
 
 // jumpTo implements goto-line navigation.
-func (v *downloadingView) jumpTo(idx, n, pageSize int) {
-	v.cursor, v.vs = vsJump(idx, n, pageSize)
+func (v downloadingView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	if item, ok := v.currentItem(ctx.dlItems); ok {
+		return item.Video, true
+	}
+	return youtube.Video{}, false
 }
 
-// jumpToLast implements goto-last navigation.
-func (v *downloadingView) jumpToLast(n, pageSize int) {
-	v.cursor, v.vs = vsJump(n-1, n, pageSize)
+func (v *downloadingView) jumpTo(idx int, ctx viewCtx) {
+	n := len(ctx.dlItems)
+	v.cursor, v.vs = vsJump(idx, n, ctx.pageSize)
+}
+
+func (v *downloadingView) jumpToLast(ctx viewCtx) {
+	n := len(ctx.dlItems)
+	v.cursor, v.vs = vsJump(n-1, n, ctx.pageSize)
 }
 
 // reclamp keeps cursor/scroll valid after the queue length changes.

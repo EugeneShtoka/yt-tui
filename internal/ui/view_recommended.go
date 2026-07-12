@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 // recommendedView owns the Recommended tab's private cursor/scroll/sort. The
@@ -41,12 +43,18 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 
 func (v recommendedView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
-func (v *recommendedView) jumpTo(idx, n, pageSize int) {
-	v.cursor, v.vs = vsJump(idx, n, pageSize)
+func (v *recommendedView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	return ctx.recFeed.At(v.cursor)
 }
 
-func (v *recommendedView) jumpToLast(n, pageSize int) {
-	v.cursor, v.vs = vsJump(n-1, n, pageSize)
+func (v *recommendedView) jumpTo(idx int, ctx viewCtx) {
+	n := ctx.recFeed.Len()
+	v.cursor, v.vs = vsJump(idx, n, ctx.pageSize)
+}
+
+func (v *recommendedView) jumpToLast(ctx viewCtx) {
+	n := ctx.recFeed.Len()
+	v.cursor, v.vs = vsJump(n-1, n, ctx.pageSize)
 }
 
 // reclamp keeps cursor/scroll valid after the feed length changes.

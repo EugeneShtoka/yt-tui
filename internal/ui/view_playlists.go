@@ -31,19 +31,29 @@ type playlistsView struct {
 	sort int // video pane sort (one of vidSort*)
 }
 
-func (v *playlistsView) jumpTo(idx, plCount, nVid, pageSize int) {
+func (v playlistsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	if v.pane == 1 {
+		if i := v.vidCursor; i >= 0 && i < len(ctx.plVideos) {
+			return ctx.plVideos[i], true
+		}
+	}
+	return youtube.Video{}, false
+}
+
+func (v *playlistsView) jumpTo(idx int, ctx viewCtx) {
 	if v.pane == 0 {
-		v.cursor, v.vs = vsJump(idx, plCount, pageSize)
+		v.cursor, v.vs = vsJump(idx, ctx.plCount, ctx.pageSize)
 	} else {
-		v.vidCursor, v.vidVS = vsJump(idx, nVid, pageSize)
+		v.vidCursor, v.vidVS = vsJump(idx, len(ctx.plVideos), ctx.pageSize)
 	}
 }
 
-func (v *playlistsView) jumpToLast(plCount, nVid, pageSize int) {
+func (v *playlistsView) jumpToLast(ctx viewCtx) {
 	if v.pane == 0 {
-		v.cursor, v.vs = vsJump(plCount-1, plCount, pageSize)
+		v.cursor, v.vs = vsJump(ctx.plCount-1, ctx.plCount, ctx.pageSize)
 	} else {
-		v.vidCursor, v.vidVS = vsJump(nVid-1, nVid, pageSize)
+		n := len(ctx.plVideos)
+		v.vidCursor, v.vidVS = vsJump(n-1, n, ctx.pageSize)
 	}
 }
 

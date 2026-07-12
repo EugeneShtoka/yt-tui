@@ -92,6 +92,12 @@ type tabView interface {
 	// multi-pane views (Search) can resolve their sub-pane context from the
 	// shared, router-owned result data.
 	context(ctx viewCtx) ContextID
+	// currentVideo returns the video at the current cursor position, if any.
+	currentVideo(ctx viewCtx) (youtube.Video, bool)
+	// jumpTo moves the cursor to the given index.
+	jumpTo(idx int, ctx viewCtx)
+	// jumpToLast moves the cursor to the last item.
+	jumpToLast(ctx viewCtx)
 }
 
 // viewCtx builds the shared context handed to the active view this frame.

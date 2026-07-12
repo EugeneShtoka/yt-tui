@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 // subscriptionsView owns the Subscriptions (all-channel feed) tab's private
@@ -31,12 +33,18 @@ func (in subActionIntent) apply(m *Model) tea.Cmd {
 
 func (v subscriptionsView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
-func (v *subscriptionsView) jumpTo(idx, n, pageSize int) {
-	v.cursor, v.vs = vsJump(idx, n, pageSize)
+func (v subscriptionsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	return ctx.subFeed.At(v.cursor)
 }
 
-func (v *subscriptionsView) jumpToLast(n, pageSize int) {
-	v.cursor, v.vs = vsJump(n-1, n, pageSize)
+func (v *subscriptionsView) jumpTo(idx int, ctx viewCtx) {
+	n := ctx.subFeed.Len()
+	v.cursor, v.vs = vsJump(idx, n, ctx.pageSize)
+}
+
+func (v *subscriptionsView) jumpToLast(ctx viewCtx) {
+	n := ctx.subFeed.Len()
+	v.cursor, v.vs = vsJump(n-1, n, ctx.pageSize)
 }
 
 // reclamp keeps cursor/scroll valid after the feed length changes.

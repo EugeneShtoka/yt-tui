@@ -68,14 +68,14 @@ func (v *historyView) context(ctx viewCtx) ContextID {
 	return CtxHistoryVideo
 }
 
-// jumpTo implements goto-line navigation.
-func (v *historyView) jumpTo(idx, pageSize int) {
-	v.cursor, v.vs = vsJump(idx, len(v.entries), pageSize)
+func (v historyView) currentVideo(_ viewCtx) (youtube.Video, bool) { return youtube.Video{}, false }
+
+func (v *historyView) jumpTo(idx int, ctx viewCtx) {
+	v.cursor, v.vs = vsJump(idx, len(v.entries), ctx.pageSize)
 }
 
-// jumpToLast implements goto-last navigation.
-func (v *historyView) jumpToLast(pageSize int) {
-	v.jumpTo(len(v.entries)-1, pageSize)
+func (v *historyView) jumpToLast(ctx viewCtx) {
+	v.jumpTo(len(v.entries)-1, ctx)
 }
 
 // update handles key input for the History tab. It returns an intent for any

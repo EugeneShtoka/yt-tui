@@ -71,14 +71,15 @@ func TestLocalActionEmptyNoIntent(t *testing.T) {
 
 func TestLocalCurrentVideoConvertsEntry(t *testing.T) {
 	v := localView{cursor: 1}
-	got, ok := v.currentVideo(sampleLocal())
+	lib := library.New(sampleLocal())
+	got, ok := v.currentVideo(localCtx(sampleLocal(), 10))
 	if !ok {
 		t.Fatal("currentVideo should return ok")
 	}
 	if got.ID != "b" || got.URL != "https://www.youtube.com/watch?v=b" {
 		t.Errorf("currentVideo: got %+v", got)
 	}
-	if _, ok := (localView{cursor: 9}).currentVideo(sampleLocal()); ok {
+	if _, ok := (localView{cursor: 9}).currentVideo(viewCtx{library: &lib}); ok {
 		t.Error("currentVideo out of range should be false")
 	}
 }

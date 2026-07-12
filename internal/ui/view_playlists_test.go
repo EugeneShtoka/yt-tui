@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -113,12 +114,12 @@ func TestPlaylistsVideoPaneActionForwardsIntent(t *testing.T) {
 
 func TestPlaylistsJumpToLast(t *testing.T) {
 	v := playlistsView{}
-	v.jumpToLast(3, len(sampleVideos()), 10)
+	v.jumpToLast(viewCtx{plCount: 3, plVideos: sampleVideos(), pageSize: 10})
 	if v.cursor != 2 {
 		t.Errorf("jumpToLast pane 0: cursor=%d, want 2", v.cursor)
 	}
 	v.pane = 1
-	v.jumpToLast(3, 4, 10)
+	v.jumpToLast(viewCtx{plCount: 3, plVideos: make([]youtube.Video, 4), pageSize: 10})
 	if v.vidCursor != 3 {
 		t.Errorf("jumpToLast pane 1: vidCursor=%d, want 3", v.vidCursor)
 	}

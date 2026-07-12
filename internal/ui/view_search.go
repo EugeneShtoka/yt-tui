@@ -107,14 +107,31 @@ func (v *searchView) updateVS(nCh, nVid, pageSize int) {
 	}
 }
 
-func (v *searchView) jumpTo(idx, nCh, nVid, pageSize int) {
-	v.cursor = clamp(nCh+idx, nCh+nVid)
-	v.updateVS(nCh, nVid, pageSize)
+func (v searchView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	if ctx.searchChSel != nil {
+		if i := v.vidCursor; i >= 0 && i < len(ctx.searchChVideos) {
+			return ctx.searchChVideos[i], true
+		}
+		return youtube.Video{}, false
+	}
+	nCh := len(ctx.searchChannels)
+	idx := v.cursor - nCh
+	if idx >= 0 && idx < len(ctx.searchVideos) {
+		return ctx.searchVideos[idx], true
+	}
+	return youtube.Video{}, false
 }
 
-func (v *searchView) jumpToLast(nCh, nVid, pageSize int) {
+func (v *searchView) jumpTo(idx int, ctx viewCtx) {
+	nCh, nVid := len(ctx.searchChannels), len(ctx.searchVideos)
+	v.cursor = clamp(nCh+idx, nCh+nVid)
+	v.updateVS(nCh, nVid, ctx.pageSize)
+}
+
+func (v *searchView) jumpToLast(ctx viewCtx) {
+	nCh, nVid := len(ctx.searchChannels), len(ctx.searchVideos)
 	v.cursor = nCh + clamp(nVid-1, nVid)
-	v.updateVS(nCh, nVid, pageSize)
+	v.updateVS(nCh, nVid, ctx.pageSize)
 }
 
 // update handles navigation directly for whichever result mode is active, and

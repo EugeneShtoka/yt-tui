@@ -740,50 +740,7 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 		}
 		return youtube.Video{}, false
 	}
-	switch m.activeTab {
-	case tabRecommended:
-		return m.recFeed.At(m.recommended.cursor)
-	case tabSubscriptions:
-		return m.subFeed.At(m.subscriptions.cursor)
-	case tabChannels:
-		if m.channels.tagsMode && m.channels.pane == 1 {
-			vids := m.tagVideos()
-			if i := m.channels.cursor; i >= 0 && i < len(vids) {
-				return vids[i], true
-			}
-		} else if !m.channels.tagsMode && m.channels.pane == 1 {
-			if i := m.channels.vidCursor; i >= 0 && i < len(m.subChVideos) {
-				return m.subChVideos[i], true
-			}
-		}
-	case tabSearch:
-		if m.searchChSel != nil {
-			if i := m.search.vidCursor; i >= 0 && i < len(m.searchChVideos) {
-				return m.searchChVideos[i], true
-			}
-		} else {
-			nCh := len(m.searchChannels)
-			idx := m.search.cursor - nCh
-			if idx >= 0 && idx < len(m.searchVideos) {
-				return m.searchVideos[idx], true
-			}
-		}
-	case tabPlaylists:
-		if m.playlist.pane == 1 {
-			if vids, ok := m.playlistVidCache[m.selectedPlaylistKey()]; ok {
-				if i := m.playlist.vidCursor; i >= 0 && i < len(vids) {
-					return vids[i], true
-				}
-			}
-		}
-	case tabDownloading:
-		if item, ok := m.downloading.currentItem(m.downloader.Items()); ok {
-			return item.Video, true
-		}
-	case tabLocal:
-		return m.local.currentVideo(m.library.Videos())
-	}
-	return youtube.Video{}, false
+	return m.activeView().currentVideo(m.viewCtx())
 }
 
 func (m *Model) parseNumPrefix() int {
@@ -797,72 +754,8 @@ func (m *Model) parseNumPrefix() int {
 	return n
 }
 
-func (m *Model) jumpToLine(idx int) {
-	ps := m.pageSize()
-	switch m.activeTab {
-	case tabRecommended:
-		m.recommended.jumpTo(idx, m.recFeed.Len(), ps)
-	case tabSubscriptions:
-		m.subscriptions.jumpTo(idx, m.subFeed.Len(), ps)
-	case tabChannels:
-		if m.channels.tagsMode {
-			if m.channels.pane == 1 {
-				m.channels.cursor, m.channels.vs = vsJump(idx, len(m.tagVideos()), ps)
-			} else {
-				m.channels.tagCursor, m.channels.tagVS = vsJump(idx, len(m.tagListItems()), ps)
-			}
-		} else if m.channels.pane == 0 {
-			m.channels.cursor, m.channels.vs = vsJump(idx, len(m.sortedChannels()), ps)
-		} else {
-			m.channels.vidCursor, m.channels.vidVS = vsJump(idx, len(m.subChVideos), ps)
-		}
-	case tabPlaylists:
-		m.playlist.jumpTo(idx, m.playlistCount(), len(m.playlistVidCache[m.selectedPlaylistKey()]), ps)
-	case tabSearch:
-		m.search.jumpTo(idx, len(m.searchChannels), len(m.searchVideos), ps)
-	case tabDownloading:
-		m.downloading.jumpTo(idx, len(m.downloader.Items()), ps)
-	case tabLocal:
-		m.local.jumpTo(idx, m.library.Len(), ps)
-	case tabHistory:
-		m.history.jumpTo(idx, ps)
-	}
-}
-
-func (m *Model) jumpToLast() {
-	ps := m.pageSize()
-	switch m.activeTab {
-	case tabRecommended:
-		m.recommended.jumpToLast(m.recFeed.Len(), ps)
-	case tabSubscriptions:
-		m.subscriptions.jumpToLast(m.subFeed.Len(), ps)
-	case tabChannels:
-		if m.channels.tagsMode {
-			if m.channels.pane == 1 {
-				vids := m.tagVideos()
-				m.channels.cursor, m.channels.vs = vsJump(len(vids)-1, len(vids), ps)
-			} else {
-				n := len(m.tagListItems())
-				m.channels.tagCursor, m.channels.tagVS = vsJump(n-1, n, ps)
-			}
-		} else if m.channels.pane == 0 {
-			sc := m.sortedChannels()
-			m.channels.cursor, m.channels.vs = vsJump(len(sc)-1, len(sc), ps)
-		} else {
-			m.channels.vidCursor, m.channels.vidVS = vsJump(len(m.subChVideos)-1, len(m.subChVideos), ps)
-		}
-	case tabPlaylists:
-		m.playlist.jumpToLast(m.playlistCount(), len(m.playlistVidCache[m.selectedPlaylistKey()]), ps)
-	case tabSearch:
-		m.search.jumpToLast(len(m.searchChannels), len(m.searchVideos), ps)
-	case tabDownloading:
-		m.downloading.jumpToLast(len(m.downloader.Items()), ps)
-	case tabLocal:
-		m.local.jumpToLast(m.library.Len(), ps)
-	case tabHistory:
-		m.history.jumpToLast(ps)
-	}
-}
+func (m *Model) jumpToLine(idx int) { m.activeView().jumpTo(idx, m.viewCtx()) }
+func (m *Model) jumpToLast()        { m.activeView().jumpToLast(m.viewCtx()) }
 
 func clamp(v, max int) int {
 	if v < 0 {

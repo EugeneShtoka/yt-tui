@@ -225,7 +225,7 @@ func TestHistoryViewContextDetailOpen(t *testing.T) {
 
 func TestHistoryViewJumpTo(t *testing.T) {
 	v := sampleHistory()
-	v.jumpTo(2, 10)
+	v.jumpTo(2, viewCtx{pageSize: 10})
 	if v.cursor != 2 {
 		t.Errorf("jumpTo(2): cursor=%d, want 2", v.cursor)
 	}
@@ -233,7 +233,7 @@ func TestHistoryViewJumpTo(t *testing.T) {
 
 func TestHistoryViewJumpToLast(t *testing.T) {
 	v := sampleHistory()
-	v.jumpToLast(10)
+	v.jumpToLast(viewCtx{pageSize: 10})
 	if v.cursor != 2 {
 		t.Errorf("jumpToLast: cursor=%d, want 2", v.cursor)
 	}

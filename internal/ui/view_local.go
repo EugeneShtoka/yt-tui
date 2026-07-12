@@ -38,23 +38,8 @@ type localIntent struct {
 	video db.LocalVideo
 }
 
-// jumpTo implements goto-line navigation.
-func (v *localView) jumpTo(idx, n, pageSize int) {
-	v.cursor, v.vs = vsJump(idx, n, pageSize)
-}
-
-// jumpToLast implements goto-last navigation.
-func (v *localView) jumpToLast(n, pageSize int) {
-	v.cursor, v.vs = vsJump(n-1, n, pageSize)
-}
-
-// reclamp keeps cursor/scroll valid after the library length changes.
-func (v *localView) reclamp(n, pageSize int) {
-	v.cursor, v.vs = vsMove(clamp(v.cursor, n), v.vs, n, 0, pageSize, false)
-}
-
-// currentVideo returns the selected library entry as a youtube.Video.
-func (v localView) currentVideo(videos []db.LocalVideo) (youtube.Video, bool) {
+func (v localView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	videos := ctx.library.Videos()
 	if i := v.cursor; i >= 0 && i < len(videos) {
 		lv := videos[i]
 		return youtube.Video{
@@ -64,6 +49,21 @@ func (v localView) currentVideo(videos []db.LocalVideo) (youtube.Video, bool) {
 		}, true
 	}
 	return youtube.Video{}, false
+}
+
+func (v *localView) jumpTo(idx int, ctx viewCtx) {
+	n := ctx.library.Len()
+	v.cursor, v.vs = vsJump(idx, n, ctx.pageSize)
+}
+
+func (v *localView) jumpToLast(ctx viewCtx) {
+	n := ctx.library.Len()
+	v.cursor, v.vs = vsJump(n-1, n, ctx.pageSize)
+}
+
+// reclamp keeps cursor/scroll valid after the library length changes.
+func (v *localView) reclamp(n, pageSize int) {
+	v.cursor, v.vs = vsMove(clamp(v.cursor, n), v.vs, n, 0, pageSize, false)
 }
 
 // context reports the Local tab's sort/chord context.

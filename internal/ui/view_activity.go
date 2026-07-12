@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -39,7 +40,10 @@ func (in activityNavIntent) apply(m *Model) tea.Cmd { return m.navigateToActivit
 
 // context: Activity has no video/sort semantics, so it reports the default
 // context (matching its absence from the pre-interface currentContext switch).
-func (v activityView) context(ctx viewCtx) ContextID { return CtxVideoList }
+func (v activityView) context(ctx viewCtx) ContextID                    { return CtxVideoList }
+func (v activityView) currentVideo(_ viewCtx) (youtube.Video, bool)     { return youtube.Video{}, false }
+func (v *activityView) jumpTo(_ int, _ viewCtx)                         {}
+func (v *activityView) jumpToLast(_ viewCtx)                            {}
 
 // update handles navigation keys. On drill-down it returns a nav intent for the
 // router to perform the cross-tab jump.

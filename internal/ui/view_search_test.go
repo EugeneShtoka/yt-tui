@@ -94,7 +94,7 @@ func TestSearchActionIntentCarriesKey(t *testing.T) {
 func TestSearchJumpToLast(t *testing.T) {
 	v := searchView{}
 	nCh, nVid := len(sampleChannels()), len(sampleVideos())
-	v.jumpToLast(nCh, nVid, 10)
+	v.jumpToLast(viewCtx{searchChannels: sampleChannels(), searchVideos: sampleVideos(), pageSize: 10})
 	if want := nCh + nVid - 1; v.cursor != want {
 		t.Errorf("jumpToLast: cursor=%d, want %d", v.cursor, want)
 	}

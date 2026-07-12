@@ -233,6 +233,53 @@ func (v channelsView) render(ctx viewCtx, height int) string {
 	return ctx.renderChannels(height)
 }
 
+func (v channelsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+	if v.tagsMode && v.pane == 1 {
+		if i := v.cursor; i >= 0 && i < len(ctx.chTagVideos) {
+			return ctx.chTagVideos[i], true
+		}
+	} else if !v.tagsMode && v.pane == 1 {
+		if i := v.vidCursor; i >= 0 && i < len(ctx.subChVideos) {
+			return ctx.subChVideos[i], true
+		}
+	}
+	return youtube.Video{}, false
+}
+
+func (v *channelsView) jumpTo(idx int, ctx viewCtx) {
+	ps := ctx.pageSize
+	if v.tagsMode {
+		if v.pane == 1 {
+			v.cursor, v.vs = vsJump(idx, len(ctx.chTagVideos), ps)
+		} else {
+			v.tagCursor, v.tagVS = vsJump(idx, len(ctx.chTagItems), ps)
+		}
+	} else if v.pane == 0 {
+		v.cursor, v.vs = vsJump(idx, len(ctx.chSorted), ps)
+	} else {
+		v.vidCursor, v.vidVS = vsJump(idx, len(ctx.subChVideos), ps)
+	}
+}
+
+func (v *channelsView) jumpToLast(ctx viewCtx) {
+	ps := ctx.pageSize
+	if v.tagsMode {
+		if v.pane == 1 {
+			n := len(ctx.chTagVideos)
+			v.cursor, v.vs = vsJump(n-1, n, ps)
+		} else {
+			n := len(ctx.chTagItems)
+			v.tagCursor, v.tagVS = vsJump(n-1, n, ps)
+		}
+	} else if v.pane == 0 {
+		n := len(ctx.chSorted)
+		v.cursor, v.vs = vsJump(n-1, n, ps)
+	} else {
+		n := len(ctx.subChVideos)
+		v.vidCursor, v.vidVS = vsJump(n-1, n, ps)
+	}
+}
+
 // unsubscribeCurrentChannel removes the currently focused channel.
 // channels.ChannelSet.Unsubscribe decides local vs remote internally and
 // returns the appropriate backend command; this function handles the common
