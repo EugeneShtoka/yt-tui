@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EugeneShtoka/yt-tui/internal/channels"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
@@ -159,7 +160,7 @@ type Model struct {
 	// channel/video slices, loading flags, activeID, and latest map stay here
 	// (shared / async-written — docs/TABVIEW_DESIGN.md, Finding 2).
 	channels           channelsView
-	subChannels        []youtube.Channel
+	subs               channels.ChannelSet
 	subChLoading       bool
 	subChLoaded        bool
 	subChVideos        []youtube.Video
@@ -269,7 +270,6 @@ type Model struct {
 	streamedVideoIDs     map[string]bool  // video IDs with any play/stream history event
 	videoPositions       map[string]int64 // last known position ms for any video
 	recHidden            map[string]bool  // video IDs hidden from recommended
-	subscribedChannelIDs map[string]bool  // channel IDs from subscriptions
 
 	// ── Downloading: play-after-download ─────────────────────────────────
 	playAfterDownload map[string]bool
@@ -376,19 +376,8 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	// Load full channel list from DB for immediate display.
 	cachedChannels, _ := database.GetSubscribedChannels()
 
-	// Derive subscribed channel IDs from cached channels to pre-filter recommended feed.
-	subscribedIDs := make(map[string]bool)
-	for _, ch := range cachedChannels {
-		if ch.ID != "" {
-			subscribedIDs[ch.ID] = true
-		}
-		if ch.Name != "" {
-			subscribedIDs["name:"+strings.ToLower(ch.Name)] = true
-		}
-	}
-	if len(subscribedIDs) > 0 {
-		recCache = feed.FilterSubscribed(recCache, subscribedIDs)
-	}
+	subs := channels.New(cachedChannels, database, nil)
+	recCache = feed.FilterSubscribed(recCache, subs.Index())
 
 	// Load subscriptions all-video list from channel_videos aggregate.
 	channelIDs := make([]string, 0, len(cachedChannels))
@@ -429,8 +418,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		streamedVideoIDs:     mustWatchedIDs(database),
 		videoPositions:       mustVideoPositions(database),
 		recHidden:            recHidden,
-		subscribedChannelIDs: subscribedIDs,
-		subChannels:          cachedChannels,
+		subs:                 subs,
 		subChLoaded:          len(cachedChannels) > 0,
 		subChLatest:          chLatest,
 		localFilterInput:     textinput.New(),
@@ -509,17 +497,17 @@ func firstTag(tags []string) string {
 
 // sortedChannels returns all subscribed channels in the current sort order.
 func (m Model) sortedChannels() []youtube.Channel {
-	return m.sortChannelSlice(m.subChannels)
+	return m.sortChannelSlice(m.subs.Channels())
 }
 
 // channelsInTag returns channels belonging to the given tag (supports pseudo-tags).
 func (m Model) channelsInTag(tag string) []youtube.Channel {
 	switch tag {
 	case pseudoTagAll:
-		return m.subChannels
+		return m.subs.Channels()
 	case pseudoTagUntagged:
 		var out []youtube.Channel
-		for _, ch := range m.subChannels {
+		for _, ch := range m.subs.Channels() {
 			if len(ch.Tags) == 0 {
 				out = append(out, ch)
 			}
@@ -527,7 +515,7 @@ func (m Model) channelsInTag(tag string) []youtube.Channel {
 		return out
 	default:
 		var out []youtube.Channel
-		for _, ch := range m.subChannels {
+		for _, ch := range m.subs.Channels() {
 			for _, t := range ch.Tags {
 				if t == tag {
 					out = append(out, ch)
@@ -547,7 +535,7 @@ func (m Model) sortedChannelsInTag(tag string) []youtube.Channel {
 // allTags returns all unique user-defined tags, sorted alphabetically.
 func (m Model) allTags() []string {
 	seen := map[string]bool{}
-	for _, ch := range m.subChannels {
+	for _, ch := range m.subs.Channels() {
 		for _, t := range ch.Tags {
 			if t != "" {
 				seen[t] = true
@@ -1115,20 +1103,7 @@ func (m Model) buildChordDefs() []chordDef {
 					m.setStatus("local subscribe: "+err.Error(), true)
 					return m, nil
 				}
-				found := false
-				for _, c := range m.subChannels {
-					if c.ID == chID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					m.subChannels = append(m.subChannels, ch)
-					m.subscribedChannelIDs[chID] = true
-					if chName != "" {
-						m.subscribedChannelIDs["name:"+strings.ToLower(chName)] = true
-					}
-				}
+				m.subs.Subscribe(ch)
 				m.setStatus("Locally subscribed: "+chName, false)
 				_ = m.db.LogActivity(db.ActivityEntry{
 					Type: "subscribe", IsLocal: true,

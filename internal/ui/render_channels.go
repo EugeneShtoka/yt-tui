@@ -32,9 +32,9 @@ func (m Model) renderSubChannels(height int) string {
 	// ── Flat mode ─────────────────────────────────────────────────────────────
 	if m.channels.pane == 0 {
 		var body string
-		if m.subChLoading && len(m.subChannels) == 0 {
+		if m.subChLoading && m.subs.Len() == 0 {
 			body = m.spinner.View() + " Loading channels…"
-		} else if len(m.subChannels) == 0 {
+		} else if m.subs.Len() == 0 {
 			body = styleDim.Render("No channels found.")
 		} else {
 			body = m.renderChannelList(m.sortedChannels(), height-headerH)
@@ -54,7 +54,7 @@ func (m Model) renderSubChannelsTags(header string, headerH, height int) string 
 	switch m.channels.pane {
 	case 0: // tag list
 		var body string
-		if m.subChLoading && len(m.subChannels) == 0 {
+		if m.subChLoading && m.subs.Len() == 0 {
 			body = m.spinner.View() + " Loading channels…"
 		} else {
 			body = m.renderTagList(height - headerH)

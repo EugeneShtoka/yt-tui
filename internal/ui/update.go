@@ -61,6 +61,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("YouTube sync unavailable: "+msg.err.Error(), true)
 		} else {
 			m.ytClient = msg.client
+			m.subs.SetYTClient(msg.client)
 			// If the playlists tab is open, kick off a background refresh now.
 			if m.activeTab == tabPlaylists && !m.ytPlLoading {
 				m.ytPlLoading = true
@@ -114,18 +115,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case youtube.UnsubscribeMsg:
 		if msg.Err != nil {
 			m.setStatus("unsubscribe failed: "+msg.Err.Error(), true)
-		} else {
-			m.setStatus("Unsubscribed from: "+msg.ChannelName, false)
-			delete(m.subscribedChannelIDs, msg.ChannelID)
-			delete(m.subscribedChannelIDs, "name:"+strings.ToLower(msg.ChannelName))
-			m.subChannels = feed.RemoveChannelByID(m.subChannels, msg.ChannelID)
-			m.subFeed.RemoveChannel(msg.ChannelID, msg.ChannelName)
-			m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
-			m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, msg.ChannelID, msg.ChannelName)
-			m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
-			return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
+			return m, nil
 		}
-		return m, nil
+		m.setStatus("Unsubscribed from: "+msg.ChannelName, false)
+		return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
 
 	case youtube.RemoveYTPlaylistVideoMsg:
 		if msg.Err != nil {
@@ -253,44 +246,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("channels: "+msg.Err.Error(), true)
 			}
 		} else {
-			// Preserve locally-added channels (those in current list but absent from YT result).
-			ytIDs := make(map[string]bool, len(msg.Channels))
-			for _, ch := range msg.Channels {
-				ytIDs[ch.ID] = true
-			}
-			var localOnly []youtube.Channel
-			for _, ch := range m.subChannels {
-				if !ytIDs[ch.ID] {
-					localOnly = append(localOnly, ch)
-				}
-			}
-			merged := append(msg.Channels, localOnly...)
-
-			// Update channel list only when membership changed (added or removed).
-			if channelSetChanged(m.subChannels, merged) {
-				// Preserve user-set alias and tags from the current in-memory list.
-				existing := make(map[string]youtube.Channel, len(m.subChannels))
-				for _, ch := range m.subChannels {
-					existing[ch.ID] = ch
-				}
-				m.subChannels = merged
-				for i, ch := range m.subChannels {
-					if old, ok := existing[ch.ID]; ok {
-						m.subChannels[i].Alias = old.Alias
-						m.subChannels[i].Tags = old.Tags
-					}
-				}
-			}
-			for _, ch := range m.subChannels {
-				if ch.ID != "" {
-					m.subscribedChannelIDs[ch.ID] = true
-				}
-				if ch.Name != "" {
-					m.subscribedChannelIDs["name:"+strings.ToLower(ch.Name)] = true
-				}
-			}
-			m.recFeed.SetVideos(feed.FilterSubscribed(m.recFeed.Videos(), m.subscribedChannelIDs))
-			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subChannels, m.recFeed.Videos())}
+			m.subs.SyncFromYT(msg.Channels)
+			m.recFeed.SetVideos(feed.FilterSubscribed(m.recFeed.Videos(), m.subs.Index()))
+			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subs.Channels(), m.recFeed.Videos())}
 			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
 			for _, ch := range msg.Channels {
 				if ch.ID == "" {
@@ -422,7 +380,7 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 				Hidden:          m.recHidden,
 				Blacklist:       m.cfg.BlacklistedChannels,
 				Cfg:             m.cfg,
-				Subscribed:      m.subscribedChannelIDs,
+				Subscribed:      m.subs.Index(),
 				Sort:            m.recommended.sort,
 			})
 			saveCmd := saveFeedCacheCmd(m.db, "recommended", m.recFeed.Videos())
@@ -1223,7 +1181,7 @@ func (m *Model) fetchChannelLatest(channelID string) tea.Cmd {
 // forceRefreshAllChannels fires a full fetch for every subscribed channel.
 func (m *Model) forceRefreshAllChannels() tea.Cmd {
 	var cmds []tea.Cmd
-	for _, ch := range m.subChannels {
+	for _, ch := range m.subs.Channels() {
 		if ch.ID == "" {
 			continue
 		}
@@ -1235,18 +1193,16 @@ func (m *Model) forceRefreshAllChannels() tea.Cmd {
 
 // channelByID returns the Channel struct for a given ID, or an empty Channel.
 func (m *Model) channelByID(id string) youtube.Channel {
-	for _, ch := range m.subChannels {
-		if ch.ID == id {
-			return ch
-		}
+	if ch, ok := m.subs.ByID(id); ok {
+		return ch
 	}
 	return youtube.Channel{ID: id}
 }
 
 // rebuildSubVideos re-queries GetAllChannelVideos and re-sorts by the current sort.
 func (m *Model) rebuildSubVideos() {
-	ids := make([]string, 0, len(m.subChannels))
-	for _, ch := range m.subChannels {
+	ids := make([]string, 0, m.subs.Len())
+	for _, ch := range m.subs.Channels() {
 		if ch.ID != "" {
 			ids = append(ids, ch.ID)
 		}
@@ -1379,12 +1335,7 @@ func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if chID != "" {
 			if m.subChEditKind == 1 {
 				_ = m.db.SetChannelAlias(chID, val)
-				for i, ch := range m.subChannels {
-					if ch.ID == chID {
-						m.subChannels[i].Alias = val
-						break
-					}
-				}
+				m.subs.SetAlias(chID, val)
 				if val == "" {
 					m.setStatus("Alias cleared", false)
 				} else {
@@ -1393,12 +1344,7 @@ func (m Model) handleChannelEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				tags := parseTags(val)
 				_ = m.db.SetChannelTags(chID, tags)
-				for i, ch := range m.subChannels {
-					if ch.ID == chID {
-						m.subChannels[i].Tags = tags
-						break
-					}
-				}
+				m.subs.SetTags(chID, tags)
 				m.setStatus("Tags updated", false)
 			}
 		}
@@ -2120,21 +2066,6 @@ func ytPlaylistSetChanged(a, b []youtube.YTPlaylist) bool {
 }
 
 // channelSetChanged returns true if the two lists differ in channel membership.
-func channelSetChanged(a, b []youtube.Channel) bool {
-	if len(a) != len(b) {
-		return true
-	}
-	ids := make(map[string]bool, len(a))
-	for _, ch := range a {
-		ids[ch.ID] = true
-	}
-	for _, ch := range b {
-		if !ids[ch.ID] {
-			return true
-		}
-	}
-	return false
-}
 
 // playVideo plays locally if downloaded, otherwise streams.
 func (m *Model) playVideo(v youtube.Video) {
@@ -2239,51 +2170,6 @@ func (m Model) subscribeCurrentChannel() (tea.Model, tea.Cmd) {
 	return m, youtube.SubscribeToChannel(m.ytClient, chID, chName)
 }
 
-func (m Model) unsubscribeCurrentChannel() (tea.Model, tea.Cmd) {
-	chID, chName := m.currentChannelInfo()
-	// Check if this is a local-only subscription.
-	for _, ch := range m.subChannels {
-		if ch.ID == chID {
-			if ch.IsLocal {
-				return m.unsubscribeLocal(chID, chName)
-			}
-			break
-		}
-	}
-	return m.unsubscribeChannel(chID, chName)
-}
-
-func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
-	if chID == "" {
-		m.setStatus("unsubscribe: no channel", true)
-		return m, nil
-	}
-	_ = m.db.RemoveSubscribedChannel(chID)
-	m.subChannels = feed.RemoveChannelByID(m.subChannels, chID)
-	delete(m.subscribedChannelIDs, chID)
-	delete(m.subscribedChannelIDs, "name:"+strings.ToLower(chName))
-	// Strip the channel's videos from subscription feeds and purge from DB.
-	m.subFeed.RemoveChannel(chID, chName)
-	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
-	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, chID, chName)
-	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
-	m.setStatus("Removed local subscription: "+chName, false)
-	// Trigger a fresh recommended fetch so the channel's videos drip back in.
-	m.recFeed.StartRefresh()
-	return m, tea.Batch(deleteChannelVideosCmd(m.db, chID), youtube.FetchRecommended(m.cfg))
-}
-
-func (m Model) unsubscribeChannel(chID, chName string) (tea.Model, tea.Cmd) {
-	if m.ytClient == nil {
-		m.setStatus("unsubscribe: configure 'browser' in config to enable", true)
-		return m, nil
-	}
-	if chID == "" {
-		m.setStatus("unsubscribe: no channel", true)
-		return m, nil
-	}
-	return m, youtube.UnsubscribeFromChannel(m.ytClient, chID, chName)
-}
 
 // currentChannelInfo returns the channel ID and name for the currently focused item.
 func (m Model) currentChannelInfo() (id, name string) {

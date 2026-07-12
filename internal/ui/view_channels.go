@@ -5,6 +5,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 // channelsView owns the Channels tab's private navigation state across its two
@@ -93,8 +96,7 @@ func (in channelsActionIntent) apply(m *Model) tea.Cmd {
 			}
 		case key.Matches(msg, keys.Unsubscribe):
 			if m.channels.cursor < n {
-				ch := sorted[m.channels.cursor]
-				nm, cmd := m.unsubscribeChannel(ch.ID, ch.Name)
+				nm, cmd := m.unsubscribeCurrentChannel()
 				*m = nm.(Model)
 				return cmd
 			}
@@ -229,4 +231,23 @@ func (v *channelsView) updateTags(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 // input), so nothing is threaded through as parameters here.
 func (v channelsView) render(ctx viewCtx, height int) string {
 	return ctx.renderChannels(height)
+}
+
+// unsubscribeCurrentChannel removes the currently focused channel.
+// channels.ChannelSet.Unsubscribe decides local vs remote internally and
+// returns the appropriate backend command; this function handles the common
+// in-memory UI cleanup.
+func (m Model) unsubscribeCurrentChannel() (tea.Model, tea.Cmd) {
+	chID, chName := m.currentChannelInfo()
+	cmd, ok := m.subs.Unsubscribe(chID, chName)
+	if !ok {
+		m.setStatus("unsubscribe: configure 'browser' in config to enable", true)
+		return m, nil
+	}
+	m.subFeed.RemoveChannel(chID, chName)
+	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
+	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, chID, chName)
+	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
+	m.recFeed.StartRefresh()
+	return m, tea.Batch(cmd, youtube.FetchRecommended(m.cfg))
 }

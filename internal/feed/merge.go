@@ -62,13 +62,3 @@ func RemoveChannelVideos(videos []youtube.Video, channelID, channelName string) 
 	return out
 }
 
-// RemoveChannelByID returns a new slice with the given channel removed.
-func RemoveChannelByID(channels []youtube.Channel, id string) []youtube.Channel {
-	out := make([]youtube.Channel, 0, len(channels))
-	for _, ch := range channels {
-		if ch.ID != id {
-			out = append(out, ch)
-		}
-	}
-	return out
-}

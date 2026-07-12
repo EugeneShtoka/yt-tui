@@ -104,11 +104,3 @@ func TestRemoveChannelVideos(t *testing.T) {
 		t.Errorf("remove by channel name: got %q, want 'a'", got)
 	}
 }
-
-func TestRemoveChannelByID(t *testing.T) {
-	channels := []youtube.Channel{{ID: "ch1"}, {ID: "ch2"}}
-	result := RemoveChannelByID(channels, "ch1")
-	if len(result) != 1 || result[0].ID != "ch2" {
-		t.Errorf("RemoveChannelByID: got %+v, want [ch2]", result)
-	}
-}
