@@ -3,12 +3,14 @@ package ui
 import (
 	"testing"
 
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func recCtx(videos []youtube.Video, pageSize int) viewCtx {
-	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, recVideos: videos}
+	f := feed.NewStarting(videos)
+	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, recFeed: &f}
 }
 
 func sampleVideos() []youtube.Video {

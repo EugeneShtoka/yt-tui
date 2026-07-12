@@ -141,13 +141,11 @@ type Model struct {
 	activeTab int // one of the tabXxx constants above
 
 	// ── Recommended ─────────────────────────────────────────────────────────
-	// P4 slice: private cursor/scroll/sort live in recommendedView; the feed
-	// slice + fetch-lifecycle flags stay here (shared / async-written).
-	recVideos     []youtube.Video
-	recommended   recommendedView
-	recLoading    bool
-	recLoaded     bool
-	recRefreshing bool // true when background refresh is running over stale cache
+	// P5 item #5: the feed slice + fetch-lifecycle flags + filter pipeline are
+	// owned by recFeed (internal/feed.Feed). recommendedView keeps only the
+	// private cursor/scroll/sort.
+	recFeed     feed.Feed
+	recommended recommendedView
 
 	// ── Subscriptions ────────────────────────────────────────────────────────
 	// subVideos — all-channel feed (Subscriptions tab); shared with Channels.
@@ -269,7 +267,6 @@ type Model struct {
 	streamedVideoIDs     map[string]bool          // video IDs with any play/stream history event
 	videoPositions       map[string]int64         // last known position ms for any video
 	recHidden            map[string]bool          // video IDs hidden from recommended
-	recPage              int                      // number of fetches fired this session
 	subscribedChannelIDs map[string]bool          // channel IDs from subscriptions
 
 	// ── Downloading: play-after-download ─────────────────────────────────
@@ -419,10 +416,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		downloader:           dl,
 		tabs:                 tabs,
 		activeTab:            firstTab,
-		recVideos:            recCache,
-		recLoaded:            len(recCache) > 0,
-		recLoading:           true,
-		recRefreshing:        len(recCache) > 0,
+		recFeed:              feed.NewStarting(recCache),
 		subVideos:            subVideos,
 		searchInput:          si,
 		createInput:          ci,
@@ -737,7 +731,7 @@ func (m *Model) localFilteredVideos() []youtube.Video {
 	var raw []youtube.Video
 	switch m.activeTab {
 	case tabRecommended:
-		raw = m.recVideos
+		raw = m.recFeed.Videos()
 	case tabSubscriptions:
 		raw = m.subVideos
 	case tabChannels:
@@ -768,9 +762,7 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 	}
 	switch m.activeTab {
 	case tabRecommended:
-		if i := m.recommended.cursor; i >= 0 && i < len(m.recVideos) {
-			return m.recVideos[i], true
-		}
+		return m.recFeed.At(m.recommended.cursor)
 	case tabSubscriptions:
 		if i := m.subscriptions.cursor; i >= 0 && i < len(m.subVideos) {
 			return m.subVideos[i], true
@@ -831,7 +823,7 @@ func (m *Model) jumpToLine(idx int) {
 	ps := m.pageSize()
 	switch m.activeTab {
 	case tabRecommended:
-		m.recommended.jumpTo(idx, len(m.recVideos), ps)
+		m.recommended.jumpTo(idx, m.recFeed.Len(), ps)
 	case tabSubscriptions:
 		m.subscriptions.jumpTo(idx, len(m.subVideos), ps)
 	case tabChannels:
@@ -863,7 +855,7 @@ func (m *Model) jumpToLast() {
 	ps := m.pageSize()
 	switch m.activeTab {
 	case tabRecommended:
-		m.recommended.jumpToLast(len(m.recVideos), ps)
+		m.recommended.jumpToLast(m.recFeed.Len(), ps)
 	case tabSubscriptions:
 		m.subscriptions.jumpToLast(len(m.subVideos), ps)
 	case tabChannels:

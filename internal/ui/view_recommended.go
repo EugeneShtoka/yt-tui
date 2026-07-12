@@ -1,15 +1,14 @@
 package ui
 
 import (
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // recommendedView owns the Recommended tab's private cursor/scroll/sort. The
-// feed slice (recVideos), the hide set, and the fetch-lifecycle flags are
-// written across tabs and by async fetches, so they stay on the router
-// (docs/TABVIEW_DESIGN.md, Finding 2).
+// feed slice + fetch-lifecycle flags now live in the router's feed.Feed
+// (m.recFeed), reached through viewCtx.recFeed; the hide set stays on the router.
+// This is the P5 item #5 data-owner migration for this tab.
 type recommendedView struct {
 	cursor int
 	vs     int
@@ -26,8 +25,8 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.HideRecVideo(v.ID)
 			m.recHidden[v.ID] = true
-			m.recVideos = feed.RemoveVideoByID(m.recVideos, v.ID)
-			m.recommended.reclamp(len(m.recVideos), m.pageSize())
+			m.recFeed.RemoveVideo(v.ID)
+			m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
 			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
 			m.checkVideoHideAutoBlacklist(v.ChannelID, v.Channel)
 		}
@@ -61,7 +60,7 @@ func (v *recommendedView) reclamp(n, pageSize int) {
 // navigation/hide switch).
 func (v *recommendedView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 	keys := ctx.keys
-	n := len(ctx.recVideos)
+	n := ctx.recFeed.Len()
 	switch {
 	case key.Matches(msg, keys.Up):
 		v.cursor, v.vs = vsMove(v.cursor, v.vs, n, -1, ctx.pageSize, ctx.circular)
@@ -77,10 +76,10 @@ func (v *recommendedView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
 
 // render draws the Recommended feed via the shared video-list renderer.
 func (v recommendedView) render(ctx viewCtx, height int) string {
-	videos, cur := ctx.recVideos, v.cursor
+	videos, cur := ctx.recFeed.Videos(), v.cursor
 	if ctx.localFilter != "" {
-		videos = filterText(ctx.recVideos, ctx.localFilter)
+		videos = filterText(ctx.recFeed.Videos(), ctx.localFilter)
 		cur = ctx.localFilterCursor
 	}
-	return ctx.renderList(videos, cur, v.vs, ctx.recLoading, ctx.recRefreshing, height, "Recommended for you")
+	return ctx.renderList(videos, cur, v.vs, ctx.recFeed.Loading(), ctx.recFeed.Refreshing(), height, "Recommended for you")
 }

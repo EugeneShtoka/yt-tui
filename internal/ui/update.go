@@ -289,8 +289,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.subscribedChannelIDs["name:"+strings.ToLower(ch.Name)] = true
 				}
 			}
-			m.recVideos = feed.FilterSubscribed(m.recVideos, m.subscribedChannelIDs)
-			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subChannels, m.recVideos)}
+			m.recFeed.SetVideos(feed.FilterSubscribed(m.recFeed.Videos(), m.subscribedChannelIDs))
+			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subChannels, m.recFeed.Videos())}
 			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
 			for _, ch := range msg.Channels {
 				if ch.ID == "" {
@@ -412,32 +412,28 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 	}
 	switch msg.Source {
 	case "recommended":
-		m.recPage++
-		m.recLoading = false
-		m.recRefreshing = false
-		m.recLoaded = true
+		m.recFeed.FinishFetch()
 		if msg.Err == nil {
-			merged := feed.MergeVideos(m.recVideos, msg.Videos)
-			filtered := feed.FilterByAge(merged, m.cfg.RecommendedMaxAgeDays)
-			filtered = feed.FilterByMinDuration(filtered, m.cfg.RecommendedMinDurationSecs)
-			filtered = feed.FilterByMinViews(filtered, m.cfg.RecommendedMinViews)
-			filtered = feed.FilterDownloaded(filtered, m.localVideoIDs)
-			filtered = feed.FilterHidden(filtered, m.recHidden)
-			filtered = feed.FilterBlacklisted(filtered, m.cfg.BlacklistedChannels, m.cfg)
-			filtered = feed.FilterSubscribed(filtered, m.subscribedChannelIDs)
-			feed.SortVideos(filtered, m.recommended.sort)
-			m.recommended.cursor = feed.PreserveCursor(m.recVideos, m.recommended.cursor, filtered)
-			m.recVideos = filtered
-			saveCmd := saveFeedCacheCmd(m.db, "recommended", filtered)
+			m.recommended.cursor = m.recFeed.Merge(msg.Videos, m.recommended.cursor, feed.MergeOpts{
+				MaxAgeDays:      m.cfg.RecommendedMaxAgeDays,
+				MinDurationSecs: m.cfg.RecommendedMinDurationSecs,
+				MinViews:        m.cfg.RecommendedMinViews,
+				Downloaded:      m.localVideoIDs,
+				Hidden:          m.recHidden,
+				Blacklist:       m.cfg.BlacklistedChannels,
+				Cfg:             m.cfg,
+				Subscribed:      m.subscribedChannelIDs,
+				Sort:            m.recommended.sort,
+			})
+			saveCmd := saveFeedCacheCmd(m.db, "recommended", m.recFeed.Videos())
 
 			// If too few results and we haven't hit the page cap, fetch again.
 			maxPages := m.cfg.RecommendedMaxPages
 			if maxPages <= 0 {
 				maxPages = 3
 			}
-			if len(filtered) < 20 && m.recPage < maxPages {
-				m.recLoading = true
-				m.recRefreshing = true
+			if m.recFeed.Len() < 20 && m.recFeed.Page() < maxPages {
+				m.recFeed.ContinueFetch()
 				return m, tea.Batch(saveCmd, youtube.FetchRecommended(m.cfg))
 			}
 			return m, saveCmd
@@ -670,9 +666,8 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 		if err := m.db.ClearRecommended(); err != nil {
 			m.setStatus("clear recommended: "+err.Error(), true)
 		} else {
-			m.recVideos = nil
+			m.recFeed.Clear()
 			m.recommended.cursor = 0
-			m.recLoaded = false
 			m.setStatus("recommended cleared", false)
 		}
 	default:
@@ -1018,7 +1013,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 	switch m.activeTab {
 	case tabRecommended:
 		m.recommended.sort = vidSort
-		feed.SortVideos(m.recVideos, vidSort)
+		m.recFeed.Sort(vidSort)
 	case tabSubscriptions:
 		m.subscriptions.sort = vidSort
 		feed.SortVideos(m.subVideos, vidSort)
@@ -1065,10 +1060,8 @@ func (m *Model) onTabActivated() tea.Cmd {
 	m.localFilterCursor = 0
 	switch m.activeTab {
 	case tabRecommended:
-		if !m.recLoading {
-			m.recLoading = true
-			m.recRefreshing = m.recLoaded
-			m.recPage = 0
+		if !m.recFeed.Loading() {
+			m.recFeed.StartRefresh()
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSearch:
@@ -1157,10 +1150,8 @@ func (m *Model) navigateToActivity(e db.ActivityEntry) tea.Cmd {
 func (m *Model) refresh() tea.Cmd {
 	switch m.activeTab {
 	case tabRecommended:
-		if !m.recLoading {
-			m.recLoading = true
-			m.recRefreshing = m.recLoaded
-			m.recPage = 0
+		if !m.recFeed.Loading() {
+			m.recFeed.StartRefresh()
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSubscriptions:
@@ -1200,10 +1191,8 @@ func (m *Model) refresh() tea.Cmd {
 func (m *Model) forceRefresh() tea.Cmd {
 	switch m.activeTab {
 	case tabRecommended:
-		if !m.recLoading {
-			m.recLoading = true
-			m.recRefreshing = m.recLoaded
-			m.recPage = 0
+		if !m.recFeed.Loading() {
+			m.recFeed.StartRefresh()
 			return youtube.FetchRecommended(m.cfg)
 		}
 	case tabSubscriptions:
@@ -2283,9 +2272,7 @@ func (m Model) unsubscribeLocal(chID, chName string) (tea.Model, tea.Cmd) {
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	m.setStatus("Removed local subscription: "+chName, false)
 	// Trigger a fresh recommended fetch so the channel's videos drip back in.
-	m.recPage = 0
-	m.recLoading = true
-	m.recRefreshing = m.recLoaded
+	m.recFeed.StartRefresh()
 	return m, tea.Batch(deleteChannelVideosCmd(m.db, chID), youtube.FetchRecommended(m.cfg))
 }
 
@@ -2369,8 +2356,8 @@ func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
 
 // removeChannelFromFeeds strips a channel's videos from all in-memory video lists.
 func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
-	m.recVideos = feed.RemoveChannelVideos(m.recVideos, channelID, channelName)
-	m.recommended.reclamp(len(m.recVideos), m.pageSize())
+	m.recFeed.RemoveChannel(channelID, channelName)
+	m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
 	m.subVideos = feed.RemoveChannelVideos(m.subVideos, channelID, channelName)
 	m.subscriptions.reclamp(len(m.subVideos), m.pageSize())
 	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, channelID, channelName)

@@ -3,6 +3,7 @@ package ui
 import (
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
+	"github.com/EugeneShtoka/yt-tui/internal/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,8 +26,11 @@ type viewCtx struct {
 	playAfter   map[string]bool
 	localVideos []db.LocalVideo
 	localTitleW int
-	recVideos   []youtube.Video
-	subVideos   []youtube.Video
+	// recFeed is the Recommended tab's data-owner (internal/feed.Feed); the view
+	// reads videos + loading/refreshing flags through it. Pointer into the live
+	// Model, valid for the frame.
+	recFeed   *feed.Feed
+	subVideos []youtube.Video
 
 	// Search result data + drill-down selection (written by async fetches).
 	searchChSel    *youtube.Channel
@@ -49,8 +53,6 @@ type viewCtx struct {
 	plVideos []youtube.Video // selected playlist's cached videos (pane 1)
 
 	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
-	recLoading        bool
-	recRefreshing     bool
 	subLoading        bool
 	localFilter       string
 	localFilterCursor int
@@ -104,7 +106,7 @@ func (m *Model) viewCtx() viewCtx {
 		playAfter:   m.playAfterDownload,
 		localVideos: m.localVideos,
 		localTitleW: m.videoListTitleW(),
-		recVideos:   m.recVideos,
+		recFeed:     &m.recFeed,
 		subVideos:   m.subVideos,
 
 		searchChSel:    m.searchChSel,
@@ -112,8 +114,6 @@ func (m *Model) viewCtx() viewCtx {
 		searchVideos:   m.searchVideos,
 		searchChVideos: m.searchChVideos,
 
-		recLoading:        m.recLoading,
-		recRefreshing:     m.recRefreshing,
 		subLoading:        m.subChLoading && len(m.subVideos) == 0,
 		localFilter:       m.localFilter,
 		localFilterCursor: m.localFilterCursor,
