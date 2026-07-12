@@ -102,7 +102,7 @@ func (in downloadingIntent) apply(m *Model) tea.Cmd {
 	case dlIntentPlay:
 		item := in.item
 		if item.Status == downloader.StatusComplete {
-			if lv, ok := m.localVideoIDs[item.Video.ID]; ok {
+			if lv, ok := m.library.ByID(item.Video.ID); ok {
 				m.launchVideo(lv)
 			}
 		} else {
@@ -123,7 +123,7 @@ func (in downloadingIntent) apply(m *Model) tea.Cmd {
 		_ = m.db.DeleteLocalVideo(item.Video.ID)
 		_ = m.db.AddHistory(item.Video.ID, "delete", "")
 		if lv, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv
+			m.library.Set(lv)
 		}
 		m.downloading.reclamp(len(m.downloader.Items()), m.pageSize())
 		m.setStatus("Deleted: "+truncate(item.Video.Title, 50), false)

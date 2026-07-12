@@ -43,7 +43,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Local files downloaded with --sponsorblock-remove have compressed timelines.
 			// Convert file position → original timeline before saving so streaming and
 			// local playback share the same position space.
-			if _, isLocal := m.localVideoIDs[m.playingVideoID]; isLocal && len(m.playingSBSegments) > 0 {
+			if m.library.Has(m.playingVideoID) && len(m.playingSBSegments) > 0 {
 				ms = media.AdjustedToOriginalMs(ms, m.playingSBSegments)
 			}
 			m.videoPositions[m.playingVideoID] = ms
@@ -418,7 +418,7 @@ func (m Model) handleFetchResult(msg youtube.FetchResultMsg) (Model, tea.Cmd) {
 				MaxAgeDays:      m.cfg.RecommendedMaxAgeDays,
 				MinDurationSecs: m.cfg.RecommendedMinDurationSecs,
 				MinViews:        m.cfg.RecommendedMinViews,
-				Downloaded:      m.localVideoIDs,
+				Downloaded:      m.library.IDs(),
 				Hidden:          m.recHidden,
 				Blacklist:       m.cfg.BlacklistedChannels,
 				Cfg:             m.cfg,
@@ -447,8 +447,7 @@ func (m *Model) handleDownloadEvent(ev downloader.Event) {
 	case downloader.EventComplete:
 		m.setStatus(fmt.Sprintf("Downloaded: %s", ev.FilePath), false)
 		if lv, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv
-			m.localVideoIDs = buildLocalIDMap(lv)
+			m.library.Set(lv)
 		}
 		playKey := ev.VideoID
 		if ev.Type == downloader.TypeAudio {
@@ -456,7 +455,7 @@ func (m *Model) handleDownloadEvent(ev downloader.Event) {
 		}
 		if m.playAfterDownload[playKey] {
 			delete(m.playAfterDownload, playKey)
-			if lv, ok := m.localVideoIDs[ev.VideoID]; ok {
+			if lv, ok := m.library.ByID(ev.VideoID); ok {
 				m.launchVideo(lv)
 			}
 		}
@@ -657,8 +656,7 @@ func (m Model) execClear(what string) (Model, tea.Cmd) {
 			m.setStatus("clear downloads: "+err.Error(), true)
 		} else {
 			cmd = deleteFilesCmd(paths)
-			m.localVideos = nil
-			m.localVideoIDs = make(map[string]db.LocalVideo)
+			m.library.Clear()
 			m.local.cursor = 0
 			m.setStatus(fmt.Sprintf("cleared %d downloads", len(paths)), false)
 		}
@@ -1005,7 +1003,7 @@ func (m Model) applySortAction(action string, vidSort int, ctx ContextID) (Model
 
 	if ctx == CtxLocal {
 		m.local.sort = vidSort
-		feed.SortLocalVideos(m.localVideos, vidSort)
+		m.library.Sort(vidSort)
 		return m, nil
 	}
 
@@ -1170,7 +1168,7 @@ func (m *Model) refresh() tea.Cmd {
 		}
 	case tabLocal:
 		if lv, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv
+			m.library.Set(lv)
 		}
 	case tabHistory:
 		return m.loadHistory()
@@ -2140,7 +2138,7 @@ func channelSetChanged(a, b []youtube.Channel) bool {
 
 // playVideo plays locally if downloaded, otherwise streams.
 func (m *Model) playVideo(v youtube.Video) {
-	if lv, ok := m.localVideoIDs[v.ID]; ok {
+	if lv, ok := m.library.ByID(v.ID); ok {
 		m.launchVideo(lv)
 	} else {
 		m.streamVideo(v)
@@ -2149,7 +2147,7 @@ func (m *Model) playVideo(v youtube.Video) {
 
 // playAudio plays the local file in audio-only mode if downloaded, otherwise streams audio.
 func (m *Model) playAudio(v youtube.Video) {
-	if lv, ok := m.localVideoIDs[v.ID]; ok {
+	if lv, ok := m.library.ByID(v.ID); ok {
 		m.launchVideoAudio(lv)
 	} else {
 		m.streamAudio(v)
@@ -2206,8 +2204,7 @@ func (m *Model) launchVideo(lv db.LocalVideo) {
 	_ = m.db.SetVideoStatus(lv.ID, db.StatusStarted)
 	_ = m.db.AddHistory(lv.ID, "playVideo", "")
 	if lv2, err := m.db.LocalVideos(); err == nil {
-		m.localVideos = lv2
-		m.localVideoIDs = buildLocalIDMap(lv2)
+		m.library.Set(lv2)
 	}
 	label := truncate(lv.Title, 50)
 	if startAt > 0 {
@@ -2473,7 +2470,7 @@ func (m *Model) playVideoFromChapter(ch db.Chapter) {
 	}
 	v := m.vidDetailVideo.Video
 	label := truncate(v.Title, 50)
-	if lv, ok := m.localVideoIDs[v.ID]; ok {
+	if lv, ok := m.library.ByID(v.ID); ok {
 		if _, err := os.Stat(lv.FilePath); err != nil {
 			m.setStatus("File not found: "+label, true)
 			return
@@ -2509,7 +2506,7 @@ func (m *Model) playAudioFromChapter(ch db.Chapter) {
 	}
 	v := m.vidDetailVideo.Video
 	label := truncate(v.Title, 50)
-	if lv, ok := m.localVideoIDs[v.ID]; ok {
+	if lv, ok := m.library.ByID(v.ID); ok {
 		if _, err := os.Stat(lv.FilePath); err != nil {
 			m.setStatus("File not found: "+label, true)
 			return

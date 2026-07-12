@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/library"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -24,7 +24,7 @@ type viewCtx struct {
 	// Shared feed/library data (written across tab boundaries).
 	dlItems     []downloader.Item
 	playAfter   map[string]bool
-	localVideos []db.LocalVideo
+	library     *library.Library // downloaded-video collection (pointer into live Model)
 	localTitleW int
 	// recFeed is the Recommended tab's data-owner (internal/feed.Feed); the view
 	// reads videos + loading/refreshing flags through it. Pointer into the live
@@ -104,7 +104,7 @@ func (m *Model) viewCtx() viewCtx {
 		db:          m.db,
 		dlItems:     m.downloader.Items(),
 		playAfter:   m.playAfterDownload,
-		localVideos: m.localVideos,
+		library:     &m.library,
 		localTitleW: m.videoListTitleW(),
 		recFeed:     &m.recFeed,
 		subFeed:     &m.subFeed,

@@ -11,6 +11,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/library"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -211,9 +212,10 @@ type Model struct {
 
 	// ── Local ────────────────────────────────────────────────────────────────
 	// P4 slice: Local's private cursor/scroll/sort lives in its own view struct.
-	// The library slice itself is written across tabs, so it stays here (router).
-	localVideos []db.LocalVideo
-	local       localView
+	// P5 item #5: the downloaded-video slice + its by-ID index are owned by
+	// library.Library (written across tabs; reloaded via library.Set).
+	library library.Library
+	local   localView
 
 	// ── History ──────────────────────────────────────────────────────────────
 	// P4 slice: History's state lives in its own view struct.
@@ -264,11 +266,10 @@ type Model struct {
 	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
-	localVideoIDs        map[string]db.LocalVideo // cached for fast per-row lookup
-	streamedVideoIDs     map[string]bool          // video IDs with any play/stream history event
-	videoPositions       map[string]int64         // last known position ms for any video
-	recHidden            map[string]bool          // video IDs hidden from recommended
-	subscribedChannelIDs map[string]bool          // channel IDs from subscriptions
+	streamedVideoIDs     map[string]bool  // video IDs with any play/stream history event
+	videoPositions       map[string]int64 // last known position ms for any video
+	recHidden            map[string]bool  // video IDs hidden from recommended
+	subscribedChannelIDs map[string]bool  // channel IDs from subscriptions
 
 	// ── Downloading: play-after-download ─────────────────────────────────
 	playAfterDownload map[string]bool
@@ -367,7 +368,6 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		firstTab = tabs[0]
 	}
 
-	localIDMap := buildLocalIDMap(localVideos)
 	recHidden, _ := database.HiddenRecVideoIDs()
 	if recHidden == nil {
 		recHidden = make(map[string]bool)
@@ -425,8 +425,7 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 		addOverlayInput:      oi,
 		channels:             channelsView{sort: subChSortDate, vidSort: vidSortDate, tagSort: vidSortDate},
 		spinner:              sp,
-		localVideos:          localVideos,
-		localVideoIDs:        localIDMap,
+		library:              library.New(localVideos),
 		streamedVideoIDs:     mustWatchedIDs(database),
 		videoPositions:       mustVideoPositions(database),
 		recHidden:            recHidden,
@@ -600,14 +599,6 @@ func (m Model) tagVideos() []youtube.Video {
 	}
 	feed.SortVideos(out, m.channels.tagSort)
 	return out
-}
-
-func buildLocalIDMap(lvs []db.LocalVideo) map[string]db.LocalVideo {
-	m := make(map[string]db.LocalVideo, len(lvs))
-	for _, lv := range lvs {
-		m[lv.ID] = lv
-	}
-	return m
 }
 
 func mustWatchedIDs(d Store) map[string]bool {
@@ -802,7 +793,7 @@ func (m *Model) currentVideo() (youtube.Video, bool) {
 			return item.Video, true
 		}
 	case tabLocal:
-		return m.local.currentVideo(m.localVideos)
+		return m.local.currentVideo(m.library.Videos())
 	}
 	return youtube.Video{}, false
 }
@@ -844,7 +835,7 @@ func (m *Model) jumpToLine(idx int) {
 	case tabDownloading:
 		m.downloading.jumpTo(idx, len(m.downloader.Items()), ps)
 	case tabLocal:
-		m.local.jumpTo(idx, len(m.localVideos), ps)
+		m.local.jumpTo(idx, m.library.Len(), ps)
 	case tabHistory:
 		m.history.jumpTo(idx, ps)
 	}
@@ -879,7 +870,7 @@ func (m *Model) jumpToLast() {
 	case tabDownloading:
 		m.downloading.jumpToLast(len(m.downloader.Items()), ps)
 	case tabLocal:
-		m.local.jumpToLast(len(m.localVideos), ps)
+		m.local.jumpToLast(m.library.Len(), ps)
 	case tabHistory:
 		m.history.jumpToLast(ps)
 	}

@@ -160,12 +160,11 @@ func (in historyIntent) apply(m *Model) tea.Cmd {
 			_ = m.db.DeleteSearchHistory(e.Details)
 			m.setStatus("Removed search: "+truncate(e.Details, 50), false)
 		} else {
-			if lv, ok := m.localVideoIDs[e.VideoID]; ok {
+			if lv, ok := m.library.ByID(e.VideoID); ok {
 				_ = os.Remove(lv.FilePath)
 				_ = m.db.DeleteLocalVideo(lv.ID)
 				if lv2, err := m.db.LocalVideos(); err == nil {
-					m.localVideos = lv2
-					m.localVideoIDs = buildLocalIDMap(lv2)
+					m.library.Set(lv2)
 				}
 			}
 			_ = m.db.DeleteVideoHistory(e.VideoID)

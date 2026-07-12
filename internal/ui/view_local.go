@@ -13,8 +13,8 @@ import (
 )
 
 // localView owns the Local tab's private cursor/scroll/sort state. The library
-// slice itself (localVideos) is written from several sites outside this tab, so
-// it stays on the router; deletion is returned as an intent (see
+// collection itself (m.library, a library.Library) is written from several sites
+// outside this tab, so it stays on the router; deletion is returned as an intent (see
 // docs/TABVIEW_DESIGN.md, Finding 2).
 type localView struct {
 	cursor int
@@ -70,9 +70,9 @@ func (v localView) currentVideo(videos []db.LocalVideo) (youtube.Video, bool) {
 func (v localView) context(ctx viewCtx) ContextID { return CtxLocal }
 
 // update handles navigation keys directly and returns an intent for the actions
-// (play/delete/…) the router owns. The library is shared (ctx.localVideos).
+// (play/delete/…) the router owns. The library is shared (ctx.library).
 func (v *localView) update(msg tea.KeyMsg, ctx viewCtx) viewIntent {
-	keys, videos := ctx.keys, ctx.localVideos
+	keys, videos := ctx.keys, ctx.library.Videos()
 	n := len(videos)
 	switch {
 	case key.Matches(msg, keys.Up):
@@ -108,9 +108,9 @@ func (in localIntent) apply(m *Model) tea.Cmd {
 		_ = m.db.DeleteLocalVideo(lv.ID)
 		_ = m.db.AddHistory(lv.ID, "delete", "")
 		if lv2, err := m.db.LocalVideos(); err == nil {
-			m.localVideos = lv2
+			m.library.Set(lv2)
 		}
-		m.local.reclamp(len(m.localVideos), m.pageSize())
+		m.local.reclamp(m.library.Len(), m.pageSize())
 		m.setStatus("Deleted: "+truncate(lv.Title, 50), false)
 	case localIntentCopyURL:
 		m.copyCurrentURL()
@@ -121,7 +121,7 @@ func (in localIntent) apply(m *Model) tea.Cmd {
 // render draws the Local tab. The library is shared router state (ctx); titleW
 // is computed by the router (it depends on the global column layout).
 func (v localView) render(ctx viewCtx, height int) string {
-	videos, titleW := ctx.localVideos, ctx.localTitleW
+	videos, titleW := ctx.library.Videos(), ctx.localTitleW
 	header := styleSectionTitle.Render("Local Library")
 	headerH := lipgloss.Height(header)
 

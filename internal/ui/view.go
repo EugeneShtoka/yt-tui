@@ -436,7 +436,7 @@ func (m Model) renderVideoColHeader(titleW int) string {
 }
 
 func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) string {
-	lv, hasLocal := m.localVideoIDs[v.ID]
+	lv, hasLocal := m.library.ByID(v.ID)
 
 	title := truncate(v.Title, titleW)
 	channel := truncate(v.Channel, colChannel-2)

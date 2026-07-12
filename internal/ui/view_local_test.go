@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/library"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -16,7 +17,8 @@ func sampleLocal() []db.LocalVideo {
 }
 
 func localCtx(videos []db.LocalVideo, pageSize int) viewCtx {
-	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, localVideos: videos}
+	lib := library.New(videos)
+	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, library: &lib}
 }
 
 func TestLocalDownMovesCursor(t *testing.T) {
