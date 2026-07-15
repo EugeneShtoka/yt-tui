@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
@@ -31,13 +32,13 @@ type playlistsView struct {
 	sort int // video pane sort (one of vidSort*)
 }
 
-func (v playlistsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v playlistsView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	if v.pane == 1 {
 		if i := v.vidCursor; i >= 0 && i < len(ctx.plVideos) {
 			return ctx.plVideos[i], true
 		}
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 func (v *playlistsView) jumpTo(idx int, ctx viewCtx) {
@@ -204,7 +205,7 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 				_ = m.db.RemoveFromPlaylist(localID, vid.ID)
 			}
 			// Optimistic removal from cache.
-			updated := make([]youtube.Video, 0, len(vids)-1)
+			updated := make([]domain.Video, 0, len(vids)-1)
 			for _, v := range vids {
 				if v.ID != vid.ID {
 					updated = append(updated, v)

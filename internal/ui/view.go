@@ -5,8 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -307,7 +306,7 @@ func (m Model) fullHintRaw() string {
 
 // ── Content router ────────────────────────────────────────────────────────────
 
-func (m Model) contentVideos(raw []youtube.Video, cursor int) ([]youtube.Video, int) {
+func (m Model) contentVideos(raw []domain.Video, cursor int) ([]domain.Video, int) {
 	if m.localFilter != "" {
 		return filterText(raw, m.localFilter), m.localFilterCursor
 	}
@@ -346,7 +345,7 @@ func (m Model) filterBar() string {
 }
 
 func (m Model) renderVideoList(
-	videos []youtube.Video,
+	videos []domain.Video,
 	cursor, vs int,
 	loading bool,
 	refreshing bool,
@@ -404,7 +403,7 @@ func (m Model) videoListTitleW() int {
 	return w
 }
 
-func (m Model) renderVideoRows(videos []youtube.Video, cursor, vs, height int) string {
+func (m Model) renderVideoRows(videos []domain.Video, cursor, vs, height int) string {
 	if height <= 0 {
 		height = 10
 	}
@@ -435,7 +434,7 @@ func (m Model) renderVideoColHeader(titleW int) string {
 		styleColHeader.Width(colDate).Render(dateLabel)
 }
 
-func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) string {
+func (m Model) renderVideoRow(v domain.Video, selected bool, titleW, num int) string {
 	lv, hasLocal := m.library.ByID(v.ID)
 
 	title := truncate(v.Title, titleW)
@@ -466,10 +465,10 @@ func (m Model) renderVideoRow(v youtube.Video, selected bool, titleW, num int) s
 		durStyle = durStyle.Background(colorBgSelect)
 		viewsStyle = viewsStyle.Background(colorBgSelect)
 		dateStyle = dateStyle.Background(colorBgSelect)
-	case hasLocal && lv.Status == db.StatusNew:
+	case hasLocal && lv.Status == domain.StatusNew:
 		titleStyle = styleBold.Width(titleW)
 		indicator = styleSuccess.Render("● ")
-	case hasLocal && (lv.Status == db.StatusStarted || lv.Status == db.StatusWatched):
+	case hasLocal && (lv.Status == domain.StatusStarted || lv.Status == domain.StatusWatched):
 		titleStyle = styleDim.Width(titleW)
 		indicator = styleDim.Render("○ ")
 	case !hasLocal && m.streamedVideoIDs[v.ID]:

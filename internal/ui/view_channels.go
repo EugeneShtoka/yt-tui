@@ -6,7 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
@@ -233,7 +234,7 @@ func (v channelsView) render(ctx viewCtx, height int) string {
 	return ctx.renderChannels(height)
 }
 
-func (v channelsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v channelsView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	if v.tagsMode && v.pane == 1 {
 		if i := v.cursor; i >= 0 && i < len(ctx.chTagVideos) {
 			return ctx.chTagVideos[i], true
@@ -243,7 +244,7 @@ func (v channelsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
 			return ctx.subChVideos[i], true
 		}
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 func (v *channelsView) jumpTo(idx int, ctx viewCtx) {

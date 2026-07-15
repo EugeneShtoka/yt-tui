@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // ids joins the IDs of a video slice for compact assertions.
-func ids(vs []youtube.Video) string {
+func ids(vs []domain.Video) string {
 	out := ""
 	for i, v := range vs {
 		if i > 0 {
@@ -23,7 +22,7 @@ func ids(vs []youtube.Video) string {
 // ── FilterByAge ───────────────────────────────────────────────────────────────
 
 func TestFilterByAgeZeroOrNegative(t *testing.T) {
-	videos := []youtube.Video{{ID: "a", UploadDate: "20200101"}}
+	videos := []domain.Video{{ID: "a", UploadDate: "20200101"}}
 	result := FilterByAge(videos, 0)
 	if len(result) != len(videos) {
 		t.Errorf("zero/negative maxDays: got len=%d, want %d", len(result), len(videos))
@@ -31,7 +30,7 @@ func TestFilterByAgeZeroOrNegative(t *testing.T) {
 }
 
 func TestFilterByAgeNoDate(t *testing.T) {
-	videos := []youtube.Video{{ID: "a", UploadDate: ""}}
+	videos := []domain.Video{{ID: "a", UploadDate: ""}}
 	result := FilterByAge(videos, 7)
 	if len(result) != 1 {
 		t.Errorf("no date kept: got len=%d, want 1", len(result))
@@ -39,7 +38,7 @@ func TestFilterByAgeNoDate(t *testing.T) {
 }
 
 func TestFilterByAgeMalformedDate(t *testing.T) {
-	videos := []youtube.Video{{ID: "a", UploadDate: "invalid"}}
+	videos := []domain.Video{{ID: "a", UploadDate: "invalid"}}
 	result := FilterByAge(videos, 7)
 	if len(result) != 1 {
 		t.Errorf("malformed date kept: got len=%d, want 1", len(result))
@@ -49,7 +48,7 @@ func TestFilterByAgeMalformedDate(t *testing.T) {
 // ── FilterByMinDuration ───────────────────────────────────────────────────────
 
 func TestFilterByMinDuration(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "short", Duration: 30},
 		{ID: "long", Duration: 600},
 		{ID: "unknown", Duration: 0},
@@ -65,7 +64,7 @@ func TestFilterByMinDuration(t *testing.T) {
 // ── FilterByMinViews ──────────────────────────────────────────────────────────
 
 func TestFilterByMinViews(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "few", ViewCount: 50},
 		{ID: "many", ViewCount: 5000},
 		{ID: "unknown", ViewCount: 0},
@@ -81,15 +80,15 @@ func TestFilterByMinViews(t *testing.T) {
 // ── FilterDownloaded / FilterHidden ───────────────────────────────────────────
 
 func TestFilterDownloaded(t *testing.T) {
-	videos := []youtube.Video{{ID: "a"}, {ID: "b"}}
-	local := map[string]db.LocalVideo{"a": {ID: "a"}}
+	videos := []domain.Video{{ID: "a"}, {ID: "b"}}
+	local := map[string]domain.LocalVideo{"a": {ID: "a"}}
 	if got := ids(FilterDownloaded(videos, local)); got != "b" {
 		t.Errorf("FilterDownloaded: got %q, want 'b'", got)
 	}
 }
 
 func TestFilterHidden(t *testing.T) {
-	videos := []youtube.Video{{ID: "a"}, {ID: "b"}}
+	videos := []domain.Video{{ID: "a"}, {ID: "b"}}
 	hidden := map[string]bool{"b": true}
 	if got := ids(FilterHidden(videos, hidden)); got != "a" {
 		t.Errorf("FilterHidden: got %q, want 'a'", got)
@@ -99,7 +98,7 @@ func TestFilterHidden(t *testing.T) {
 // ── FilterSubscribed ──────────────────────────────────────────────────────────
 
 func TestFilterSubscribedEmpty(t *testing.T) {
-	videos := []youtube.Video{{ID: "a", ChannelID: "ch1"}}
+	videos := []domain.Video{{ID: "a", ChannelID: "ch1"}}
 	subscribed := make(map[string]bool)
 	result := FilterSubscribed(videos, subscribed)
 	if len(result) != len(videos) {
@@ -108,7 +107,7 @@ func TestFilterSubscribedEmpty(t *testing.T) {
 }
 
 func TestFilterSubscribedRemoves(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "a", ChannelID: "ch1"},
 		{ID: "b", ChannelID: "ch2"},
 	}
@@ -120,7 +119,7 @@ func TestFilterSubscribedRemoves(t *testing.T) {
 }
 
 func TestFilterSubscribedByName(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "a", Channel: "MyChannel"},
 	}
 	subscribed := map[string]bool{"name:mychannel": true}
@@ -137,13 +136,13 @@ func TestMatchBlacklisted(t *testing.T) {
 		{ID: "chX"},
 		{Name: "Spammy"},
 	}
-	if i, ok := MatchBlacklisted(youtube.Video{ChannelID: "chX"}, list); !ok || i != 0 {
+	if i, ok := MatchBlacklisted(domain.Video{ChannelID: "chX"}, list); !ok || i != 0 {
 		t.Errorf("match by ID: got (%d,%v), want (0,true)", i, ok)
 	}
-	if i, ok := MatchBlacklisted(youtube.Video{Channel: "spammy"}, list); !ok || i != 1 {
+	if i, ok := MatchBlacklisted(domain.Video{Channel: "spammy"}, list); !ok || i != 1 {
 		t.Errorf("match by name (case-insensitive): got (%d,%v), want (1,true)", i, ok)
 	}
-	if _, ok := MatchBlacklisted(youtube.Video{ChannelID: "other"}, list); ok {
+	if _, ok := MatchBlacklisted(domain.Video{ChannelID: "other"}, list); ok {
 		t.Errorf("non-blacklisted matched")
 	}
 }
@@ -151,7 +150,7 @@ func TestMatchBlacklisted(t *testing.T) {
 func TestFilterBlacklisted(t *testing.T) {
 	// Use ID-populated entries so the name-enrichment (SaveAsync) branch is not hit.
 	cfg := &config.Config{BlacklistedChannels: []config.BlacklistedChannel{{ID: "chX"}}}
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "a", ChannelID: "chX"},
 		{ID: "b", ChannelID: "chY"},
 	}

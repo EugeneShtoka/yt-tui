@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -119,7 +119,7 @@ func TestPlaylistsJumpToLast(t *testing.T) {
 		t.Errorf("jumpToLast pane 0: cursor=%d, want 2", v.cursor)
 	}
 	v.pane = 1
-	v.jumpToLast(viewCtx{plCount: 3, plVideos: make([]youtube.Video, 4), pageSize: 10})
+	v.jumpToLast(viewCtx{plCount: 3, plVideos: make([]domain.Video, 4), pageSize: 10})
 	if v.vidCursor != 3 {
 		t.Errorf("jumpToLast pane 1: vidCursor=%d, want 3", v.vidCursor)
 	}

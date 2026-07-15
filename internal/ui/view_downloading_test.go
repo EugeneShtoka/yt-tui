@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -25,9 +25,9 @@ func testListKeys() keyMap {
 
 func sampleItems() []downloader.Item {
 	return []downloader.Item{
-		{Video: youtube.Video{ID: "a", Title: "Alpha"}, Status: downloader.StatusActive},
-		{Video: youtube.Video{ID: "b", Title: "Beta"}, Status: downloader.StatusComplete},
-		{Video: youtube.Video{ID: "c", Title: "Gamma"}, Status: downloader.StatusPending},
+		{Video: domain.Video{ID: "a", Title: "Alpha"}, Status: downloader.StatusActive},
+		{Video: domain.Video{ID: "b", Title: "Beta"}, Status: downloader.StatusComplete},
+		{Video: domain.Video{ID: "c", Title: "Gamma"}, Status: downloader.StatusPending},
 	}
 }
 

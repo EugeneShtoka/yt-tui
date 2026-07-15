@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
@@ -21,7 +22,7 @@ type DB interface {
 // index (channel ID → true, "name:lowercaseName" → true). All mutations go
 // through its methods so the slice and index never diverge.
 type ChannelSet struct {
-	channels []youtube.Channel
+	channels []domain.Channel
 	index    map[string]bool
 	db       DB
 	ytClient *youtube.YTClient
@@ -29,7 +30,7 @@ type ChannelSet struct {
 
 // New builds a ChannelSet from an initial slice. db and ytClient are injected
 // for use by Unsubscribe; ytClient may be nil until browser cookies are ready.
-func New(channels []youtube.Channel, db DB, ytClient *youtube.YTClient) ChannelSet {
+func New(channels []domain.Channel, db DB, ytClient *youtube.YTClient) ChannelSet {
 	var s ChannelSet
 	s.db = db
 	s.ytClient = ytClient
@@ -41,7 +42,7 @@ func New(channels []youtube.Channel, db DB, ytClient *youtube.YTClient) ChannelS
 func (s *ChannelSet) SetYTClient(client *youtube.YTClient) { s.ytClient = client }
 
 // rebuild replaces the slice and reconstructs the index from scratch.
-func (s *ChannelSet) rebuild(channels []youtube.Channel) {
+func (s *ChannelSet) rebuild(channels []domain.Channel) {
 	s.channels = channels
 	s.index = make(map[string]bool, len(channels)*2)
 	for _, ch := range channels {
@@ -49,7 +50,7 @@ func (s *ChannelSet) rebuild(channels []youtube.Channel) {
 	}
 }
 
-func (s *ChannelSet) addToIndex(ch youtube.Channel) {
+func (s *ChannelSet) addToIndex(ch domain.Channel) {
 	if ch.ID != "" {
 		s.index[ch.ID] = true
 	}
@@ -67,21 +68,21 @@ func (s *ChannelSet) removeFromIndex(id, name string) {
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
-func (s *ChannelSet) Channels() []youtube.Channel { return s.channels }
-func (s *ChannelSet) Len() int                    { return len(s.channels) }
+func (s *ChannelSet) Channels() []domain.Channel { return s.channels }
+func (s *ChannelSet) Len() int                   { return len(s.channels) }
 
 // Index returns the membership map for read-only use (e.g. feed.FilterSubscribed).
 // Callers must not mutate the returned map.
 func (s *ChannelSet) Index() map[string]bool { return s.index }
 
 // ByID returns the channel with the given ID, or (zero, false) if not found.
-func (s *ChannelSet) ByID(id string) (youtube.Channel, bool) {
+func (s *ChannelSet) ByID(id string) (domain.Channel, bool) {
 	for _, ch := range s.channels {
 		if ch.ID == id {
 			return ch, true
 		}
 	}
-	return youtube.Channel{}, false
+	return domain.Channel{}, false
 }
 
 func (s *ChannelSet) isLocal(id string) bool {
@@ -92,7 +93,7 @@ func (s *ChannelSet) isLocal(id string) bool {
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 // Subscribe appends ch if its ID is not already present. Returns false if duplicate.
-func (s *ChannelSet) Subscribe(ch youtube.Channel) bool {
+func (s *ChannelSet) Subscribe(ch domain.Channel) bool {
 	if s.index[ch.ID] {
 		return false
 	}
@@ -103,7 +104,7 @@ func (s *ChannelSet) Subscribe(ch youtube.Channel) bool {
 
 // Remove drops the channel with the given ID and clears its index entries.
 func (s *ChannelSet) Remove(id, name string) {
-	out := make([]youtube.Channel, 0, len(s.channels))
+	out := make([]domain.Channel, 0, len(s.channels))
 	for _, ch := range s.channels {
 		if ch.ID != id {
 			out = append(out, ch)
@@ -160,12 +161,12 @@ func (s *ChannelSet) SetTags(id string, tags []string) {
 // Local-only channels are preserved. Alias and tag fields are carried over
 // from the current set when membership changes. Returns true if the set
 // membership changed (channels added or removed).
-func (s *ChannelSet) SyncFromYT(ytChannels []youtube.Channel) bool {
+func (s *ChannelSet) SyncFromYT(ytChannels []domain.Channel) bool {
 	ytIDs := make(map[string]bool, len(ytChannels))
 	for _, ch := range ytChannels {
 		ytIDs[ch.ID] = true
 	}
-	var localOnly []youtube.Channel
+	var localOnly []domain.Channel
 	for _, ch := range s.channels {
 		if !ytIDs[ch.ID] {
 			localOnly = append(localOnly, ch)
@@ -175,7 +176,7 @@ func (s *ChannelSet) SyncFromYT(ytChannels []youtube.Channel) bool {
 	if !membershipChanged(s.channels, merged) {
 		return false
 	}
-	existing := make(map[string]youtube.Channel, len(s.channels))
+	existing := make(map[string]domain.Channel, len(s.channels))
 	for _, ch := range s.channels {
 		existing[ch.ID] = ch
 	}
@@ -189,7 +190,7 @@ func (s *ChannelSet) SyncFromYT(ytChannels []youtube.Channel) bool {
 	return true
 }
 
-func membershipChanged(a, b []youtube.Channel) bool {
+func membershipChanged(a, b []domain.Channel) bool {
 	if len(a) != len(b) {
 		return true
 	}

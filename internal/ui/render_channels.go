@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -80,7 +80,7 @@ func (m Model) renderSubChannelsTags(header string, headerH, height int) string 
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.renderTagList(height-headerH))
 }
 
-func (m Model) renderSubChannelsVideoPane(header string, headerH, height int, sorted []youtube.Channel, cursor int) []string {
+func (m Model) renderSubChannelsVideoPane(header string, headerH, height int, sorted []domain.Channel, cursor int) []string {
 	chName := ""
 	if cursor < len(sorted) {
 		chName = sorted[cursor].DisplayName()
@@ -160,7 +160,7 @@ const (
 	colTags   = 14 // tags column in flat channel list
 )
 
-func (m Model) renderChannelList(channels []youtube.Channel, height int) string {
+func (m Model) renderChannelList(channels []domain.Channel, height int) string {
 	if len(channels) == 0 {
 		return ""
 	}

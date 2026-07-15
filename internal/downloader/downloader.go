@@ -14,7 +14,7 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -35,7 +35,7 @@ const (
 )
 
 type Item struct {
-	Video     youtube.Video
+	Video     domain.Video
 	Type      DownloadType
 	Progress  float64
 	Speed     string
@@ -98,7 +98,7 @@ var destRe = regexp.MustCompile(`\[download\] Destination: (.+)`)
 var mergerRe = regexp.MustCompile(`\[Merger\] Merging formats into "(.+)"`)
 
 // Start enqueues a video download. Idempotent if already queued.
-func (d *Downloader) Start(video youtube.Video, dlType DownloadType) {
+func (d *Downloader) Start(video domain.Video, dlType DownloadType) {
 	d.mu.Lock()
 	if _, ok := d.items[video.ID]; ok {
 		d.mu.Unlock()
@@ -215,7 +215,7 @@ func (d *Downloader) run(item *Item) {
 		item.Video.ID, item.Video.Title, item.Video.Channel, item.Video.ChannelID,
 		item.Video.Duration, item.Video.ViewCount, item.Video.UploadDate, item.Video.URL,
 	)
-	_ = d.db.AddLocalVideo(db.LocalVideo{
+	_ = d.db.AddLocalVideo(domain.LocalVideo{
 		ID:           item.Video.ID,
 		Title:        item.Video.Title,
 		Channel:      item.Video.Channel,
@@ -223,7 +223,7 @@ func (d *Downloader) run(item *Item) {
 		FilePath:     finalPath,
 		DownloadType: string(item.Type),
 		DownloadedAt: time.Now(),
-		Status:       db.StatusNew,
+		Status:       domain.StatusNew,
 	})
 	_ = d.db.AddHistory(item.Video.ID, "download "+string(item.Type), "")
 
@@ -336,6 +336,11 @@ func (d *Downloader) IsDownloading(id string) bool {
 		return item.Status == StatusPending || item.Status == StatusActive
 	}
 	return false
+}
+
+// EventChan returns the raw event channel for non-tea consumers.
+func (d *Downloader) EventChan() <-chan Event {
+	return d.eventCh
 }
 
 // WaitForEvent returns a Cmd that blocks until the next download event.

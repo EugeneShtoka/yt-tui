@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,7 +17,7 @@ type persistErrMsg struct{ err error }
 // Running the persist inside a tea.Cmd keeps Update pure (the runtime schedules
 // the side effect), avoids racing on the value-copied Model, and surfaces errors.
 
-func saveYTPlaylistsCmd(db Store, pls []youtube.YTPlaylist) tea.Cmd {
+func saveYTPlaylistsCmd(db Store, pls []domain.YTPlaylist) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.SaveYTPlaylists(pls); err != nil {
 			return persistErrMsg{err}
@@ -25,7 +26,7 @@ func saveYTPlaylistsCmd(db Store, pls []youtube.YTPlaylist) tea.Cmd {
 	}
 }
 
-func saveYTPlaylistVideosCmd(db Store, playlistID string, vids []youtube.Video) tea.Cmd {
+func saveYTPlaylistVideosCmd(db Store, playlistID string, vids []domain.Video) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.SaveYTPlaylistVideos(playlistID, vids); err != nil {
 			return persistErrMsg{err}
@@ -34,7 +35,7 @@ func saveYTPlaylistVideosCmd(db Store, playlistID string, vids []youtube.Video) 
 	}
 }
 
-func saveChannelVideosCmd(db Store, chID string, vids []youtube.Video) tea.Cmd {
+func saveChannelVideosCmd(db Store, chID string, vids []domain.Video) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.SaveChannelVideos(chID, vids); err != nil {
 			return persistErrMsg{err}
@@ -52,7 +53,7 @@ func deleteChannelVideosCmd(db Store, chID string) tea.Cmd {
 	}
 }
 
-func saveFeedCacheCmd(db Store, feed string, vids []youtube.Video) tea.Cmd {
+func saveFeedCacheCmd(db Store, feed string, vids []domain.Video) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.SaveFeedCache(feed, vids); err != nil {
 			return persistErrMsg{err}
@@ -63,7 +64,7 @@ func saveFeedCacheCmd(db Store, feed string, vids []youtube.Video) tea.Cmd {
 
 // saveSubsAndFeedCmd persists the subscribed-channel list and the recommended
 // feed cache in one Cmd, preserving the original ordering (channels then feed).
-func saveSubsAndFeedCmd(db Store, channels []youtube.Channel, videos []youtube.Video) tea.Cmd {
+func saveSubsAndFeedCmd(db Store, channels []domain.Channel, videos []domain.Video) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.SaveSubscribedChannels(channels); err != nil {
 			return persistErrMsg{err}

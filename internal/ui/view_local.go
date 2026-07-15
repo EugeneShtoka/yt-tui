@@ -5,8 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,20 +34,20 @@ const (
 // localIntent is returned by update for the router to act on.
 type localIntent struct {
 	kind  localIntentKind
-	video db.LocalVideo
+	video domain.LocalVideo
 }
 
-func (v localView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v localView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	videos := ctx.library.Videos()
 	if i := v.cursor; i >= 0 && i < len(videos) {
 		lv := videos[i]
-		return youtube.Video{
+		return domain.Video{
 			ID:    lv.ID,
 			Title: lv.Title,
 			URL:   "https://www.youtube.com/watch?v=" + lv.ID,
 		}, true
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 func (v *localView) jumpTo(idx int, ctx viewCtx) {
@@ -146,11 +145,11 @@ func (v localView) render(ctx viewCtx, height int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
-func renderLocalRow(lv db.LocalVideo, selected bool, num, titleW int) string {
+func renderLocalRow(lv domain.LocalVideo, selected bool, num, titleW int) string {
 	title := truncate(lv.Title, titleW)
 	channel := truncate(lv.Channel, colChannel-2)
 	dur := fmtDuration(lv.Duration)
-	if lv.Status == db.StatusStarted && lv.LastPositionMs > 0 {
+	if lv.Status == domain.StatusStarted && lv.LastPositionMs > 0 {
 		dur = fmtDurWithPos(lv.LastPositionMs, lv.Duration)
 	}
 	views := fmtViews(lv.ViewCount)
@@ -179,13 +178,13 @@ func renderLocalRow(lv db.LocalVideo, selected bool, num, titleW int) string {
 		durStyle = durStyle.Background(colorBgSelect)
 		viewsStyle = viewsStyle.Background(colorBgSelect)
 		dateStyle = dateStyle.Background(colorBgSelect)
-	case lv.Status == db.StatusNew:
+	case lv.Status == domain.StatusNew:
 		ts = styleBold.Width(titleW)
 		indicator = styleSuccess.Render("● ")
-	case lv.Status == db.StatusStarted:
+	case lv.Status == domain.StatusStarted:
 		ts = styleNormal.Width(titleW)
 		indicator = styleDim.Render("○ ")
-	case lv.Status == db.StatusWatched:
+	case lv.Status == domain.StatusWatched:
 		ts = styleDim.Width(titleW)
 		indicator = styleDim.Render("  ")
 	default:

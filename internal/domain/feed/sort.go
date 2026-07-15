@@ -11,8 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // Video list sort modes (used by each tab view's sort field). These are the
@@ -27,7 +26,7 @@ const (
 )
 
 // sortKey is the comparable projection of a video used by sortByMode, so the
-// same ordering logic serves both youtube.Video and db.LocalVideo.
+// same ordering logic serves both domain.Video and domain.LocalVideo.
 type sortKey struct {
 	viewCount  int64
 	uploadDate string
@@ -57,15 +56,15 @@ func sortByMode[T any](s []T, mode int, extract func(T) sortKey) {
 }
 
 // SortVideos sorts videos in place by the given mode.
-func SortVideos(videos []youtube.Video, mode int) {
-	sortByMode(videos, mode, func(v youtube.Video) sortKey {
+func SortVideos(videos []domain.Video, mode int) {
+	sortByMode(videos, mode, func(v domain.Video) sortKey {
 		return sortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
 	})
 }
 
 // SortLocalVideos sorts local videos in place by the given mode.
-func SortLocalVideos(videos []db.LocalVideo, mode int) {
-	sortByMode(videos, mode, func(v db.LocalVideo) sortKey {
+func SortLocalVideos(videos []domain.LocalVideo, mode int) {
+	sortByMode(videos, mode, func(v domain.LocalVideo) sortKey {
 		return sortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
 	})
 }

@@ -1,29 +1,11 @@
 package db
 
 import (
-	"time"
-
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
-// Playlist is a user-created local playlist.
-type Playlist struct {
-	ID        int64
-	Name      string
-	CreatedAt time.Time
-}
-
-// WatchLaterEntry is a video queued for later viewing.
-type WatchLaterEntry struct {
-	VideoID string
-	Title   string
-	Channel string
-	URL     string
-	AddedAt time.Time
-}
-
 // SaveYTPlaylists persists the YouTube playlist list.
-func (d *DB) SaveYTPlaylists(playlists []youtube.YTPlaylist) error {
+func (d *DB) SaveYTPlaylists(playlists []domain.YTPlaylist) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -41,15 +23,15 @@ func (d *DB) SaveYTPlaylists(playlists []youtube.YTPlaylist) error {
 }
 
 // GetYTPlaylists returns the cached YouTube playlist list.
-func (d *DB) GetYTPlaylists() ([]youtube.YTPlaylist, error) {
+func (d *DB) GetYTPlaylists() ([]domain.YTPlaylist, error) {
 	rows, err := d.sql.Query(`SELECT id, title FROM yt_playlists ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []youtube.YTPlaylist
+	var out []domain.YTPlaylist
 	for rows.Next() {
-		var pl youtube.YTPlaylist
+		var pl domain.YTPlaylist
 		if err := rows.Scan(&pl.ID, &pl.Title); err != nil {
 			return nil, err
 		}
@@ -59,7 +41,7 @@ func (d *DB) GetYTPlaylists() ([]youtube.YTPlaylist, error) {
 }
 
 // SaveYTPlaylistVideos replaces the cached video list for a YT playlist.
-func (d *DB) SaveYTPlaylistVideos(playlistID string, videos []youtube.Video) error {
+func (d *DB) SaveYTPlaylistVideos(playlistID string, videos []domain.Video) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -91,7 +73,7 @@ func (d *DB) SaveYTPlaylistVideos(playlistID string, videos []youtube.Video) err
 }
 
 // GetYTPlaylistVideos returns cached videos for a YT playlist in position order.
-func (d *DB) GetYTPlaylistVideos(playlistID string) ([]youtube.Video, error) {
+func (d *DB) GetYTPlaylistVideos(playlistID string) ([]domain.Video, error) {
 	rows, err := d.sql.Query(`
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
@@ -105,9 +87,9 @@ func (d *DB) GetYTPlaylistVideos(playlistID string) ([]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []youtube.Video
+	var out []domain.Video
 	for rows.Next() {
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err
@@ -118,15 +100,15 @@ func (d *DB) GetYTPlaylistVideos(playlistID string) ([]youtube.Video, error) {
 }
 
 // Playlists returns all custom playlists.
-func (d *DB) Playlists() ([]Playlist, error) {
+func (d *DB) Playlists() ([]domain.Playlist, error) {
 	rows, err := d.sql.Query(`SELECT id, name, created_at FROM playlists ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []Playlist
+	var result []domain.Playlist
 	for rows.Next() {
-		var p Playlist
+		var p domain.Playlist
 		if err := rows.Scan(&p.ID, &p.Name, &p.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -188,7 +170,7 @@ func (d *DB) PlaylistVideoIDs(playlistID int64) ([]string, error) {
 }
 
 // PlaylistVideos returns full video details for all videos in a playlist.
-func (d *DB) PlaylistVideos(playlistID int64) ([]youtube.Video, error) {
+func (d *DB) PlaylistVideos(playlistID int64) ([]domain.Video, error) {
 	rows, err := d.sql.Query(`
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
@@ -202,9 +184,9 @@ func (d *DB) PlaylistVideos(playlistID int64) ([]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []youtube.Video
+	var result []domain.Video
 	for rows.Next() {
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err
@@ -229,7 +211,7 @@ func (d *DB) RemoveWatchLater(id string) error {
 }
 
 // WatchLater returns all watch-later entries.
-func (d *DB) WatchLater() ([]WatchLaterEntry, error) {
+func (d *DB) WatchLater() ([]domain.WatchLaterEntry, error) {
 	rows, err := d.sql.Query(`
 		SELECT video_id, title, channel, url, added_at
 		FROM watch_later ORDER BY added_at DESC
@@ -238,9 +220,9 @@ func (d *DB) WatchLater() ([]WatchLaterEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []WatchLaterEntry
+	var result []domain.WatchLaterEntry
 	for rows.Next() {
-		var e WatchLaterEntry
+		var e domain.WatchLaterEntry
 		if err := rows.Scan(&e.VideoID, &e.Title, &e.Channel, &e.URL, &e.AddedAt); err != nil {
 			return nil, err
 		}

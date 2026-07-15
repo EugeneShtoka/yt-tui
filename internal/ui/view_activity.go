@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,7 +14,7 @@ import (
 // slice: Activity is the only tab whose state has no external readers or writers,
 // so full ownership is achievable here (see docs/TABVIEW_DESIGN.md).
 type activityView struct {
-	entries []db.ActivityEntry
+	entries []domain.ActivityEntry
 	cursor  int
 	vs      int // viewStart: first visible row
 }
@@ -34,16 +33,16 @@ func (v *activityView) load(store Store, setErr func(string)) {
 
 // activityNavIntent asks the router to jump to the tab/target for an entry;
 // activity navigation writes other tabs' state, which is a router concern.
-type activityNavIntent struct{ entry db.ActivityEntry }
+type activityNavIntent struct{ entry domain.ActivityEntry }
 
 func (in activityNavIntent) apply(m *Model) tea.Cmd { return m.navigateToActivity(in.entry) }
 
 // context: Activity has no video/sort semantics, so it reports the default
 // context (matching its absence from the pre-interface currentContext switch).
-func (v activityView) context(ctx viewCtx) ContextID                    { return CtxVideoList }
-func (v activityView) currentVideo(_ viewCtx) (youtube.Video, bool)     { return youtube.Video{}, false }
-func (v *activityView) jumpTo(_ int, _ viewCtx)                         {}
-func (v *activityView) jumpToLast(_ viewCtx)                            {}
+func (v activityView) context(ctx viewCtx) ContextID               { return CtxVideoList }
+func (v activityView) currentVideo(_ viewCtx) (domain.Video, bool) { return domain.Video{}, false }
+func (v *activityView) jumpTo(_ int, _ viewCtx)                    {}
+func (v *activityView) jumpToLast(_ viewCtx)                       {}
 
 // update handles navigation keys. On drill-down it returns a nav intent for the
 // router to perform the cross-tab jump.

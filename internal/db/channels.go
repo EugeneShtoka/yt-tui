@@ -3,11 +3,11 @@ package db
 import (
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // SaveChannelVideos upserts all videos for a channel and links them.
-func (d *DB) SaveChannelVideos(channelID string, videos []youtube.Video) error {
+func (d *DB) SaveChannelVideos(channelID string, videos []domain.Video) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -35,7 +35,7 @@ func (d *DB) SaveChannelVideos(channelID string, videos []youtube.Video) error {
 }
 
 // GetChannelVideos returns persisted videos for a channel, newest first.
-func (d *DB) GetChannelVideos(channelID string) ([]youtube.Video, error) {
+func (d *DB) GetChannelVideos(channelID string) ([]domain.Video, error) {
 	rows, err := d.sql.Query(`
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
@@ -49,9 +49,9 @@ func (d *DB) GetChannelVideos(channelID string) ([]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []youtube.Video
+	var result []domain.Video
 	for rows.Next() {
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err
@@ -63,7 +63,7 @@ func (d *DB) GetChannelVideos(channelID string) ([]youtube.Video, error) {
 
 // SaveSubscribedChannels persists the full channel list, preserving alias and tags for existing channels.
 // Only non-local (YT-subscribed) channels can be removed; local subscriptions are preserved.
-func (d *DB) SaveSubscribedChannels(channels []youtube.Channel) error {
+func (d *DB) SaveSubscribedChannels(channels []domain.Channel) error {
 	if len(channels) == 0 {
 		return nil
 	}
@@ -118,7 +118,7 @@ func (d *DB) DeleteChannelVideos(channelID string) error {
 }
 
 // GetSubscribedChannels returns the persisted channel list including any user-set alias and tags.
-func (d *DB) GetSubscribedChannels() ([]youtube.Channel, error) {
+func (d *DB) GetSubscribedChannels() ([]domain.Channel, error) {
 	rows, err := d.sql.Query(`
 		SELECT channel_id, name, url, subscribers,
 		       COALESCE(alias,''), COALESCE(tags,''), COALESCE(is_local,0)
@@ -127,9 +127,9 @@ func (d *DB) GetSubscribedChannels() ([]youtube.Channel, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []youtube.Channel
+	var out []domain.Channel
 	for rows.Next() {
-		var ch youtube.Channel
+		var ch domain.Channel
 		var tagsStr string
 		var isLocal int
 		if err := rows.Scan(&ch.ID, &ch.Name, &ch.URL, &ch.Subscribers, &ch.Alias, &tagsStr, &isLocal); err != nil {
@@ -145,7 +145,7 @@ func (d *DB) GetSubscribedChannels() ([]youtube.Channel, error) {
 }
 
 // AddSubscribedChannel upserts a single channel, preserving any existing alias and tags.
-func (d *DB) AddSubscribedChannel(ch youtube.Channel) error {
+func (d *DB) AddSubscribedChannel(ch domain.Channel) error {
 	isLocal := 0
 	if ch.IsLocal {
 		isLocal = 1
@@ -176,7 +176,7 @@ func (d *DB) SetChannelTags(channelID string, tags []string) error {
 }
 
 // GetAllChannelVideos returns all videos for the given channel IDs, newest first.
-func (d *DB) GetAllChannelVideos(channelIDs []string) ([]youtube.Video, error) {
+func (d *DB) GetAllChannelVideos(channelIDs []string) ([]domain.Video, error) {
 	if len(channelIDs) == 0 {
 		return nil, nil
 	}
@@ -199,9 +199,9 @@ func (d *DB) GetAllChannelVideos(channelIDs []string) ([]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []youtube.Video
+	var out []domain.Video
 	for rows.Next() {
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err
@@ -212,7 +212,7 @@ func (d *DB) GetAllChannelVideos(channelIDs []string) ([]youtube.Video, error) {
 }
 
 // GetChannelLatestAll returns the most recent video per channel derived from channel_videos.
-func (d *DB) GetChannelLatestAll() (map[string]youtube.Video, error) {
+func (d *DB) GetChannelLatestAll() (map[string]domain.Video, error) {
 	rows, err := d.sql.Query(`
 		WITH latest AS (
 			SELECT cv.channel_id, MAX(v.upload_date) AS max_date
@@ -232,10 +232,10 @@ func (d *DB) GetChannelLatestAll() (map[string]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make(map[string]youtube.Video)
+	out := make(map[string]domain.Video)
 	for rows.Next() {
 		var chID string
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&chID, &v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err

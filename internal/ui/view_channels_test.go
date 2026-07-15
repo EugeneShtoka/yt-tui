@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -128,5 +128,5 @@ func TestChannelsActionIntentCarriesKey(t *testing.T) {
 // Guard: channelsView satisfies the tabView interface.
 var _ tabView = (*channelsView)(nil)
 
-// Guard: sampleChannels returns youtube.Channel values (used by channelsCtx).
-var _ = []youtube.Channel(sampleChannels())
+// Guard: sampleChannels returns domain.Channel values (used by channelsCtx).
+var _ = []domain.Channel(sampleChannels())

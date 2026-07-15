@@ -5,17 +5,16 @@ import (
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // FilterByMinDuration removes videos shorter than minSecs seconds.
 // Videos with Duration == 0 (unknown) are kept. Pass minSecs <= 0 to skip.
-func FilterByMinDuration(videos []youtube.Video, minSecs int) []youtube.Video {
+func FilterByMinDuration(videos []domain.Video, minSecs int) []domain.Video {
 	if minSecs <= 0 {
 		return videos
 	}
-	out := make([]youtube.Video, 0, len(videos))
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if v.Duration == 0 || v.Duration >= minSecs {
 			out = append(out, v)
@@ -26,11 +25,11 @@ func FilterByMinDuration(videos []youtube.Video, minSecs int) []youtube.Video {
 
 // FilterByMinViews removes videos with fewer than minViews views.
 // Videos with ViewCount == 0 (unknown) are kept. Pass minViews <= 0 to skip.
-func FilterByMinViews(videos []youtube.Video, minViews int) []youtube.Video {
+func FilterByMinViews(videos []domain.Video, minViews int) []domain.Video {
 	if minViews <= 0 {
 		return videos
 	}
-	out := make([]youtube.Video, 0, len(videos))
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if v.ViewCount == 0 || v.ViewCount >= int64(minViews) {
 			out = append(out, v)
@@ -41,12 +40,12 @@ func FilterByMinViews(videos []youtube.Video, minViews int) []youtube.Video {
 
 // FilterByAge removes videos whose upload date is older than maxDays.
 // Videos with no date are kept.
-func FilterByAge(videos []youtube.Video, maxDays int) []youtube.Video {
+func FilterByAge(videos []domain.Video, maxDays int) []domain.Video {
 	if maxDays <= 0 {
 		return videos
 	}
 	cutoff := time.Now().AddDate(0, 0, -maxDays)
-	out := make([]youtube.Video, 0, len(videos))
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if len(v.UploadDate) != 8 {
 			out = append(out, v)
@@ -61,8 +60,8 @@ func FilterByAge(videos []youtube.Video, maxDays int) []youtube.Video {
 }
 
 // FilterDownloaded removes videos that are already in the local library.
-func FilterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
+func FilterDownloaded(videos []domain.Video, local map[string]domain.LocalVideo) []domain.Video {
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if _, ok := local[v.ID]; !ok {
 			out = append(out, v)
@@ -72,8 +71,8 @@ func FilterDownloaded(videos []youtube.Video, local map[string]db.LocalVideo) []
 }
 
 // FilterHidden removes videos the user has explicitly hidden from recommended.
-func FilterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
+func FilterHidden(videos []domain.Video, hidden map[string]bool) []domain.Video {
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if !hidden[v.ID] {
 			out = append(out, v)
@@ -84,8 +83,8 @@ func FilterHidden(videos []youtube.Video, hidden map[string]bool) []youtube.Vide
 
 // FilterBlacklisted removes videos whose channel is blacklisted.
 // As a side effect it enriches name-only blacklist entries with the channel ID.
-func FilterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel, cfg *config.Config) []youtube.Video {
-	out := make([]youtube.Video, 0, len(videos))
+func FilterBlacklisted(videos []domain.Video, list []config.BlacklistedChannel, cfg *config.Config) []domain.Video {
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if bl, matched := MatchBlacklisted(v, list); matched {
 			if bl >= 0 && cfg.BlacklistedChannels[bl].ID == "" && v.ChannelID != "" {
@@ -102,7 +101,7 @@ func FilterBlacklisted(videos []youtube.Video, list []config.BlacklistedChannel,
 // MatchBlacklisted returns the index in list and true if the video's channel is
 // blacklisted. Matches by ID first (exact), then by name (case-insensitive) for
 // entries without an ID.
-func MatchBlacklisted(v youtube.Video, list []config.BlacklistedChannel) (int, bool) {
+func MatchBlacklisted(v domain.Video, list []config.BlacklistedChannel) (int, bool) {
 	for i, bl := range list {
 		if bl.ID != "" && bl.ID == v.ChannelID {
 			return i, true
@@ -116,11 +115,11 @@ func MatchBlacklisted(v youtube.Video, list []config.BlacklistedChannel) (int, b
 
 // FilterSubscribed removes videos whose channel the user is already subscribed
 // to (matched by channel ID or, failing that, by lowercased channel name).
-func FilterSubscribed(videos []youtube.Video, subscribed map[string]bool) []youtube.Video {
+func FilterSubscribed(videos []domain.Video, subscribed map[string]bool) []domain.Video {
 	if len(subscribed) == 0 {
 		return videos
 	}
-	out := make([]youtube.Video, 0, len(videos))
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if subscribed[v.ChannelID] {
 			continue

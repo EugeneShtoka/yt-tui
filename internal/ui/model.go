@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EugeneShtoka/yt-tui/internal/channels"
+	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/library"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
-	"github.com/EugeneShtoka/yt-tui/internal/library"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -132,8 +133,9 @@ const (
 // Model is the root bubbletea model.
 type Model struct {
 	cfg        *config.Config
-	db         Store
-	downloader *downloader.Downloader
+	backend    api.Backend
+	db         Store              // backendStore wrapper; derived from backend in NewModel
+	downloader *downloader.Downloader // kept for Items() / WaitForEvent() display primitives
 
 	width  int
 	height int
@@ -163,11 +165,11 @@ type Model struct {
 	subs               channels.ChannelSet
 	subChLoading       bool
 	subChLoaded        bool
-	subChVideos        []youtube.Video
+	subChVideos        []domain.Video
 	subChVidLoading    bool
 	subChVidRefreshing bool // has cached data; background fetch running
 	subChActiveID      string
-	subChLatest        map[string]youtube.Video // channelID → latest known video
+	subChLatest        map[string]domain.Video // channelID → latest known video
 
 	// ── Channels: alias/tag editing ───────────────────────────────────────────
 	// Handled by the pre-dispatch edit-input gate (handleChannelEditInput), so
@@ -176,19 +178,19 @@ type Model struct {
 	subChEditInput textinput.Model
 
 	// ── Playlists ────────────────────────────────────────────────────────────
-	playlists            []db.Playlist        // local playlists (fallback when no YT)
-	ytPlaylists          []youtube.YTPlaylist // YouTube playlists (loaded from YT)
+	playlists            []domain.Playlist   // local playlists (fallback when no YT)
+	ytPlaylists          []domain.YTPlaylist // YouTube playlists (loaded from YT)
 	ytPlLoading          bool
 	ytPlLoaded           bool
-	ytClient             *youtube.YTClient          // nil until browser cookies extracted
-	playlist             playlistsView              // P4 slice: cursor/scroll/pane/sort for both panes
-	playlistVidCache     map[string][]youtube.Video // per-playlist video cache (written by async fetches)
+	ytClient             *youtube.YTClient         // nil until browser cookies extracted
+	playlist             playlistsView             // P4 slice: cursor/scroll/pane/sort for both panes
+	playlistVidCache     map[string][]domain.Video // per-playlist video cache (written by async fetches)
 	playlistVidLoading   bool
 	createModeYT         bool // true = creating a YouTube playlist (not local)
 	createTypeSel        int  // 0 = local, 1 = YouTube
 	createInput          textinput.Model
 	addOverlaySel        int
-	addVideo             youtube.Video
+	addVideo             domain.Video
 	addAfterCreate       bool
 	addOverlayCreateMode bool
 	addOverlayCreateYT   bool
@@ -200,7 +202,7 @@ type Model struct {
 	// flags are written by async fetches, so they stay here (router).
 	search        searchView
 	searchInput   textinput.Model
-	searchVideos  []youtube.Video
+	searchVideos  []domain.Video
 	searchLoading bool
 	lastQuery     string
 	searchHistory []string // past queries, newest first
@@ -244,9 +246,9 @@ type Model struct {
 	cmdLastTabValue string
 
 	// ── Search: channel results + drill-down ─────────────────────────────────
-	searchChannels  []youtube.Channel
-	searchChSel     *youtube.Channel
-	searchChVideos  []youtube.Video
+	searchChannels  []domain.Channel
+	searchChSel     *domain.Channel
+	searchChVideos  []domain.Video
 	searchChLoading bool
 
 	// ── Shared ───────────────────────────────────────────────────────────────
@@ -267,17 +269,17 @@ type Model struct {
 	chordCache   *[]chordDef // built once in NewModel; shared across BubbleTea value copies
 
 	// ── Recommended: hide/blacklist state ────────────────────────────────
-	streamedVideoIDs     map[string]bool  // video IDs with any play/stream history event
-	videoPositions       map[string]int64 // last known position ms for any video
-	recHidden            map[string]bool  // video IDs hidden from recommended
+	streamedVideoIDs map[string]bool  // video IDs with any play/stream history event
+	videoPositions   map[string]int64 // last known position ms for any video
+	recHidden        map[string]bool  // video IDs hidden from recommended
 
 	// ── Downloading: play-after-download ─────────────────────────────────
 	playAfterDownload map[string]bool
 
 	// ── Playback resume ───────────────────────────────────────────────────
 	playerBackend     player.Backend
-	playingVideoID    string         // ID of the video currently playing (for position saves)
-	playingSBSegments []db.SBSegment // SponsorBlock segments for the current local file (empty = no conversion)
+	playingVideoID    string             // ID of the video currently playing (for position saves)
+	playingSBSegments []domain.SBSegment // SponsorBlock segments for the current local file (empty = no conversion)
 
 	// ── Pending direct overlay (chapters/links opened without info panel) ──
 	pendingDirectOverlay string // "links" or "chapters"; cleared after VideoDetailsMsg handled
@@ -290,24 +292,24 @@ type Model struct {
 	overlays []overlayKind
 
 	// ── Video detail overlay ──────────────────────────────────────────────
-	vidDetailVideo         *youtube.VideoDetails
+	vidDetailVideo         *domain.VideoDetails
 	vidDetailLoading       bool
-	vidDetailDescVS        int           // description scroll start line
-	vidDetailThumb         image.Image   // nil until loaded; stays nil if fetch fails
-	vidDetailLinks         *[]db.Link    // nil = not yet parsed; &[]db.Link{} = parsed, none found
-	vidDetailChapters      *[]db.Chapter // nil = not available; populated from yt-dlp metadata
-	vidDetailDescLines     []string      // pre-wrapped description lines; nil until video is set
-	vidDetailThumbB64      string        // pre-encoded PNG base64 for Kitty; empty until loaded
-	vidDetailThumbRendered string        // pre-rendered half-block string for non-Kitty terminals
-	vidDetailKittyOverlay  string        // full Kitty sequence; recomputed only on thumbnail load or resize
+	vidDetailDescVS        int               // description scroll start line
+	vidDetailThumb         image.Image       // nil until loaded; stays nil if fetch fails
+	vidDetailLinks         *[]domain.Link    // nil = not yet parsed; &[]domain.Link{} = parsed, none found
+	vidDetailChapters      *[]domain.Chapter // nil = not available; populated from yt-dlp metadata
+	vidDetailDescLines     []string          // pre-wrapped description lines; nil until video is set
+	vidDetailThumbB64      string            // pre-encoded PNG base64 for Kitty; empty until loaded
+	vidDetailThumbRendered string            // pre-rendered half-block string for non-Kitty terminals
+	vidDetailKittyOverlay  string            // full Kitty sequence; recomputed only on thumbnail load or resize
 
 	// ── Link list overlay (opened from video detail) ───────────────────────
 	linkOverlaySel  int
-	linkOverlayURLs []db.Link
+	linkOverlayURLs []domain.Link
 
 	// ── Chapter list overlay (opened from video detail) ────────────────────
 	chapterOverlaySel   int
-	chapterOverlayItems []db.Chapter
+	chapterOverlayItems []domain.Chapter
 }
 
 func buildTabs(cfg *config.Config) []int {
@@ -330,7 +332,8 @@ func buildTabs(cfg *config.Config) []int {
 	return tabs
 }
 
-func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Model {
+func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader) Model {
+	database := backendStore{backend}
 	si := textinput.New()
 	si.Placeholder = "Search YouTube..."
 	si.CharLimit = 200
@@ -395,47 +398,48 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 	// Load latest-video-per-channel from channel_videos for immediate sort/display.
 	chLatest, _ := database.GetChannelLatestAll()
 	if chLatest == nil {
-		chLatest = make(map[string]youtube.Video)
+		chLatest = make(map[string]domain.Video)
 	}
 
 	backend, _ := player.New(cfg)
 
 	m := Model{
-		cfg:                  cfg,
-		db:                   database,
-		downloader:           dl,
-		tabs:                 tabs,
-		activeTab:            firstTab,
-		recFeed:              feed.NewStarting(recCache),
-		subFeed:              feed.New(subVideos),
-		searchInput:          si,
-		createInput:          ci,
-		subChEditInput:       ei,
-		addOverlayInput:      oi,
-		channels:             channelsView{sort: subChSortDate, vidSort: vidSortDate, tagSort: vidSortDate},
-		spinner:              sp,
-		library:              library.New(localVideos),
-		streamedVideoIDs:     mustWatchedIDs(database),
-		videoPositions:       mustVideoPositions(database),
-		recHidden:            recHidden,
-		subs:                 subs,
-		subChLoaded:          len(cachedChannels) > 0,
-		subChLatest:          chLatest,
-		localFilterInput:     textinput.New(),
-		cmdInput:             func() textinput.Model { t := textinput.New(); t.Prompt = ""; return t }(),
-		playAfterDownload:    make(map[string]bool),
-		playlists:            playlists,
-		ytPlaylists:          cachedYTPlaylists,
-		ytPlLoaded:           len(cachedYTPlaylists) > 0,
-		playlistVidCache:     make(map[string][]youtube.Video),
-		keys:                 buildKeyMap(cfg.Keybindings),
-		playerBackend:        backend,
-		recommended:          recommendedView{sort: vidSortViews},
-		subscriptions:        subscriptionsView{sort: vidSortDate},
-		search:               searchView{sort: vidSortNone},
-		local:                localView{sort: vidSortNone},
-		playlist:             playlistsView{sort: vidSortNone},
-		searchHistIdx:        -1,
+		cfg:               cfg,
+		backend:           backend,
+		db:                database,
+		downloader:        dl,
+		tabs:              tabs,
+		activeTab:         firstTab,
+		recFeed:           feed.NewStarting(recCache),
+		subFeed:           feed.New(subVideos),
+		searchInput:       si,
+		createInput:       ci,
+		subChEditInput:    ei,
+		addOverlayInput:   oi,
+		channels:          channelsView{sort: subChSortDate, vidSort: vidSortDate, tagSort: vidSortDate},
+		spinner:           sp,
+		library:           library.New(localVideos),
+		streamedVideoIDs:  mustWatchedIDs(database),
+		videoPositions:    mustVideoPositions(database),
+		recHidden:         recHidden,
+		subs:              subs,
+		subChLoaded:       len(cachedChannels) > 0,
+		subChLatest:       chLatest,
+		localFilterInput:  textinput.New(),
+		cmdInput:          func() textinput.Model { t := textinput.New(); t.Prompt = ""; return t }(),
+		playAfterDownload: make(map[string]bool),
+		playlists:         playlists,
+		ytPlaylists:       cachedYTPlaylists,
+		ytPlLoaded:        len(cachedYTPlaylists) > 0,
+		playlistVidCache:  make(map[string][]domain.Video),
+		keys:              buildKeyMap(cfg.Keybindings),
+		playerBackend:     backend,
+		recommended:       recommendedView{sort: vidSortViews},
+		subscriptions:     subscriptionsView{sort: vidSortDate},
+		search:            searchView{sort: vidSortNone},
+		local:             localView{sort: vidSortNone},
+		playlist:          playlistsView{sort: vidSortNone},
+		searchHistIdx:     -1,
 	}
 	chords := m.buildChordDefs()
 	m.chordCache = &chords
@@ -443,8 +447,8 @@ func NewModel(cfg *config.Config, database *db.DB, dl *downloader.Downloader) Mo
 }
 
 // sortChannelSlice returns a sorted copy of the given channel slice.
-func (m Model) sortChannelSlice(channels []youtube.Channel) []youtube.Channel {
-	out := make([]youtube.Channel, len(channels))
+func (m Model) sortChannelSlice(channels []domain.Channel) []domain.Channel {
+	out := make([]domain.Channel, len(channels))
 	copy(out, channels)
 	switch m.channels.sort {
 	case subChSortDate:
@@ -496,17 +500,17 @@ func firstTag(tags []string) string {
 }
 
 // sortedChannels returns all subscribed channels in the current sort order.
-func (m Model) sortedChannels() []youtube.Channel {
+func (m Model) sortedChannels() []domain.Channel {
 	return m.sortChannelSlice(m.subs.Channels())
 }
 
 // channelsInTag returns channels belonging to the given tag (supports pseudo-tags).
-func (m Model) channelsInTag(tag string) []youtube.Channel {
+func (m Model) channelsInTag(tag string) []domain.Channel {
 	switch tag {
 	case pseudoTagAll:
 		return m.subs.Channels()
 	case pseudoTagUntagged:
-		var out []youtube.Channel
+		var out []domain.Channel
 		for _, ch := range m.subs.Channels() {
 			if len(ch.Tags) == 0 {
 				out = append(out, ch)
@@ -514,7 +518,7 @@ func (m Model) channelsInTag(tag string) []youtube.Channel {
 		}
 		return out
 	default:
-		var out []youtube.Channel
+		var out []domain.Channel
 		for _, ch := range m.subs.Channels() {
 			for _, t := range ch.Tags {
 				if t == tag {
@@ -528,7 +532,7 @@ func (m Model) channelsInTag(tag string) []youtube.Channel {
 }
 
 // sortedChannelsInTag returns channels for the given tag in the current sort order.
-func (m Model) sortedChannelsInTag(tag string) []youtube.Channel {
+func (m Model) sortedChannelsInTag(tag string) []domain.Channel {
 	return m.sortChannelSlice(m.channelsInTag(tag))
 }
 
@@ -568,7 +572,7 @@ func tagDisplayName(tag string) string {
 
 // tagVideos returns videos from the subscriptions feed (m.subFeed) that belong to channels in the selected tag,
 // sorted by m.channels.tagSort. The returned slice is always a fresh copy.
-func (m Model) tagVideos() []youtube.Video {
+func (m Model) tagVideos() []domain.Video {
 	chans := m.channelsInTag(m.channels.tagSel)
 	if len(chans) == 0 {
 		return nil
@@ -579,7 +583,7 @@ func (m Model) tagVideos() []youtube.Video {
 			idSet[ch.ID] = true
 		}
 	}
-	var out []youtube.Video
+	var out []domain.Video
 	for _, v := range m.subFeed.Videos() {
 		if idSet[v.ChannelID] {
 			out = append(out, v)
@@ -619,8 +623,8 @@ func initYTClient(cfg *config.Config) tea.Cmd {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		youtube.FetchRecommended(m.cfg),
-		youtube.FetchSubscribedChannelsBackground(m.cfg), // silently populate filter on startup
+		cmdFetchRecommended(m.backend),
+		cmdFetchSubscribedChannelsBackground(m.backend), // silently populate filter on startup
 		m.downloader.WaitForEvent(),
 		m.spinner.Tick,
 		positionTick(),
@@ -692,12 +696,12 @@ func (m *Model) currentTabIndex() int {
 	return 0
 }
 
-func filterText(videos []youtube.Video, q string) []youtube.Video {
+func filterText(videos []domain.Video, q string) []domain.Video {
 	if q == "" {
 		return videos
 	}
 	lower := strings.ToLower(q)
-	out := make([]youtube.Video, 0, len(videos))
+	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
 		if strings.Contains(strings.ToLower(v.Title), lower) ||
 			strings.Contains(strings.ToLower(v.Channel), lower) {
@@ -707,8 +711,8 @@ func filterText(videos []youtube.Video, q string) []youtube.Video {
 	return out
 }
 
-func (m *Model) localFilteredVideos() []youtube.Video {
-	var raw []youtube.Video
+func (m *Model) localFilteredVideos() []domain.Video {
+	var raw []domain.Video
 	switch m.activeTab {
 	case tabRecommended:
 		raw = m.recFeed.Videos()
@@ -732,13 +736,13 @@ func (m *Model) localFilteredVideos() []youtube.Video {
 	return filterText(raw, m.localFilter)
 }
 
-func (m *Model) currentVideo() (youtube.Video, bool) {
+func (m *Model) currentVideo() (domain.Video, bool) {
 	if m.localFilter != "" {
 		filtered := m.localFilteredVideos()
 		if i := m.localFilterCursor; i >= 0 && i < len(filtered) {
 			return filtered[i], true
 		}
-		return youtube.Video{}, false
+		return domain.Video{}, false
 	}
 	return m.activeView().currentVideo(m.viewCtx())
 }
@@ -986,7 +990,7 @@ func (m Model) buildChordDefs() []chordDef {
 					m.setStatus("local subscribe: no channel", true)
 					return m, nil
 				}
-				ch := youtube.Channel{
+				ch := domain.Channel{
 					ID:      chID,
 					Name:    chName,
 					URL:     "https://www.youtube.com/channel/" + chID,
@@ -998,7 +1002,7 @@ func (m Model) buildChordDefs() []chordDef {
 				}
 				m.subs.Subscribe(ch)
 				m.setStatus("Locally subscribed: "+chName, false)
-				_ = m.db.LogActivity(db.ActivityEntry{
+				_ = m.db.LogActivity(domain.ActivityEntry{
 					Type: "subscribe", IsLocal: true,
 					ChannelID: chID, ChannelName: chName,
 				})

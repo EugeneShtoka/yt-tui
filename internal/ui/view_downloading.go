@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,11 +40,11 @@ type downloadingIntent struct {
 }
 
 // jumpTo implements goto-line navigation.
-func (v downloadingView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v downloadingView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	if item, ok := v.currentItem(ctx.dlItems); ok {
 		return item.Video, true
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 func (v *downloadingView) jumpTo(idx int, ctx viewCtx) {

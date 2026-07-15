@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -25,7 +25,7 @@ func testActivityCtx() viewCtx {
 
 func sampleActivity() activityView {
 	return activityView{
-		entries: []db.ActivityEntry{
+		entries: []domain.ActivityEntry{
 			{Type: "subscribe", ChannelName: "Alpha"},
 			{Type: "create_playlist", PlaylistName: "Beta"},
 			{Type: "add_to_playlist", VideoTitle: "Gamma", PlaylistName: "Beta"},

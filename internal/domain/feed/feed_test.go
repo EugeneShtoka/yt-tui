@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 func TestNewStarting(t *testing.T) {
 	// Seeded from cache → loaded, and immediately fetching with refreshing set.
-	f := NewStarting([]youtube.Video{{ID: "a"}})
+	f := NewStarting([]domain.Video{{ID: "a"}})
 	if !f.Loaded() || !f.Loading() || !f.Refreshing() {
 		t.Errorf("cache-seeded feed: loaded=%v loading=%v refreshing=%v, want all true", f.Loaded(), f.Loading(), f.Refreshing())
 	}
@@ -27,7 +26,7 @@ func TestNewStarting(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	// New holds videos with no fetch in flight (Subscriptions-style feed).
-	f := New([]youtube.Video{{ID: "a"}, {ID: "b"}})
+	f := New([]domain.Video{{ID: "a"}, {ID: "b"}})
 	if f.Loading() || f.Refreshing() {
 		t.Errorf("New feed should not be fetching: loading=%v refreshing=%v", f.Loading(), f.Refreshing())
 	}
@@ -62,7 +61,7 @@ func TestFeedFetchLifecycle(t *testing.T) {
 
 func TestFeedAtAndMutations(t *testing.T) {
 	var f Feed
-	f.SetVideos([]youtube.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}})
+	f.SetVideos([]domain.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}})
 	if v, ok := f.At(1); !ok || v.ID != "b" {
 		t.Errorf("At(1) = %v,%v, want b,true", v.ID, ok)
 	}
@@ -73,7 +72,7 @@ func TestFeedAtAndMutations(t *testing.T) {
 	if f.Len() != 2 || f.hasID("b") {
 		t.Errorf("after RemoveVideo(b): %v", ids(f.videos))
 	}
-	f.SetVideos([]youtube.Video{{ID: "a", ChannelID: "ch1"}, {ID: "b", ChannelID: "ch2"}})
+	f.SetVideos([]domain.Video{{ID: "a", ChannelID: "ch1"}, {ID: "b", ChannelID: "ch2"}})
 	f.RemoveChannel("ch1", "")
 	if f.Len() != 1 || f.videos[0].ID != "b" {
 		t.Errorf("after RemoveChannel(ch1): %v", ids(f.videos))
@@ -86,7 +85,7 @@ func TestFeedAtAndMutations(t *testing.T) {
 
 func TestFeedSort(t *testing.T) {
 	var f Feed
-	f.SetVideos([]youtube.Video{
+	f.SetVideos([]domain.Video{
 		{ID: "a", ViewCount: 100},
 		{ID: "b", ViewCount: 500},
 		{ID: "c", ViewCount: 200},
@@ -100,16 +99,16 @@ func TestFeedSort(t *testing.T) {
 // Merge must run the full filter pipeline, sort, store, and remap the cursor.
 func TestFeedMerge(t *testing.T) {
 	var f Feed
-	f.SetVideos([]youtube.Video{{ID: "keep", ViewCount: 1000}})
+	f.SetVideos([]domain.Video{{ID: "keep", ViewCount: 1000}})
 	cfg := &config.Config{}
-	incoming := []youtube.Video{
+	incoming := []domain.Video{
 		{ID: "downloaded", ViewCount: 50},          // filtered: already local
 		{ID: "hidden", ViewCount: 50},              // filtered: hidden
 		{ID: "sub", ViewCount: 50, ChannelID: "s"}, // filtered: subscribed channel
 		{ID: "new", ViewCount: 300},                // kept
 	}
 	newCursor := f.Merge(incoming, 0, MergeOpts{
-		Downloaded: map[string]db.LocalVideo{"downloaded": {ID: "downloaded"}},
+		Downloaded: map[string]domain.LocalVideo{"downloaded": {ID: "downloaded"}},
 		Hidden:     map[string]bool{"hidden": true},
 		Subscribed: map[string]bool{"s": true},
 		Cfg:        cfg,

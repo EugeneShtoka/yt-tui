@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
@@ -107,19 +108,19 @@ func (v *searchView) updateVS(nCh, nVid, pageSize int) {
 	}
 }
 
-func (v searchView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v searchView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	if ctx.searchChSel != nil {
 		if i := v.vidCursor; i >= 0 && i < len(ctx.searchChVideos) {
 			return ctx.searchChVideos[i], true
 		}
-		return youtube.Video{}, false
+		return domain.Video{}, false
 	}
 	nCh := len(ctx.searchChannels)
 	idx := v.cursor - nCh
 	if idx >= 0 && idx < len(ctx.searchVideos) {
 		return ctx.searchVideos[idx], true
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 func (v *searchView) jumpTo(idx int, ctx viewCtx) {

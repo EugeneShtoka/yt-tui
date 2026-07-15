@@ -1,10 +1,10 @@
 package ui
 
 import (
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/library"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
-	"github.com/EugeneShtoka/yt-tui/internal/library"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -33,24 +33,24 @@ type viewCtx struct {
 	subFeed *feed.Feed
 
 	// Search result data + drill-down selection (written by async fetches).
-	searchChSel    *youtube.Channel
-	searchChannels []youtube.Channel
-	searchVideos   []youtube.Video
-	searchChVideos []youtube.Video
+	searchChSel    *domain.Channel
+	searchChannels []domain.Channel
+	searchVideos   []domain.Video
+	searchChVideos []domain.Video
 
 	// Channels tab (multi-pane): the active pane's nav needs live element counts,
 	// and the drill actions/rendering read the router-owned channel/video data.
 	// Only populated when the Channels tab is active.
-	chSorted    []youtube.Channel // sorted channel list (flat pane 0)
-	chTagItems  []string          // tag list (tags pane 0)
-	chTagVideos []youtube.Video   // aggregated videos for the selected tag (tags pane 1)
-	subChVideos []youtube.Video   // selected channel's videos (flat pane 1)
+	chSorted    []domain.Channel // sorted channel list (flat pane 0)
+	chTagItems  []string         // tag list (tags pane 0)
+	chTagVideos []domain.Video   // aggregated videos for the selected tag (tags pane 1)
+	subChVideos []domain.Video   // selected channel's videos (flat pane 1)
 
 	// Playlists tab (multi-pane): the active pane's nav needs live element counts,
 	// and the actions read the router-owned playlist/video data. Only populated
 	// when the Playlists tab is active.
-	plCount  int             // total playlist rows (YT + local)
-	plVideos []youtube.Video // selected playlist's cached videos (pane 1)
+	plCount  int            // total playlist rows (YT + local)
+	plVideos []domain.Video // selected playlist's cached videos (pane 1)
 
 	// Video-list render inputs (Recommended/Subscriptions share renderVideoList).
 	subLoading        bool
@@ -58,7 +58,7 @@ type viewCtx struct {
 	localFilterCursor int
 	// renderList is the router's shared video-list renderer (m.renderVideoList),
 	// captured per frame so views can draw without a Model handle.
-	renderList func(videos []youtube.Video, cursor, vs int, loading, refreshing bool, height int, title string) string
+	renderList func(videos []domain.Video, cursor, vs int, loading, refreshing bool, height int, title string) string
 	// renderSearch is the router's bespoke Search renderer (m.renderSearch),
 	// captured per frame; the searchView passes its own cursor/scroll into it.
 	renderSearch func(height, cursor, vs, vidCursor, vidVS int) string
@@ -93,7 +93,7 @@ type tabView interface {
 	// shared, router-owned result data.
 	context(ctx viewCtx) ContextID
 	// currentVideo returns the video at the current cursor position, if any.
-	currentVideo(ctx viewCtx) (youtube.Video, bool)
+	currentVideo(ctx viewCtx) (domain.Video, bool)
 	// jumpTo moves the cursor to the given index.
 	jumpTo(idx int, ctx viewCtx)
 	// jumpToLast moves the cursor to the last item.

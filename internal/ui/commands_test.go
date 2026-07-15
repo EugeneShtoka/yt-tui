@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -17,28 +17,28 @@ type recordingStore struct {
 	*fakeStore
 	err error
 
-	savedYTPlaylists      []youtube.YTPlaylist
+	savedYTPlaylists      []domain.YTPlaylist
 	savedYTPlVideosID     string
-	savedYTPlVideos       []youtube.Video
+	savedYTPlVideos       []domain.Video
 	savedChanVideosID     string
-	savedChanVideos       []youtube.Video
+	savedChanVideos       []domain.Video
 	deletedChannelID      string
 	savedFeedName         string
-	savedFeedVideos       []youtube.Video
-	savedSubscribedChans  []youtube.Channel
+	savedFeedVideos       []domain.Video
+	savedSubscribedChans  []domain.Channel
 	saveSubsCalled        bool
 	saveFeedAfterSubsSeen bool
 }
 
-func (r *recordingStore) SaveYTPlaylists(pls []youtube.YTPlaylist) error {
+func (r *recordingStore) SaveYTPlaylists(pls []domain.YTPlaylist) error {
 	r.savedYTPlaylists = pls
 	return r.err
 }
-func (r *recordingStore) SaveYTPlaylistVideos(id string, v []youtube.Video) error {
+func (r *recordingStore) SaveYTPlaylistVideos(id string, v []domain.Video) error {
 	r.savedYTPlVideosID, r.savedYTPlVideos = id, v
 	return r.err
 }
-func (r *recordingStore) SaveChannelVideos(id string, v []youtube.Video) error {
+func (r *recordingStore) SaveChannelVideos(id string, v []domain.Video) error {
 	r.savedChanVideosID, r.savedChanVideos = id, v
 	return r.err
 }
@@ -46,14 +46,14 @@ func (r *recordingStore) DeleteChannelVideos(id string) error {
 	r.deletedChannelID = id
 	return r.err
 }
-func (r *recordingStore) SaveFeedCache(feed string, v []youtube.Video) error {
+func (r *recordingStore) SaveFeedCache(feed string, v []domain.Video) error {
 	if r.saveSubsCalled {
 		r.saveFeedAfterSubsSeen = true
 	}
 	r.savedFeedName, r.savedFeedVideos = feed, v
 	return r.err
 }
-func (r *recordingStore) SaveSubscribedChannels(ch []youtube.Channel) error {
+func (r *recordingStore) SaveSubscribedChannels(ch []domain.Channel) error {
 	r.saveSubsCalled = true
 	r.savedSubscribedChans = ch
 	return r.err
@@ -84,7 +84,7 @@ func assertNilMsg(t *testing.T, cmd tea.Cmd) {
 
 func TestSaveYTPlaylistsCmd(t *testing.T) {
 	s := newRecordingStore()
-	pls := []youtube.YTPlaylist{{ID: "p1", Title: "One"}}
+	pls := []domain.YTPlaylist{{ID: "p1", Title: "One"}}
 	assertNilMsg(t, saveYTPlaylistsCmd(s, pls))
 	if len(s.savedYTPlaylists) != 1 || s.savedYTPlaylists[0].ID != "p1" {
 		t.Fatalf("SaveYTPlaylists got %+v", s.savedYTPlaylists)
@@ -96,7 +96,7 @@ func TestSaveYTPlaylistsCmd(t *testing.T) {
 
 func TestSaveYTPlaylistVideosCmd(t *testing.T) {
 	s := newRecordingStore()
-	vids := []youtube.Video{{ID: "v1"}}
+	vids := []domain.Video{{ID: "v1"}}
 	assertNilMsg(t, saveYTPlaylistVideosCmd(s, "pl", vids))
 	if s.savedYTPlVideosID != "pl" || len(s.savedYTPlVideos) != 1 {
 		t.Fatalf("SaveYTPlaylistVideos got id=%q vids=%+v", s.savedYTPlVideosID, s.savedYTPlVideos)
@@ -105,7 +105,7 @@ func TestSaveYTPlaylistVideosCmd(t *testing.T) {
 
 func TestSaveChannelVideosCmd(t *testing.T) {
 	s := newRecordingStore()
-	vids := []youtube.Video{{ID: "v1"}, {ID: "v2"}}
+	vids := []domain.Video{{ID: "v1"}, {ID: "v2"}}
 	assertNilMsg(t, saveChannelVideosCmd(s, "ch1", vids))
 	if s.savedChanVideosID != "ch1" || len(s.savedChanVideos) != 2 {
 		t.Fatalf("SaveChannelVideos got id=%q vids=%+v", s.savedChanVideosID, s.savedChanVideos)
@@ -125,7 +125,7 @@ func TestDeleteChannelVideosCmd(t *testing.T) {
 
 func TestSaveFeedCacheCmd(t *testing.T) {
 	s := newRecordingStore()
-	vids := []youtube.Video{{ID: "v1"}}
+	vids := []domain.Video{{ID: "v1"}}
 	assertNilMsg(t, saveFeedCacheCmd(s, "recommended", vids))
 	if s.savedFeedName != "recommended" || len(s.savedFeedVideos) != 1 {
 		t.Fatalf("SaveFeedCache got feed=%q vids=%+v", s.savedFeedName, s.savedFeedVideos)
@@ -134,8 +134,8 @@ func TestSaveFeedCacheCmd(t *testing.T) {
 
 func TestSaveSubsAndFeedCmd(t *testing.T) {
 	s := newRecordingStore()
-	chans := []youtube.Channel{{ID: "c1"}}
-	vids := []youtube.Video{{ID: "v1"}}
+	chans := []domain.Channel{{ID: "c1"}}
+	vids := []domain.Video{{ID: "v1"}}
 	assertNilMsg(t, saveSubsAndFeedCmd(s, chans, vids))
 	if !s.saveSubsCalled || len(s.savedSubscribedChans) != 1 {
 		t.Fatalf("SaveSubscribedChannels not recorded: %+v", s.savedSubscribedChans)

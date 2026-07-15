@@ -3,18 +3,18 @@ package ui
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func sampleChannels() []youtube.Channel {
-	return []youtube.Channel{
+func sampleChannels() []domain.Channel {
+	return []domain.Channel{
 		{ID: "c1", Name: "Chan One"},
 		{ID: "c2", Name: "Chan Two"},
 	}
 }
 
-func searchCtx(chSel *youtube.Channel, channels []youtube.Channel, videos, chVideos []youtube.Video) viewCtx {
+func searchCtx(chSel *domain.Channel, channels []domain.Channel, videos, chVideos []domain.Video) viewCtx {
 	return viewCtx{
 		keys:           testListKeys(),
 		pageSize:       10,

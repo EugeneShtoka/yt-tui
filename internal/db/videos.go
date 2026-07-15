@@ -1,31 +1,10 @@
 package db
 
-import "time"
+import (
+	"time"
 
-// VideoStatus represents the playback state of a local video.
-type VideoStatus string
-
-const (
-	StatusNew     VideoStatus = "new"
-	StatusStarted VideoStatus = "started"
-	StatusWatched VideoStatus = "watched"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
-
-// LocalVideo is a video that has been downloaded to disk.
-type LocalVideo struct {
-	ID             string
-	Title          string
-	Channel        string
-	Duration       int
-	ViewCount      int64
-	UploadDate     string
-	FilePath       string
-	DownloadType   string // "video" or "audio"
-	DownloadedAt   time.Time
-	Status         VideoStatus
-	LastPlayed     time.Time
-	LastPositionMs int64
-}
 
 // UpsertVideo inserts or updates a video record.
 func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, viewCount int64, uploadDate, url string) error {
@@ -42,7 +21,7 @@ func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, vie
 }
 
 // AddLocalVideo records a downloaded video.
-func (d *DB) AddLocalVideo(v LocalVideo) error {
+func (d *DB) AddLocalVideo(v domain.LocalVideo) error {
 	_, err := d.sql.Exec(`
 		INSERT INTO local_videos (id, file_path, download_type, downloaded_at, status)
 		VALUES (?, ?, ?, ?, 'new')
@@ -52,7 +31,7 @@ func (d *DB) AddLocalVideo(v LocalVideo) error {
 }
 
 // SetVideoStatus updates playback status.
-func (d *DB) SetVideoStatus(id string, status VideoStatus) error {
+func (d *DB) SetVideoStatus(id string, status domain.VideoStatus) error {
 	now := time.Now()
 	_, err := d.sql.Exec(`
 		UPDATE local_videos SET status=?, last_played=? WHERE id=?
@@ -67,7 +46,7 @@ func (d *DB) DeleteLocalVideo(id string) error {
 }
 
 // LocalVideos returns all downloaded videos ordered by download date.
-func (d *DB) LocalVideos() ([]LocalVideo, error) {
+func (d *DB) LocalVideos() ([]domain.LocalVideo, error) {
 	rows, err := d.sql.Query(`
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -81,9 +60,9 @@ func (d *DB) LocalVideos() ([]LocalVideo, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []LocalVideo
+	var result []domain.LocalVideo
 	for rows.Next() {
-		var lv LocalVideo
+		var lv domain.LocalVideo
 		var lastPlayed string
 		if err := rows.Scan(
 			&lv.ID, &lv.Title, &lv.Channel, &lv.Duration,
@@ -172,8 +151,8 @@ func (d *DB) UpdateLastPosition(id string, ms int64) error {
 }
 
 // HasLocalVideo returns the local video record if it exists.
-func (d *DB) HasLocalVideo(id string) (LocalVideo, bool) {
-	var lv LocalVideo
+func (d *DB) HasLocalVideo(id string) (domain.LocalVideo, bool) {
+	var lv domain.LocalVideo
 	err := d.sql.QueryRow(`
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -188,7 +167,7 @@ func (d *DB) HasLocalVideo(id string) (LocalVideo, bool) {
 		&lv.Status, new(string),
 	)
 	if err != nil {
-		return LocalVideo{}, false
+		return domain.LocalVideo{}, false
 	}
 	return lv, true
 }

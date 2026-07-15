@@ -13,8 +13,18 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
+
+// Client wraps config for plain (non-tea) YouTube fetch operations.
+type Client struct {
+	cfg *config.Config
+}
+
+// NewClient creates a new Client.
+func NewClient(cfg *config.Config) *Client {
+	return &Client{cfg: cfg}
+}
 
 // ytdlpEntry is the raw JSON from yt-dlp --flat-playlist --dump-json.
 type ytdlpEntry struct {
@@ -36,7 +46,7 @@ type ytdlpEntry struct {
 	ChannelFollowerCount int64   `json:"channel_follower_count"`
 }
 
-func (e ytdlpEntry) toVideo() Video {
+func (e ytdlpEntry) toVideo() domain.Video {
 	ch := e.Channel
 	if ch == "" {
 		ch = e.PlaylistChannel
@@ -57,7 +67,7 @@ func (e ytdlpEntry) toVideo() Video {
 	if u == "" && e.ID != "" {
 		u = "https://www.youtube.com/watch?v=" + e.ID
 	}
-	return Video{
+	return domain.Video{
 		ID:         e.ID,
 		Title:      e.Title,
 		Channel:    ch,
@@ -69,7 +79,7 @@ func (e ytdlpEntry) toVideo() Video {
 	}
 }
 
-func (e ytdlpEntry) toChannel() Channel {
+func (e ytdlpEntry) toChannel() domain.Channel {
 	u := e.URL
 	if u == "" && e.ID != "" {
 		u = "https://www.youtube.com/channel/" + e.ID
@@ -78,7 +88,7 @@ func (e ytdlpEntry) toChannel() Channel {
 	if name == "" {
 		name = e.Channel
 	}
-	return Channel{ID: e.ID, Name: name, URL: u, Subscribers: e.ChannelFollowerCount}
+	return domain.Channel{ID: e.ID, Name: name, URL: u, Subscribers: e.ChannelFollowerCount}
 }
 
 func isRateLimited(s string) bool {
@@ -123,8 +133,8 @@ func newLineScanner(r io.Reader) *bufio.Scanner {
 // entries with an ID + title, not a channel/playlist tab, and with a nonzero
 // view count. It is the pure core of tryParseVideos — testable against fixtures
 // with no process spawn.
-func parseVideoLines(r io.Reader) ([]Video, error) {
-	var videos []Video
+func parseVideoLines(r io.Reader) ([]domain.Video, error) {
+	var videos []domain.Video
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -150,8 +160,8 @@ func parseVideoLines(r io.Reader) ([]Video, error) {
 }
 
 // parseChannelLines scans yt-dlp output for channel entries (any entry with an ID).
-func parseChannelLines(r io.Reader) ([]Channel, error) {
-	var channels []Channel
+func parseChannelLines(r io.Reader) ([]domain.Channel, error) {
+	var channels []domain.Channel
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -172,7 +182,7 @@ func parseChannelLines(r io.Reader) ([]Channel, error) {
 
 // parseMixedLines scans yt-dlp output that interleaves channels and videos
 // (used by search), routing each entry by its IEKey/type.
-func parseMixedLines(r io.Reader) (channels []Channel, videos []Video, err error) {
+func parseMixedLines(r io.Reader) (channels []domain.Channel, videos []domain.Video, err error) {
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -194,7 +204,7 @@ func parseMixedLines(r io.Reader) (channels []Channel, videos []Video, err error
 	return channels, videos, scanner.Err()
 }
 
-func tryParseVideos(args []string) ([]Video, string, error) {
+func tryParseVideos(args []string) ([]domain.Video, string, error) {
 	cmd := exec.Command("yt-dlp", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -210,7 +220,7 @@ func tryParseVideos(args []string) ([]Video, string, error) {
 	return videos, errBuf.String(), scanErr
 }
 
-func runAndParseVideos(args []string) ([]Video, error) {
+func runAndParseVideos(args []string) ([]domain.Video, error) {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -229,7 +239,7 @@ func runAndParseVideos(args []string) ([]Video, error) {
 	return nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-func tryParseChannels(args []string) ([]Channel, string, error) {
+func tryParseChannels(args []string) ([]domain.Channel, string, error) {
 	cmd := exec.Command("yt-dlp", args...)
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
@@ -242,7 +252,7 @@ func tryParseChannels(args []string) ([]Channel, string, error) {
 	return channels, stderrStr, nil
 }
 
-func runAndParseChannels(args []string) ([]Channel, error) {
+func runAndParseChannels(args []string) ([]domain.Channel, error) {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -261,156 +271,84 @@ func runAndParseChannels(args []string) ([]Channel, error) {
 	return nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-func applyStripEmojisVideos(vv []Video) []Video {
+func applyStripEmojisVideos(vv []domain.Video) []domain.Video {
 	for i := range vv {
 		vv[i].Title = StripEmojis(vv[i].Title)
 	}
 	return vv
 }
 
-func applyStripEmojisChannels(cc []Channel) []Channel {
+func applyStripEmojisChannels(cc []domain.Channel) []domain.Channel {
 	for i := range cc {
 		cc[i].Name = StripEmojis(cc[i].Name)
 	}
 	return cc
 }
 
-// YTPlaylist is a YouTube playlist (ID + title).
-type YTPlaylist struct {
-	ID    string
-	Title string
-}
-
-// --- Bubbletea message types ---
-
-type FetchResultMsg struct {
-	Source string
-	Videos []Video
-	Err    error
-}
-
-type ChannelListMsg struct {
-	Channels   []Channel
-	Err        error
-	Background bool // true = startup silent fetch; don't update subChannels/subChLoaded/status
-}
-
-type ChannelVideosMsg struct {
-	Source    string // "search" or "subscriptions"
-	ChannelID string
-	Videos    []Video
-	Err       error
-}
-
-type SearchResultMsg struct {
-	Query    string
-	Channels []Channel
-	Videos   []Video
-	Err      error
-}
-
-type YTPlaylistsMsg struct {
-	Playlists  []YTPlaylist
-	Err        error
-	Background bool
-}
-
-type PlaylistVideosMsg struct {
-	PlaylistID string
-	Videos     []Video
-	Err        error
-}
-
-type VideoDetailsMsg struct {
-	Details VideoDetails
-	Err     error
-}
-
-// --- Fetch commands ---
-
-func FetchRecommended(cfg *config.Config) tea.Cmd {
-	limit := cfg.RecommendedFetchCount
+// Recommended fetches the recommended feed videos.
+func (c *Client) Recommended() ([]domain.Video, error) {
+	limit := c.cfg.RecommendedFetchCount
 	if limit <= 0 {
 		limit = 150
 	}
-	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/recommended", limit)
-		videos, err := runAndParseVideos(args)
-		if cfg.StripEmojis {
-			videos = applyStripEmojisVideos(videos)
-		}
-		return FetchResultMsg{Source: "recommended", Videos: videos, Err: err}
+	args := buildArgs(c.cfg, "https://www.youtube.com/feed/recommended", limit)
+	videos, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
 	}
+	return videos, err
 }
 
-func FetchSubscribedChannels(cfg *config.Config) tea.Cmd {
-	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/channels", 0)
-		channels, err := runAndParseChannels(args)
-		if cfg.StripEmojis {
-			channels = applyStripEmojisChannels(channels)
-		}
-		return ChannelListMsg{Channels: channels, Err: err}
+// SubscribedChannels fetches the list of subscribed channels.
+func (c *Client) SubscribedChannels() ([]domain.Channel, error) {
+	args := buildArgs(c.cfg, "https://www.youtube.com/feed/channels", 0)
+	channels, err := runAndParseChannels(args)
+	if c.cfg.StripEmojis {
+		channels = applyStripEmojisChannels(channels)
 	}
+	return channels, err
 }
 
-// FetchSubscribedChannelsBackground fetches subscribed channels silently at
-// startup to populate the filter without touching subscriptions UI state.
-func FetchSubscribedChannelsBackground(cfg *config.Config) tea.Cmd {
-	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/channels", 0)
-		channels, err := runAndParseChannels(args)
-		if cfg.StripEmojis {
-			channels = applyStripEmojisChannels(channels)
-		}
-		return ChannelListMsg{Channels: channels, Err: err, Background: true}
+// ChannelVideos fetches all videos for a channel.
+func (c *Client) ChannelVideos(channelURL, channelID string) ([]domain.Video, error) {
+	vidURL := channelURL
+	if vidURL == "" {
+		vidURL = "https://www.youtube.com/channel/" + channelID
 	}
-}
-
-func FetchChannelVideos(cfg *config.Config, channelURL, channelID, source string) tea.Cmd {
-	return func() tea.Msg {
-		vidURL := channelURL
-		if vidURL == "" {
-			vidURL = "https://www.youtube.com/channel/" + channelID
-		}
-		if !strings.HasSuffix(vidURL, "/videos") {
-			vidURL += "/videos"
-		}
-		args := buildArgs(cfg, vidURL, 0)
-		videos, err := runAndParseVideos(args)
-		if cfg.StripEmojis {
-			videos = applyStripEmojisVideos(videos)
-		}
-		return ChannelVideosMsg{Source: source, ChannelID: channelID, Videos: videos, Err: err}
+	if !strings.HasSuffix(vidURL, "/videos") {
+		vidURL += "/videos"
 	}
-}
-
-// FetchChannelLatest fetches the cfg.ChannelLatestCount most recent videos for a channel.
-// Used for background population of the channel list without a full fetch.
-func FetchChannelLatest(cfg *config.Config, channelURL, channelID string) tea.Cmd {
-	return FetchChannelLatestN(cfg, channelURL, channelID, cfg.ChannelLatestCount)
-}
-
-// FetchChannelLatestN fetches at most n recent videos for a channel silently in background.
-func FetchChannelLatestN(cfg *config.Config, channelURL, channelID string, n int) tea.Cmd {
-	return func() tea.Msg {
-		vidURL := channelURL
-		if vidURL == "" {
-			vidURL = "https://www.youtube.com/channel/" + channelID
-		}
-		if !strings.HasSuffix(vidURL, "/videos") {
-			vidURL += "/videos"
-		}
-		args := buildArgs(cfg, vidURL, n)
-		videos, err := runAndParseVideos(args)
-		if cfg.StripEmojis {
-			videos = applyStripEmojisVideos(videos)
-		}
-		return ChannelVideosMsg{Source: "ch-background", ChannelID: channelID, Videos: videos, Err: err}
+	args := buildArgs(c.cfg, vidURL, 0)
+	videos, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
 	}
+	return videos, err
 }
 
-func tryParseMixed(args []string) (channels []Channel, videos []Video, stderrStr string, err error) {
+// ChannelLatest fetches the cfg.ChannelLatestCount most recent videos for a channel.
+func (c *Client) ChannelLatest(channelURL, channelID string) ([]domain.Video, error) {
+	return c.ChannelLatestN(channelURL, channelID, c.cfg.ChannelLatestCount)
+}
+
+// ChannelLatestN fetches at most n recent videos for a channel.
+func (c *Client) ChannelLatestN(channelURL, channelID string, n int) ([]domain.Video, error) {
+	vidURL := channelURL
+	if vidURL == "" {
+		vidURL = "https://www.youtube.com/channel/" + channelID
+	}
+	if !strings.HasSuffix(vidURL, "/videos") {
+		vidURL += "/videos"
+	}
+	args := buildArgs(c.cfg, vidURL, n)
+	videos, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
+	}
+	return videos, err
+}
+
+func tryParseMixed(args []string) (channels []domain.Channel, videos []domain.Video, stderrStr string, err error) {
 	cmd := exec.Command("yt-dlp", args...)
 	stdout, e := cmd.StdoutPipe()
 	if e != nil {
@@ -426,7 +364,7 @@ func tryParseMixed(args []string) (channels []Channel, videos []Video, stderrStr
 	return channels, videos, errBuf.String(), scanErr
 }
 
-func runAndParseMixed(args []string) (channels []Channel, videos []Video, err error) {
+func runAndParseMixed(args []string) (channels []domain.Channel, videos []domain.Video, err error) {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -445,66 +383,53 @@ func runAndParseMixed(args []string) (channels []Channel, videos []Video, err er
 	return nil, nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-func Search(cfg *config.Config, query string) tea.Cmd {
-	return func() tea.Msg {
-		// Run channel search concurrently with video search.
-		// ytsearch25: only returns videos; channels need the YouTube channel filter.
-		type chResult struct {
-			channels []Channel
-			err      error
-		}
-		chCh := make(chan chResult, 1)
-		go func() {
-			chURL := "https://www.youtube.com/results?search_query=" +
-				url.QueryEscape(query) + "&sp=EgIQAg%3D%3D"
-			args := buildArgs(cfg, chURL, 10)
-			channels, _, err := runAndParseMixed(args)
-			if cfg.StripEmojis {
-				channels = applyStripEmojisChannels(channels)
-			}
-			chCh <- chResult{channels, err}
-		}()
-
-		vidArgs := buildArgs(cfg, "ytsearch25:"+query, 25)
-		_, videos, err := runAndParseMixed(vidArgs)
-		if cfg.StripEmojis {
-			videos = applyStripEmojisVideos(videos)
-		}
-
-		cr := <-chCh
-		if err == nil && cr.err != nil {
-			err = cr.err
-		}
-		return SearchResultMsg{Query: query, Channels: cr.channels, Videos: videos, Err: err}
+// Search searches YouTube for the given query, returning channels and videos.
+func (c *Client) Search(query string) (channels []domain.Channel, videos []domain.Video, err error) {
+	// Run channel search concurrently with video search.
+	type chResult struct {
+		channels []domain.Channel
+		err      error
 	}
+	chCh := make(chan chResult, 1)
+	go func() {
+		chURL := "https://www.youtube.com/results?search_query=" +
+			url.QueryEscape(query) + "&sp=EgIQAg%3D%3D"
+		args := buildArgs(c.cfg, chURL, 10)
+		channels, _, err := runAndParseMixed(args)
+		if c.cfg.StripEmojis {
+			channels = applyStripEmojisChannels(channels)
+		}
+		chCh <- chResult{channels, err}
+	}()
+
+	vidArgs := buildArgs(c.cfg, "ytsearch25:"+query, 25)
+	_, videos, err = runAndParseMixed(vidArgs)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
+	}
+
+	cr := <-chCh
+	if err == nil && cr.err != nil {
+		err = cr.err
+	}
+	return cr.channels, videos, err
 }
 
-func FetchYTPlaylists(cfg *config.Config) tea.Cmd {
-	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/playlists", 0)
-		playlists, err := runAndParsePlaylists(args)
-		return YTPlaylistsMsg{Playlists: playlists, Err: err}
-	}
+// YTPlaylists fetches the list of YouTube playlists.
+func (c *Client) YTPlaylists() ([]domain.YTPlaylist, error) {
+	args := buildArgs(c.cfg, "https://www.youtube.com/feed/playlists", 0)
+	return runAndParsePlaylists(args)
 }
 
-func FetchYTPlaylistsBackground(cfg *config.Config) tea.Cmd {
-	return func() tea.Msg {
-		args := buildArgs(cfg, "https://www.youtube.com/feed/playlists", 0)
-		playlists, err := runAndParsePlaylists(args)
-		return YTPlaylistsMsg{Playlists: playlists, Err: err, Background: true}
+// PlaylistVideos fetches videos for a YouTube playlist.
+func (c *Client) PlaylistVideos(playlistID string) ([]domain.Video, error) {
+	u := "https://www.youtube.com/playlist?list=" + playlistID
+	args := buildArgs(c.cfg, u, 0)
+	videos, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
 	}
-}
-
-func FetchPlaylistVideos(cfg *config.Config, playlistID string) tea.Cmd {
-	return func() tea.Msg {
-		url := "https://www.youtube.com/playlist?list=" + playlistID
-		args := buildArgs(cfg, url, 0)
-		videos, err := runAndParseVideos(args)
-		if cfg.StripEmojis {
-			videos = applyStripEmojisVideos(videos)
-		}
-		return PlaylistVideosMsg{PlaylistID: playlistID, Videos: videos, Err: err}
-	}
+	return videos, err
 }
 
 type ytdlpDetailChapter struct {
@@ -528,61 +453,60 @@ type ytdlpDetailEntry struct {
 	Chapters             []ytdlpDetailChapter `json:"chapters"`
 }
 
-func FetchVideoDetails(cfg *config.Config, videoURL string) tea.Cmd {
-	return func() tea.Msg {
-		args := []string{"--dump-json", "--no-warnings", "--quiet"}
-		if cfg.Browser != "" {
-			args = append(args, "--cookies-from-browser", cfg.Browser)
-		}
-		args = append(args, videoURL)
-
-		cmd := exec.Command("yt-dlp", args...)
-		out, err := cmd.Output()
-		if err != nil {
-			return VideoDetailsMsg{Err: fmt.Errorf("yt-dlp: %w", err)}
-		}
-		var e ytdlpDetailEntry
-		if err := json.Unmarshal(out, &e); err != nil {
-			return VideoDetailsMsg{Err: fmt.Errorf("parse: %w", err)}
-		}
-		u := e.WebpageURL
-		if u == "" && e.ID != "" {
-			u = "https://www.youtube.com/watch?v=" + e.ID
-		}
-		title := e.Title
-		if cfg.StripEmojis {
-			title = StripEmojis(title)
-		}
-		chapters := make([]Chapter, len(e.Chapters))
-		for i, c := range e.Chapters {
-			chapters[i] = Chapter{Title: c.Title, StartTime: c.StartTime, EndTime: c.EndTime}
-		}
-		return VideoDetailsMsg{Details: VideoDetails{
-			Video: Video{
-				ID:         e.ID,
-				Title:      title,
-				Channel:    e.Channel,
-				ChannelID:  e.ChannelID,
-				Duration:   int(e.Duration),
-				ViewCount:  e.ViewCount,
-				UploadDate: e.UploadDate,
-				URL:        u,
-			},
-			Description:  e.Description,
-			ThumbnailURL: e.Thumbnail,
-			Subscribers:  e.ChannelFollowerCount,
-			Chapters:     chapters,
-		}}
+// VideoDetails fetches detailed info for a single video URL.
+func (c *Client) VideoDetails(videoURL string) (domain.VideoDetails, error) {
+	args := []string{"--dump-json", "--no-warnings", "--quiet"}
+	if c.cfg.Browser != "" {
+		args = append(args, "--cookies-from-browser", c.cfg.Browser)
 	}
+	args = append(args, videoURL)
+
+	cmd := exec.Command("yt-dlp", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return domain.VideoDetails{}, fmt.Errorf("yt-dlp: %w", err)
+	}
+	var e ytdlpDetailEntry
+	if err := json.Unmarshal(out, &e); err != nil {
+		return domain.VideoDetails{}, fmt.Errorf("parse: %w", err)
+	}
+	u := e.WebpageURL
+	if u == "" && e.ID != "" {
+		u = "https://www.youtube.com/watch?v=" + e.ID
+	}
+	title := e.Title
+	if c.cfg.StripEmojis {
+		title = StripEmojis(title)
+	}
+	chapters := make([]domain.RawChapter, len(e.Chapters))
+	for i, ch := range e.Chapters {
+		chapters[i] = domain.RawChapter{Title: ch.Title, StartTime: ch.StartTime, EndTime: ch.EndTime}
+	}
+	return domain.VideoDetails{
+		Video: domain.Video{
+			ID:         e.ID,
+			Title:      title,
+			Channel:    e.Channel,
+			ChannelID:  e.ChannelID,
+			Duration:   int(e.Duration),
+			ViewCount:  e.ViewCount,
+			UploadDate: e.UploadDate,
+			URL:        u,
+		},
+		Description:  e.Description,
+		ThumbnailURL: e.Thumbnail,
+		Subscribers:  e.ChannelFollowerCount,
+		Chapters:     chapters,
+	}, nil
 }
 
-func runAndParsePlaylists(args []string) ([]YTPlaylist, error) {
+func runAndParsePlaylists(args []string) ([]domain.YTPlaylist, error) {
 	cmd := exec.Command("yt-dlp", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("yt-dlp: %w", err)
 	}
-	var playlists []YTPlaylist
+	var playlists []domain.YTPlaylist
 	for _, line := range strings.Split(string(out), "\n") {
 		if !strings.HasPrefix(line, "{") {
 			continue
@@ -599,7 +523,7 @@ func runAndParsePlaylists(args []string) ([]YTPlaylist, error) {
 			if title == "" {
 				title = e.ID
 			}
-			playlists = append(playlists, YTPlaylist{ID: e.ID, Title: title})
+			playlists = append(playlists, domain.YTPlaylist{ID: e.ID, Title: title})
 		}
 	}
 	return playlists, nil

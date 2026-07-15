@@ -3,6 +3,7 @@ package channels
 import (
 	"testing"
 
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
@@ -21,11 +22,11 @@ func (m *mockDB) DeleteChannelVideos(id string) error {
 	return nil
 }
 
-func newSet(channels []youtube.Channel) ChannelSet { return New(channels, nil, nil) }
+func newSet(channels []domain.Channel) ChannelSet { return New(channels, nil, nil) }
 
 func TestAddDedup(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1", Name: "Alpha"}})
-	added := s.Subscribe(youtube.Channel{ID: "ch1", Name: "Alpha"})
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
+	added := s.Subscribe(domain.Channel{ID: "ch1", Name: "Alpha"})
 	if added {
 		t.Error("Subscribe: expected false for duplicate ID")
 	}
@@ -36,7 +37,7 @@ func TestAddDedup(t *testing.T) {
 
 func TestAddNew(t *testing.T) {
 	s := newSet(nil)
-	s.Subscribe(youtube.Channel{ID: "ch1", Name: "Alpha"})
+	s.Subscribe(domain.Channel{ID: "ch1", Name: "Alpha"})
 	if s.Len() != 1 {
 		t.Errorf("Subscribe: len=%d, want 1", s.Len())
 	}
@@ -46,7 +47,7 @@ func TestAddNew(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
 	s.Remove("ch1", "Alpha")
 	if s.Len() != 1 || s.Channels()[0].ID != "ch2" {
 		t.Errorf("Remove: got %+v, want [ch2]", s.Channels())
@@ -57,7 +58,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestSetAlias(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1"}})
+	s := newSet([]domain.Channel{{ID: "ch1"}})
 	s.SetAlias("ch1", "my alias")
 	ch, ok := s.ByID("ch1")
 	if !ok || ch.Alias != "my alias" {
@@ -66,7 +67,7 @@ func TestSetAlias(t *testing.T) {
 }
 
 func TestSetTags(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1"}})
+	s := newSet([]domain.Channel{{ID: "ch1"}})
 	s.SetTags("ch1", []string{"tech", "news"})
 	ch, _ := s.ByID("ch1")
 	if len(ch.Tags) != 2 || ch.Tags[0] != "tech" {
@@ -75,8 +76,8 @@ func TestSetTags(t *testing.T) {
 }
 
 func TestSyncFromYTMembershipChanged(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1", Name: "Alpha", Alias: "kept"}})
-	changed := s.SyncFromYT([]youtube.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha", Alias: "kept"}})
+	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
 	if !changed {
 		t.Error("SyncFromYT: expected changed=true")
 	}
@@ -90,16 +91,16 @@ func TestSyncFromYTMembershipChanged(t *testing.T) {
 }
 
 func TestSyncFromYTNoChange(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1"}})
-	changed := s.SyncFromYT([]youtube.Channel{{ID: "ch1"}})
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
 	if changed {
 		t.Error("SyncFromYT: expected changed=false")
 	}
 }
 
 func TestSyncFromYTPreservesLocalOnly(t *testing.T) {
-	s := newSet([]youtube.Channel{{ID: "ch1"}, {ID: "local1"}})
-	s.SyncFromYT([]youtube.Channel{{ID: "ch1"}})
+	s := newSet([]domain.Channel{{ID: "ch1"}, {ID: "local1"}})
+	s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
 	if _, ok := s.ByID("local1"); !ok {
 		t.Error("SyncFromYT: local-only channel was dropped")
 	}
@@ -107,7 +108,7 @@ func TestSyncFromYTPreservesLocalOnly(t *testing.T) {
 
 func TestUnsubscribeLocalRemovesAndCallsDB(t *testing.T) {
 	db := &mockDB{}
-	s := New([]youtube.Channel{{ID: "ch1", Name: "Alpha", IsLocal: true}}, db, nil)
+	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha", IsLocal: true}}, db, nil)
 	cmd, ok := s.Unsubscribe("ch1", "Alpha")
 	if !ok {
 		t.Fatal("Unsubscribe: expected ok=true for local channel")
@@ -128,7 +129,7 @@ func TestUnsubscribeLocalRemovesAndCallsDB(t *testing.T) {
 }
 
 func TestUnsubscribeRemoteNoClientBlocked(t *testing.T) {
-	s := New([]youtube.Channel{{ID: "ch1", Name: "Alpha"}}, nil, nil)
+	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha"}}, nil, nil)
 	cmd, ok := s.Unsubscribe("ch1", "Alpha")
 	if ok {
 		t.Error("Unsubscribe: expected ok=false when ytClient is nil")
@@ -142,7 +143,7 @@ func TestUnsubscribeRemoteNoClientBlocked(t *testing.T) {
 }
 
 func TestUnsubscribeRemoteWithClientRemoves(t *testing.T) {
-	s := New([]youtube.Channel{{ID: "ch1", Name: "Alpha"}}, nil, &youtube.YTClient{})
+	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha"}}, nil, &youtube.YTClient{})
 	cmd, ok := s.Unsubscribe("ch1", "Alpha")
 	if !ok {
 		t.Fatal("Unsubscribe: expected ok=true when ytClient is set")

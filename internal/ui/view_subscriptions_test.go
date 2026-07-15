@@ -3,12 +3,12 @@ package ui
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func subCtx(videos []youtube.Video, pageSize int) viewCtx {
+func subCtx(videos []domain.Video, pageSize int) viewCtx {
 	f := feed.New(videos)
 	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, subFeed: &f}
 }

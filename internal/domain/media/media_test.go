@@ -4,8 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // ── ExtractLinks ──────────────────────────────────────────────────────────────
@@ -68,7 +67,7 @@ func TestSBRoundTripNoSegments(t *testing.T) {
 }
 
 func TestSBRoundTripBeforeSegment(t *testing.T) {
-	segs := []db.SBSegment{{Start: 10.0, End: 20.0}}
+	segs := []domain.SBSegment{{Start: 10.0, End: 20.0}}
 	x := int64(5000) // 5s, before segment
 	adj := OriginalToAdjustedMs(x, segs)
 	got := AdjustedToOriginalMs(adj, segs)
@@ -78,7 +77,7 @@ func TestSBRoundTripBeforeSegment(t *testing.T) {
 }
 
 func TestSBRoundTripAfterSegment(t *testing.T) {
-	segs := []db.SBSegment{{Start: 10.0, End: 20.0}}
+	segs := []domain.SBSegment{{Start: 10.0, End: 20.0}}
 	x := int64(25000) // 25s, after segment
 	adj := OriginalToAdjustedMs(x, segs)
 	got := AdjustedToOriginalMs(adj, segs)
@@ -88,7 +87,7 @@ func TestSBRoundTripAfterSegment(t *testing.T) {
 }
 
 func TestSBRoundTripMultipleSegments(t *testing.T) {
-	segs := []db.SBSegment{
+	segs := []domain.SBSegment{
 		{Start: 5.0, End: 10.0},
 		{Start: 30.0, End: 45.0},
 	}
@@ -103,7 +102,7 @@ func TestSBRoundTripMultipleSegments(t *testing.T) {
 }
 
 func TestSBMonotonicityOutsideSegments(t *testing.T) {
-	segs := []db.SBSegment{{Start: 10.0, End: 20.0}}
+	segs := []domain.SBSegment{{Start: 10.0, End: 20.0}}
 	// two points outside the segment — adjusted order must match original order
 	x1, x2 := int64(5000), int64(25000)
 	adj1 := OriginalToAdjustedMs(x1, segs)
@@ -115,7 +114,7 @@ func TestSBMonotonicityOutsideSegments(t *testing.T) {
 
 func TestSBInsideSegmentMapsToStart(t *testing.T) {
 	// a position inside a cut segment maps to the segment's start in adjusted time
-	segs := []db.SBSegment{{Start: 10.0, End: 20.0}}
+	segs := []domain.SBSegment{{Start: 10.0, End: 20.0}}
 	x := int64(15000) // inside [10s, 20s]
 	adj := OriginalToAdjustedMs(x, segs)
 	wantAdj := int64(10000) // segment start in adjusted ms
@@ -128,7 +127,7 @@ func TestSBInsideSegmentMapsToStart(t *testing.T) {
 
 func TestSBSegmentAtZero(t *testing.T) {
 	// segment starting at t=0: everything shifts left by its duration.
-	segs := []db.SBSegment{{Start: 0.0, End: 5.0}}
+	segs := []domain.SBSegment{{Start: 0.0, End: 5.0}}
 	if adj := OriginalToAdjustedMs(0, segs); adj != 0 {
 		t.Errorf("t=0 inside seg starting at 0: adj=%d, want 0", adj)
 	}
@@ -144,7 +143,7 @@ func TestSBSegmentAtZero(t *testing.T) {
 
 func TestSBZeroLengthSegment(t *testing.T) {
 	// a zero-length segment must not shift the timeline at all.
-	segs := []db.SBSegment{{Start: 10.0, End: 10.0}}
+	segs := []domain.SBSegment{{Start: 10.0, End: 10.0}}
 	for _, x := range []int64{5000, 10000, 20000} {
 		if adj := OriginalToAdjustedMs(x, segs); adj != x {
 			t.Errorf("zero-length seg x=%d: adj=%d, want %d", x, adj, x)
@@ -154,7 +153,7 @@ func TestSBZeroLengthSegment(t *testing.T) {
 
 func TestOriginalToAdjustedSecMatchesMs(t *testing.T) {
 	// the seconds and ms variants must agree at second boundaries.
-	segs := []db.SBSegment{{Start: 5.0, End: 10.0}}
+	segs := []domain.SBSegment{{Start: 5.0, End: 10.0}}
 	for _, sec := range []float64{2, 12, 30} {
 		gotSec := OriginalToAdjustedSec(sec, segs)
 		gotMs := OriginalToAdjustedMs(int64(sec*1000), segs)
@@ -167,7 +166,7 @@ func TestOriginalToAdjustedSecMatchesMs(t *testing.T) {
 // ── ProcessChapters ───────────────────────────────────────────────────────────
 
 func TestProcessChaptersSplitsAndAdjusts(t *testing.T) {
-	all := []youtube.Chapter{
+	all := []domain.RawChapter{
 		{Title: "Intro", StartTime: 0, EndTime: 10},
 		{Title: "[SponsorBlock]: Sponsor", StartTime: 10, EndTime: 20},
 		{Title: "Content", StartTime: 20, EndTime: 40},
@@ -188,7 +187,7 @@ func TestProcessChaptersSplitsAndAdjusts(t *testing.T) {
 
 func TestProcessChaptersDropsChapterCoincidingWithSegment(t *testing.T) {
 	// a real chapter whose bounds match a SB segment (±3s) is dropped.
-	all := []youtube.Chapter{
+	all := []domain.RawChapter{
 		{Title: "Sponsor spot", StartTime: 10, EndTime: 20},
 		{Title: "[SponsorBlock]: Sponsor", StartTime: 11, EndTime: 19},
 	}

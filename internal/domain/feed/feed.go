@@ -2,8 +2,7 @@ package feed
 
 import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // Feed owns a video list together with its fetch lifecycle (loading / refreshing
@@ -17,7 +16,7 @@ import (
 // persist across Bubble Tea's value-copy of the Model (the same trick P4 used for
 // the per-tab view structs).
 type Feed struct {
-	videos     []youtube.Video
+	videos     []domain.Video
 	loading    bool
 	loaded     bool
 	refreshing bool
@@ -26,7 +25,7 @@ type Feed struct {
 
 // NewStarting builds a Feed seeded with cached videos and immediately marked as
 // fetching — the startup state (show cache now, refresh in the background).
-func NewStarting(cache []youtube.Video) Feed {
+func NewStarting(cache []domain.Video) Feed {
 	f := Feed{videos: cache, loaded: len(cache) > 0}
 	f.StartRefresh()
 	return f
@@ -35,25 +34,25 @@ func NewStarting(cache []youtube.Video) Feed {
 // New builds a Feed holding videos with no fetch in flight. Used for feeds whose
 // loading state is derived externally (e.g. Subscriptions, rebuilt from the
 // channel data rather than owning its own fetch lifecycle).
-func New(videos []youtube.Video) Feed {
+func New(videos []domain.Video) Feed {
 	return Feed{videos: videos, loaded: len(videos) > 0}
 }
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
-func (f *Feed) Videos() []youtube.Video { return f.videos }
-func (f *Feed) Len() int                { return len(f.videos) }
-func (f *Feed) Loading() bool           { return f.loading }
-func (f *Feed) Loaded() bool            { return f.loaded }
-func (f *Feed) Refreshing() bool        { return f.refreshing }
-func (f *Feed) Page() int               { return f.page }
+func (f *Feed) Videos() []domain.Video { return f.videos }
+func (f *Feed) Len() int               { return len(f.videos) }
+func (f *Feed) Loading() bool          { return f.loading }
+func (f *Feed) Loaded() bool           { return f.loaded }
+func (f *Feed) Refreshing() bool       { return f.refreshing }
+func (f *Feed) Page() int              { return f.page }
 
 // At returns the video at i, or false if i is out of range.
-func (f *Feed) At(i int) (youtube.Video, bool) {
+func (f *Feed) At(i int) (domain.Video, bool) {
 	if i >= 0 && i < len(f.videos) {
 		return f.videos[i], true
 	}
-	return youtube.Video{}, false
+	return domain.Video{}, false
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -84,7 +83,7 @@ func (f *Feed) FinishFetch() {
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 // SetVideos replaces the video list (e.g. after an out-of-band filter pass).
-func (f *Feed) SetVideos(v []youtube.Video) { f.videos = v }
+func (f *Feed) SetVideos(v []domain.Video) { f.videos = v }
 
 // Clear empties the feed and marks it unloaded (leaving the fetch flags alone).
 func (f *Feed) Clear() {
@@ -108,7 +107,7 @@ type MergeOpts struct {
 	MaxAgeDays      int
 	MinDurationSecs int
 	MinViews        int
-	Downloaded      map[string]db.LocalVideo
+	Downloaded      map[string]domain.LocalVideo
 	Hidden          map[string]bool
 	Blacklist       []config.BlacklistedChannel
 	Cfg             *config.Config // receives blacklist-ID enrichment as a side effect
@@ -120,7 +119,7 @@ type MergeOpts struct {
 // views / downloaded / hidden / blacklist / subscribed filter chain, sorts, and
 // stores the result. It returns the cursor remapped from oldCursor so the
 // caller's selection follows its video across the merge.
-func (f *Feed) Merge(incoming []youtube.Video, oldCursor int, o MergeOpts) int {
+func (f *Feed) Merge(incoming []domain.Video, oldCursor int, o MergeOpts) int {
 	merged := MergeVideos(f.videos, incoming)
 	filtered := FilterByAge(merged, o.MaxAgeDays)
 	filtered = FilterByMinDuration(filtered, o.MinDurationSecs)

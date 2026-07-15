@@ -3,19 +3,18 @@ package feed
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // SortParity: SortVideos and SortLocalVideos must produce the same relative
 // order on equivalent input for every mode.
 func TestSortParityAllModes(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
 		{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
 		{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},
 	}
-	locals := []db.LocalVideo{
+	locals := []domain.LocalVideo{
 		{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
 		{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
 		{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},
@@ -32,8 +31,8 @@ func TestSortParityAllModes(t *testing.T) {
 		{SortNone, "none"},
 	}
 	for _, tc := range modes {
-		vs := append([]youtube.Video(nil), videos...)
-		ls := append([]db.LocalVideo(nil), locals...)
+		vs := append([]domain.Video(nil), videos...)
+		ls := append([]domain.LocalVideo(nil), locals...)
 		SortVideos(vs, tc.mode)
 		SortLocalVideos(ls, tc.mode)
 		for i := range vs {
@@ -45,7 +44,7 @@ func TestSortParityAllModes(t *testing.T) {
 }
 
 func TestSortNoneIsNoOp(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "c"}, {ID: "a"}, {ID: "b"},
 	}
 	orig := make([]string, len(videos))
@@ -61,8 +60,8 @@ func TestSortNoneIsNoOp(t *testing.T) {
 }
 
 func TestSortExpectedOrders(t *testing.T) {
-	vids := func() []youtube.Video {
-		return []youtube.Video{
+	vids := func() []domain.Video {
+		return []domain.Video{
 			{ID: "a", Title: "Zebra", Channel: "Beta", ViewCount: 100, UploadDate: "20230101", Duration: 300},
 			{ID: "b", Title: "apple", Channel: "alpha", ViewCount: 500, UploadDate: "20240601", Duration: 60},
 			{ID: "c", Title: "Mango", Channel: "Gamma", ViewCount: 200, UploadDate: "20230601", Duration: 600},

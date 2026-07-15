@@ -1,36 +1,10 @@
 package db
 
-import "time"
+import (
+	"time"
 
-// HistoryEntry is a single event from the history or activity log.
-type HistoryEntry struct {
-	ID         int64
-	VideoID    string
-	Title      string
-	Channel    string
-	ChannelID  string
-	Duration   int
-	ViewCount  int64
-	UploadDate string
-	EventType  string
-	Details    string
-	Timestamp  time.Time
-}
-
-// ActivityEntry records a user action such as subscribe or playlist modification.
-type ActivityEntry struct {
-	ID              int64
-	Type            string // "subscribe", "create_playlist", "add_to_playlist"
-	IsLocal         bool
-	ChannelID       string
-	ChannelName     string
-	PlaylistID      string // YT playlist ID
-	PlaylistLocalID int64  // local playlist DB ID
-	PlaylistName    string
-	VideoID         string
-	VideoTitle      string
-	Timestamp       time.Time
-}
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+)
 
 // nullInt64 stores 0 as SQL NULL (used for optional foreign-key IDs).
 func nullInt64(v int64) interface{} {
@@ -78,7 +52,7 @@ func (d *DB) SearchQueries(limit int) ([]string, error) {
 
 // HistoryVideos returns one entry per video (most recent event) plus one entry per
 // unique search query, all ordered by recency.
-func (d *DB) HistoryVideos(limit int) ([]HistoryEntry, error) {
+func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 	rows, err := d.sql.Query(`
 		SELECT * FROM (
 			SELECT h.id, h.video_id, COALESCE(v.title, h.video_id) AS title,
@@ -109,9 +83,9 @@ func (d *DB) HistoryVideos(limit int) ([]HistoryEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []HistoryEntry
+	var result []domain.HistoryEntry
 	for rows.Next() {
-		var e HistoryEntry
+		var e domain.HistoryEntry
 		var tsStr string
 		if err := rows.Scan(
 			&e.ID, &e.VideoID, &e.Title,
@@ -145,7 +119,7 @@ func (d *DB) DeleteSearchHistory(query string) error {
 }
 
 // VideoHistory returns all events for a single video, newest first.
-func (d *DB) VideoHistory(videoID string) ([]HistoryEntry, error) {
+func (d *DB) VideoHistory(videoID string) ([]domain.HistoryEntry, error) {
 	rows, err := d.sql.Query(`
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
@@ -160,9 +134,9 @@ func (d *DB) VideoHistory(videoID string) ([]HistoryEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []HistoryEntry
+	var result []domain.HistoryEntry
 	for rows.Next() {
-		var e HistoryEntry
+		var e domain.HistoryEntry
 		if err := rows.Scan(
 			&e.ID, &e.VideoID, &e.Title,
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
@@ -176,7 +150,7 @@ func (d *DB) VideoHistory(videoID string) ([]HistoryEntry, error) {
 }
 
 // History returns recent history entries with video titles.
-func (d *DB) History(limit int) ([]HistoryEntry, error) {
+func (d *DB) History(limit int) ([]domain.HistoryEntry, error) {
 	rows, err := d.sql.Query(`
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
@@ -191,9 +165,9 @@ func (d *DB) History(limit int) ([]HistoryEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []HistoryEntry
+	var result []domain.HistoryEntry
 	for rows.Next() {
-		var e HistoryEntry
+		var e domain.HistoryEntry
 		if err := rows.Scan(
 			&e.ID, &e.VideoID, &e.Title,
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
@@ -213,7 +187,7 @@ func (d *DB) ClearHistory() error {
 }
 
 // LogActivity records a user action in the activity log.
-func (d *DB) LogActivity(e ActivityEntry) error {
+func (d *DB) LogActivity(e domain.ActivityEntry) error {
 	isLocal := 0
 	if e.IsLocal {
 		isLocal = 1
@@ -227,7 +201,7 @@ func (d *DB) LogActivity(e ActivityEntry) error {
 }
 
 // GetActivityLog returns the most recent activity entries, newest first.
-func (d *DB) GetActivityLog(limit int) ([]ActivityEntry, error) {
+func (d *DB) GetActivityLog(limit int) ([]domain.ActivityEntry, error) {
 	rows, err := d.sql.Query(`
 		SELECT id, type, is_local,
 		       COALESCE(channel_id,''), COALESCE(channel_name,''),
@@ -239,9 +213,9 @@ func (d *DB) GetActivityLog(limit int) ([]ActivityEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var entries []ActivityEntry
+	var entries []domain.ActivityEntry
 	for rows.Next() {
-		var e ActivityEntry
+		var e domain.ActivityEntry
 		var isLocal int
 		if err := rows.Scan(&e.ID, &e.Type, &isLocal,
 			&e.ChannelID, &e.ChannelName,

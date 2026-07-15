@@ -3,7 +3,7 @@ package feed
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // ── MergeVideos ───────────────────────────────────────────────────────────────
@@ -16,8 +16,8 @@ func TestMergeVideosEmpty(t *testing.T) {
 }
 
 func TestMergeVideosNoConflict(t *testing.T) {
-	existing := []youtube.Video{{ID: "a"}, {ID: "b"}}
-	incoming := []youtube.Video{{ID: "c"}, {ID: "d"}}
+	existing := []domain.Video{{ID: "a"}, {ID: "b"}}
+	incoming := []domain.Video{{ID: "c"}, {ID: "d"}}
 	result := MergeVideos(existing, incoming)
 	if len(result) != 4 {
 		t.Errorf("no conflict merge: got len=%d, want 4", len(result))
@@ -25,8 +25,8 @@ func TestMergeVideosNoConflict(t *testing.T) {
 }
 
 func TestMergeVideosIncomingWins(t *testing.T) {
-	existing := []youtube.Video{{ID: "a", Title: "old"}}
-	incoming := []youtube.Video{{ID: "a", Title: "new"}}
+	existing := []domain.Video{{ID: "a", Title: "old"}}
+	incoming := []domain.Video{{ID: "a", Title: "new"}}
 	result := MergeVideos(existing, incoming)
 	if len(result) != 1 {
 		t.Errorf("merge conflict: got len=%d, want 1", len(result))
@@ -41,8 +41,8 @@ func TestMergeVideosIncomingWins(t *testing.T) {
 // ── PreserveCursor ────────────────────────────────────────────────────────────
 
 func TestPreserveCursor(t *testing.T) {
-	old := []youtube.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}}
-	updated := []youtube.Video{{ID: "x"}, {ID: "b"}, {ID: "c"}}
+	old := []domain.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	updated := []domain.Video{{ID: "x"}, {ID: "b"}, {ID: "c"}}
 	// cursor on "b" (index 1) should follow it to its new index (1).
 	if got := PreserveCursor(old, 1, updated); got != 1 {
 		t.Errorf("PreserveCursor followed to %d, want 1", got)
@@ -67,7 +67,7 @@ func TestRemoveVideoByIDEmpty(t *testing.T) {
 }
 
 func TestRemoveVideoByIDNotFound(t *testing.T) {
-	videos := []youtube.Video{{ID: "a"}, {ID: "b"}}
+	videos := []domain.Video{{ID: "a"}, {ID: "b"}}
 	result := RemoveVideoByID(videos, "c")
 	if len(result) != 2 {
 		t.Errorf("remove not found: got len=%d, want 2", len(result))
@@ -75,7 +75,7 @@ func TestRemoveVideoByIDNotFound(t *testing.T) {
 }
 
 func TestRemoveVideoByIDFound(t *testing.T) {
-	videos := []youtube.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	videos := []domain.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}}
 	result := RemoveVideoByID(videos, "b")
 	if len(result) != 2 {
 		t.Errorf("remove found: got len=%d, want 2", len(result))
@@ -87,10 +87,10 @@ func TestRemoveVideoByIDFound(t *testing.T) {
 	}
 }
 
-// ── RemoveChannelVideos / RemoveChannelByID ───────────────────────────────────
+// ── RemoveChannelVideos ───────────────────────────────────────────────────────
 
 func TestRemoveChannelVideos(t *testing.T) {
-	videos := []youtube.Video{
+	videos := []domain.Video{
 		{ID: "a", ChannelID: "ch1"},
 		{ID: "b", ChannelID: "ch2", Channel: "Two"},
 		{ID: "c", Channel: "Two"},

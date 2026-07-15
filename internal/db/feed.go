@@ -5,47 +5,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
-// Link is a URL extracted from a video description, with optional label text
-// that appeared before the URL on the same line.
-type Link struct {
-	Label string `json:"label"`
-	URL   string `json:"url"`
-}
-
-// Chapter is a timed section from a video's chapter list with both original and
-// SponsorBlock-adjusted timestamps. SponsorBlock chapters are excluded; chapters
-// whose boundaries coincide with a SponsorBlock segment (±3 s) are also dropped.
-type Chapter struct {
-	Title         string  `json:"title"`
-	OriginalStart float64 `json:"original_start"`
-	OriginalEnd   float64 `json:"original_end"`
-	AdjustedStart float64 `json:"adjusted_start"`
-	AdjustedEnd   float64 `json:"adjusted_end"`
-}
-
-// SBSegment is a SponsorBlock time range in the original video timeline.
-// Stored alongside chapters and used to convert local-file positions to original
-// timeline positions (and back) for unified cross-mode resume.
-type SBSegment struct {
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
-}
-
-// CachedDetails holds the cached metadata for a video fetched from yt-dlp.
-type CachedDetails struct {
-	Description  string
-	ThumbnailURL string
-	Subscribers  int64
-	Links        *[]Link      // nil = never parsed; &[]Link{} = parsed, none found
-	Chapters     *[]Chapter   // nil = none available; populated from yt-dlp metadata
-	SBSegments   *[]SBSegment // nil = none; SponsorBlock cut ranges in original timeline
-}
-
 // SaveFeedCache replaces the cached video list for a feed.
-func (d *DB) SaveFeedCache(feed string, videos []youtube.Video) error {
+func (d *DB) SaveFeedCache(feed string, videos []domain.Video) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -77,7 +41,7 @@ func (d *DB) SaveFeedCache(feed string, videos []youtube.Video) error {
 }
 
 // GetFeedCache returns the cached video list for a feed ordered by position.
-func (d *DB) GetFeedCache(feed string) ([]youtube.Video, error) {
+func (d *DB) GetFeedCache(feed string) ([]domain.Video, error) {
 	rows, err := d.sql.Query(`
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
@@ -91,9 +55,9 @@ func (d *DB) GetFeedCache(feed string) ([]youtube.Video, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []youtube.Video
+	var result []domain.Video
 	for rows.Next() {
-		var v youtube.Video
+		var v domain.Video
 		if err := rows.Scan(&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 			&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL); err != nil {
 			return nil, err
@@ -153,8 +117,8 @@ func (d *DB) SaveVideoDetailsCache(videoID, description, thumbnailURL string, su
 }
 
 // GetVideoDetailsCache returns cached details for a video, false if not cached.
-func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
-	var c CachedDetails
+func (d *DB) GetVideoDetailsCache(videoID string) (domain.CachedDetails, bool, error) {
+	var c domain.CachedDetails
 	var linksJSON, chaptersJSON, sbJSON *string
 	err := d.sql.QueryRow(`
 		SELECT description, thumbnail_url, subscribers, links, chapters, sb_segments
@@ -167,19 +131,19 @@ func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 		return c, false, err
 	}
 	if linksJSON != nil {
-		var links []Link
+		var links []domain.Link
 		if json.Unmarshal([]byte(*linksJSON), &links) == nil {
 			c.Links = &links
 		}
 	}
 	if chaptersJSON != nil {
-		var chapters []Chapter
+		var chapters []domain.Chapter
 		if json.Unmarshal([]byte(*chaptersJSON), &chapters) == nil {
 			c.Chapters = &chapters
 		}
 	}
 	if sbJSON != nil {
-		var segs []SBSegment
+		var segs []domain.SBSegment
 		if json.Unmarshal([]byte(*sbJSON), &segs) == nil {
 			c.SBSegments = &segs
 		}
@@ -188,7 +152,7 @@ func (d *DB) GetVideoDetailsCache(videoID string) (CachedDetails, bool, error) {
 }
 
 // SaveVideoChapters stores the pre-processed, SponsorBlock-adjusted chapter list for a video.
-func (d *DB) SaveVideoChapters(videoID string, chapters []Chapter) error {
+func (d *DB) SaveVideoChapters(videoID string, chapters []domain.Chapter) error {
 	data, err := json.Marshal(chapters)
 	if err != nil {
 		return err
@@ -198,7 +162,7 @@ func (d *DB) SaveVideoChapters(videoID string, chapters []Chapter) error {
 }
 
 // SaveVideoSBSegments stores the raw SponsorBlock cut ranges for a video.
-func (d *DB) SaveVideoSBSegments(videoID string, segs []SBSegment) error {
+func (d *DB) SaveVideoSBSegments(videoID string, segs []domain.SBSegment) error {
 	data, err := json.Marshal(segs)
 	if err != nil {
 		return err
@@ -209,7 +173,7 @@ func (d *DB) SaveVideoSBSegments(videoID string, segs []SBSegment) error {
 
 // SaveVideoLinks stores the parsed link list for a video. An empty slice means
 // the description was parsed and contained no links (distinct from NULL = not parsed).
-func (d *DB) SaveVideoLinks(videoID string, links []Link) error {
+func (d *DB) SaveVideoLinks(videoID string, links []domain.Link) error {
 	data, err := json.Marshal(links)
 	if err != nil {
 		return err

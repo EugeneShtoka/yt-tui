@@ -3,20 +3,20 @@ package ui
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/library"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/library"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func sampleLocal() []db.LocalVideo {
-	return []db.LocalVideo{
+func sampleLocal() []domain.LocalVideo {
+	return []domain.LocalVideo{
 		{ID: "a", Title: "Alpha"},
 		{ID: "b", Title: "Beta"},
 		{ID: "c", Title: "Gamma"},
 	}
 }
 
-func localCtx(videos []db.LocalVideo, pageSize int) viewCtx {
+func localCtx(videos []domain.LocalVideo, pageSize int) viewCtx {
 	lib := library.New(videos)
 	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, library: &lib}
 }
@@ -33,9 +33,9 @@ func TestLocalDownMovesCursor(t *testing.T) {
 
 func TestLocalPageDownMovesCursor(t *testing.T) {
 	v := localView{}
-	vids := make([]db.LocalVideo, 10)
+	vids := make([]domain.LocalVideo, 10)
 	for i := range vids {
-		vids[i] = db.LocalVideo{ID: string(rune('a' + i))}
+		vids[i] = domain.LocalVideo{ID: string(rune('a' + i))}
 	}
 	// One page (size 2) down from the top advances the viewport by 2 rows.
 	v.update(tea.KeyMsg{Type: tea.KeyPgDown}, localCtx(vids, 2))

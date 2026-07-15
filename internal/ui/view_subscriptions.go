@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // subscriptionsView owns the Subscriptions (all-channel feed) tab's private
@@ -33,7 +33,7 @@ func (in subActionIntent) apply(m *Model) tea.Cmd {
 
 func (v subscriptionsView) context(ctx viewCtx) ContextID { return CtxVideoList }
 
-func (v subscriptionsView) currentVideo(ctx viewCtx) (youtube.Video, bool) {
+func (v subscriptionsView) currentVideo(ctx viewCtx) (domain.Video, bool) {
 	return ctx.subFeed.At(v.cursor)
 }
 

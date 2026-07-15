@@ -5,8 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/db"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,12 +13,12 @@ import (
 
 // historyView owns the History tab's private state.
 type historyView struct {
-	entries       []db.HistoryEntry
+	entries       []domain.HistoryEntry
 	cursor        int
 	vs            int // viewStart: first visible row
 	loaded        bool
 	detailVideoID string
-	detail        []db.HistoryEntry
+	detail        []domain.HistoryEntry
 }
 
 // histIntentKind describes what cross-tab or cross-layer action the router must handle.
@@ -36,7 +35,7 @@ const (
 // historyIntent is the value returned by update for the router to act on.
 type historyIntent struct {
 	kind  histIntentKind
-	entry db.HistoryEntry
+	entry domain.HistoryEntry
 }
 
 // load fetches the history log. Cursor resets to 0 on each load (matches original behaviour).
@@ -68,7 +67,7 @@ func (v *historyView) context(ctx viewCtx) ContextID {
 	return CtxHistoryVideo
 }
 
-func (v historyView) currentVideo(_ viewCtx) (youtube.Video, bool) { return youtube.Video{}, false }
+func (v historyView) currentVideo(_ viewCtx) (domain.Video, bool) { return domain.Video{}, false }
 
 func (v *historyView) jumpTo(idx int, ctx viewCtx) {
 	v.cursor, v.vs = vsJump(idx, len(v.entries), ctx.pageSize)
@@ -152,7 +151,7 @@ func (in historyIntent) apply(m *Model) tea.Cmd {
 		return cmd
 	case histIntentPlay:
 		e := in.entry
-		v := youtube.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
+		v := domain.Video{ID: e.VideoID, Title: e.Title, URL: "https://www.youtube.com/watch?v=" + e.VideoID}
 		m.playVideo(v)
 	case histIntentDelete:
 		e := in.entry

@@ -3,18 +3,18 @@ package ui
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/feed"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func recCtx(videos []youtube.Video, pageSize int) viewCtx {
+func recCtx(videos []domain.Video, pageSize int) viewCtx {
 	f := feed.NewStarting(videos)
 	return viewCtx{keys: testListKeys(), pageSize: pageSize, circular: false, recFeed: &f}
 }
 
-func sampleVideos() []youtube.Video {
-	return []youtube.Video{
+func sampleVideos() []domain.Video {
+	return []domain.Video{
 		{ID: "a", Title: "Alpha"},
 		{ID: "b", Title: "Beta"},
 		{ID: "c", Title: "Gamma"},

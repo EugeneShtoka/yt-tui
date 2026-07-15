@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/db"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -30,16 +30,16 @@ func testHistoryCtx() viewCtx {
 }
 
 // histKind decodes a viewIntent into its history kind/entry (nil → None).
-func histKind(in viewIntent) (histIntentKind, db.HistoryEntry) {
+func histKind(in viewIntent) (histIntentKind, domain.HistoryEntry) {
 	if hi, ok := in.(historyIntent); ok {
 		return hi.kind, hi.entry
 	}
-	return histIntentNone, db.HistoryEntry{}
+	return histIntentNone, domain.HistoryEntry{}
 }
 
 func sampleHistory() historyView {
 	return historyView{
-		entries: []db.HistoryEntry{
+		entries: []domain.HistoryEntry{
 			{VideoID: "v1", Title: "Alpha", Channel: "Chan1", ChannelID: "c1", EventType: "streamVideo"},
 			{VideoID: "v2", Title: "Beta", Channel: "Chan2", ChannelID: "c2", EventType: "playVideo"},
 			{Details: "golang tutorial", EventType: "search"},
@@ -113,7 +113,7 @@ func TestHistoryViewDrillDownOnVideoOpensDetail(t *testing.T) {
 func TestHistoryViewEscapeClosesDetail(t *testing.T) {
 	v := sampleHistory()
 	v.detailVideoID = "v1"
-	v.detail = []db.HistoryEntry{{VideoID: "v1", Title: "Alpha", EventType: "streamVideo", Timestamp: time.Now()}}
+	v.detail = []domain.HistoryEntry{{VideoID: "v1", Title: "Alpha", EventType: "streamVideo", Timestamp: time.Now()}}
 	kind, _ := histKind(v.update(tea.KeyMsg{Type: tea.KeyEsc}, testHistoryCtx()))
 	if kind != histIntentNone {
 		t.Errorf("Escape in detail: intent=%v, want none", kind)
