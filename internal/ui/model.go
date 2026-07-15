@@ -369,7 +369,6 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 		firstTab = tabs[0]
 	}
 
-
 	// Load full channel list from DB for immediate display.
 	cachedChannels, _ := database.GetSubscribedChannels()
 

@@ -103,18 +103,6 @@ func TestSaveYTPlaylistVideosCmd(t *testing.T) {
 	}
 }
 
-func TestSaveChannelVideosCmd(t *testing.T) {
-	s := newRecordingStore()
-	vids := []domain.Video{{ID: "v1"}, {ID: "v2"}}
-	assertNilMsg(t, saveChannelVideosCmd(s, "ch1", vids))
-	if s.savedChanVideosID != "ch1" || len(s.savedChanVideos) != 2 {
-		t.Fatalf("SaveChannelVideos got id=%q vids=%+v", s.savedChanVideosID, s.savedChanVideos)
-	}
-
-	boom := errors.New("db down")
-	assertPersistErr(t, saveChannelVideosCmd(&recordingStore{fakeStore: &fakeStore{}, err: boom}, "ch1", vids), boom)
-}
-
 func TestDeleteChannelVideosCmd(t *testing.T) {
 	s := newRecordingStore()
 	assertNilMsg(t, deleteChannelVideosCmd(s, "chX"))

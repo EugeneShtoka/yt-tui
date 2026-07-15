@@ -36,15 +36,6 @@ func saveYTPlaylistVideosCmd(db Store, playlistID string, vids []domain.Video) t
 	}
 }
 
-func saveChannelVideosCmd(db Store, chID string, vids []domain.Video) tea.Cmd {
-	return func() tea.Msg {
-		if err := db.SaveChannelVideos(chID, vids); err != nil {
-			return persistErrMsg{err}
-		}
-		return nil
-	}
-}
-
 func deleteChannelVideosCmd(db Store, chID string) tea.Cmd {
 	return func() tea.Msg {
 		if err := db.DeleteChannelVideos(chID); err != nil {

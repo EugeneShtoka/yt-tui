@@ -266,7 +266,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchChannelVideosMsg:
-		var saveCmd tea.Cmd
 		if msg.source == "search" {
 			m.searchChLoading = false
 			if msg.err != nil {
@@ -276,7 +275,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.search.vidCursor = 0
 			}
 		} else if msg.source == "ch-background" {
-			// Background latest-video fetch: merge and persist; rebuild subVideos if newer found.
+			// Backend already saved. Update in-memory latest + rebuild if newer.
 			if msg.channelID == m.subChActiveID && m.channels.pane == 1 {
 				m.subChVidRefreshing = false
 			}
@@ -285,38 +284,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				existing, ok := m.subChLatest[msg.channelID]
 				if !ok || newest.UploadDate > existing.UploadDate {
 					m.subChLatest[msg.channelID] = newest
-					saveCmd = saveChannelVideosCmd(m.db, msg.channelID, msg.videos)
 					m.rebuildSubVideos()
 				}
 			}
 		} else {
+			// Foreground fetch: backend merged+saved; apply sort and show.
 			m.subChVidLoading = false
 			m.subChVidRefreshing = false
 			if msg.err != nil {
 				m.setStatus("channel videos: "+msg.err.Error(), true)
-			} else if msg.channelID != m.subChActiveID || m.channels.pane != 1 {
-				// Stale response — user navigated away; save to DB but don't touch UI.
-				if len(msg.videos) > 0 {
-					saveCmd = saveChannelVideosCmd(m.db, msg.channelID, msg.videos)
-				}
-			} else {
-				// Merge fetched videos with any already-loaded DB cache.
-				merged := feed.MergeVideos(m.subChVideos, msg.videos)
-				feed.SortVideos(merged, m.channels.vidSort)
-				m.subChVideos = merged
+			} else if msg.channelID == m.subChActiveID && m.channels.pane == 1 {
+				feed.SortVideos(msg.videos, m.channels.vidSort)
+				m.subChVideos = msg.videos
 				m.channels.vidCursor = 0
-				// Update latest-video entry and persist.
-				if len(merged) > 0 {
-					latest := merged[0]
-					if existing, ok := m.subChLatest[msg.channelID]; !ok || latest.UploadDate > existing.UploadDate {
+				if len(msg.videos) > 0 {
+					latest := msg.videos[0]
+					if ex, ok := m.subChLatest[msg.channelID]; !ok || latest.UploadDate > ex.UploadDate {
 						m.subChLatest[msg.channelID] = latest
 					}
-					saveCmd = saveChannelVideosCmd(m.db, msg.channelID, merged)
 					m.rebuildSubVideos()
 				}
 			}
+			// Stale response: backend already saved; nothing to do for UI.
 		}
-		return m, saveCmd
+		return m, nil
 
 	case fetchSearchResultMsg:
 		m.searchLoading = false

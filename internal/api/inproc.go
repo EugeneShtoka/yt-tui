@@ -4,73 +4,54 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/EugeneShtoka/yt-tui/internal/backend/service"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
-	dfeed "github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
-// InProc implements Backend by calling db, youtube.Client, and downloader directly.
+// InProc implements Backend by calling services and db/youtube/downloader directly.
+// It is a thin adapter — all business logic lives in the service layer.
 type InProc struct {
 	db    *db.DB
 	yt    *youtube.Client
-	ytAPI *youtube.YTClient // nil until InitYTClient is called
-	dl    *downloader.Downloader
+	ytAPI *youtube.YTClient // set by InitYTClient; used for YT playlist mutations
 	cfg   *config.Config
+	dl    *downloader.Downloader
+	feed  *service.FeedService
+	ch    *service.ChannelService
 }
 
-// NewInProc creates an InProc Backend.
+// NewInProc creates an InProc Backend, wiring services to their adapters.
 func NewInProc(database *db.DB, yt *youtube.Client, dl *downloader.Downloader, cfg *config.Config) *InProc {
-	return &InProc{db: database, yt: yt, dl: dl, cfg: cfg}
+	return &InProc{
+		db:   database,
+		yt:   yt,
+		cfg:  cfg,
+		dl:   dl,
+		feed: service.NewFeedService(database, yt, cfg),
+		ch:   service.NewChannelService(database, yt),
+	}
 }
 
 // ── YouTube fetch ─────────────────────────────────────────────────────────────
 
 func (p *InProc) Recommended(_ context.Context) ([]domain.Video, error) {
-	raw, err := p.yt.Recommended()
-	if err != nil {
-		return nil, err
-	}
-	hidden, _ := p.db.HiddenRecVideoIDs()
-	localSlice, _ := p.db.LocalVideos()
-	localMap := make(map[string]domain.LocalVideo, len(localSlice))
-	for _, lv := range localSlice {
-		localMap[lv.ID] = lv
-	}
-	existing, _ := p.db.GetSubscribedChannels()
-	s := channels.New(existing)
-	subIndex := s.Index()
-	filtered := dfeed.FilterByAge(raw, p.cfg.RecommendedMaxAgeDays)
-	filtered = dfeed.FilterByMinDuration(filtered, p.cfg.RecommendedMinDurationSecs)
-	filtered = dfeed.FilterByMinViews(filtered, p.cfg.RecommendedMinViews)
-	filtered = dfeed.FilterDownloaded(filtered, localMap)
-	filtered = dfeed.FilterHidden(filtered, hidden)
-	filtered = dfeed.FilterBlacklisted(filtered, p.cfg.BlacklistedChannels, p.cfg)
-	filtered = dfeed.FilterSubscribed(filtered, subIndex)
-	_ = p.db.SaveFeedCache("recommended", filtered)
-	return filtered, nil
+	return p.feed.Recommended()
 }
 
 func (p *InProc) SubscribedChannels(_ context.Context) ([]domain.Channel, error) {
-	ytChannels, err := p.yt.SubscribedChannels()
-	if err != nil {
-		return nil, err
-	}
-	existing, _ := p.db.GetSubscribedChannels()
-	merged := channels.Sync(existing, ytChannels)
-	_ = p.db.SaveSubscribedChannels(merged)
-	return merged, nil
+	return p.ch.SubscribedChannels()
 }
 
 func (p *InProc) ChannelVideos(_ context.Context, channelURL, channelID string) ([]domain.Video, error) {
-	return p.yt.ChannelVideos(channelURL, channelID)
+	return p.ch.ChannelVideos(channelURL, channelID)
 }
 
 func (p *InProc) ChannelLatestN(_ context.Context, channelURL, channelID string, n int) ([]domain.Video, error) {
-	return p.yt.ChannelLatestN(channelURL, channelID, n)
+	return p.ch.ChannelLatestN(channelURL, channelID, n)
 }
 
 func (p *InProc) Search(_ context.Context, query string) ([]domain.Channel, []domain.Video, error) {
@@ -337,6 +318,16 @@ func (p *InProc) SaveFeedCache(_ context.Context, feed string, videos []domain.V
 	return p.db.SaveFeedCache(feed, videos)
 }
 
+// ── Channel subscription (delegates to ChannelService) ────────────────────────
+
+func (p *InProc) Subscribe(_ context.Context, ch domain.Channel) error {
+	return p.ch.Subscribe(ch)
+}
+
+func (p *InProc) Unsubscribe(_ context.Context, ch domain.Channel) error {
+	return p.ch.Unsubscribe(ch)
+}
+
 // ── Download queue ────────────────────────────────────────────────────────────
 
 func (p *InProc) Enqueue(_ context.Context, video domain.Video, audioOnly bool) error {
@@ -361,35 +352,8 @@ func (p *InProc) InitYTClient(_ context.Context) error {
 		return err
 	}
 	p.ytAPI = client
+	p.ch.SetYTAPI(client)
 	return nil
-}
-
-func (p *InProc) Subscribe(_ context.Context, ch domain.Channel) error {
-	if !ch.IsLocal {
-		if p.ytAPI == nil {
-			return fmt.Errorf("YouTube API not initialised")
-		}
-		if err := p.ytAPI.Subscribe(ch.ID); err != nil {
-			return err
-		}
-	}
-	return p.db.AddSubscribedChannel(ch)
-}
-
-func (p *InProc) Unsubscribe(_ context.Context, ch domain.Channel) error {
-	if !ch.IsLocal {
-		if p.ytAPI == nil {
-			return fmt.Errorf("YouTube API not initialised")
-		}
-		if err := p.ytAPI.Unsubscribe(ch.ID); err != nil {
-			return err
-		}
-	} else {
-		if err := p.db.RemoveSubscribedChannel(ch.ID); err != nil {
-			return err
-		}
-	}
-	return p.db.DeleteChannelVideos(ch.ID)
 }
 
 func (p *InProc) CreateYTPlaylist(_ context.Context, name string) (string, error) {
