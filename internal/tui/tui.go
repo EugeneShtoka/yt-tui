@@ -77,6 +77,12 @@ type StatusMsg struct {
 // LaunchLocalVideoMsg requests Root to play a downloaded local file.
 type LaunchLocalVideoMsg struct{ Video domain.LocalVideo }
 
+// EnqueueMsg requests Root to add a video to the download queue.
+type EnqueueMsg struct {
+	Video     domain.Video
+	AudioOnly bool
+}
+
 // CopyURLMsg requests Root to write a URL to the system clipboard.
 type CopyURLMsg struct{ URL string }
 

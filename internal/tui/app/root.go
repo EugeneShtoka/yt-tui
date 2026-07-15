@@ -10,6 +10,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/tab"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
@@ -39,6 +40,7 @@ func New(backend api.Backend, cfg config.Config) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
 	tabs := []tuipkg.Tab{
+		tab.NewRecommended(backend, keys, cfg.CircularNav),
 		tab.NewHistory(backend, keys, cfg.CircularNav),
 		tab.NewActivity(backend, keys, cfg.CircularNav),
 		tab.NewLocal(backend, keys, cfg.CircularNav),
@@ -94,6 +96,19 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// TODO: wire player in Phase 4 once tabs reach parity.
 		return r, func() tea.Msg {
 			return tuipkg.StatusMsg{Text: "local playback not yet wired in v2", IsErr: true}
+		}
+
+	case tuipkg.EnqueueMsg:
+		v, audio := m.Video, m.AudioOnly
+		return r, func() tea.Msg {
+			if err := r.backend.Enqueue(context.Background(), v, audio); err != nil {
+				return tuipkg.StatusMsg{Text: "enqueue: " + err.Error(), IsErr: true}
+			}
+			label := "video"
+			if audio {
+				label = "audio"
+			}
+			return tuipkg.StatusMsg{Text: "Queued " + label + ": " + render.Truncate(v.Title, 50)}
 		}
 
 	case tuipkg.CopyURLMsg:
