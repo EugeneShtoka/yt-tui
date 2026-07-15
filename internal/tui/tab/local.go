@@ -41,6 +41,7 @@ func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
 	return Local{backend: backend, keys: keys, circular: circular}
 }
 
+func (t Local) ID() tuipkg.TabID          { return tuipkg.TabLocal }
 func (t Local) Title() string             { return "Local" }
 func (t Local) ShortHelp() []key.Binding { return nil }
 func (t Local) Context() tuipkg.ContextID { return tuipkg.CtxLocal }

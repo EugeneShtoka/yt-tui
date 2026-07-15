@@ -37,6 +37,7 @@ func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activit
 	return Activity{backend: backend, keys: keys, circular: circular}
 }
 
+func (t Activity) ID() tuipkg.TabID          { return tuipkg.TabActivity }
 func (t Activity) Title() string             { return "Activity" }
 func (t Activity) ShortHelp() []key.Binding { return nil }
 func (t Activity) Context() tuipkg.ContextID { return tuipkg.CtxVideoList }

@@ -6,6 +6,21 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// TabID is a typed identifier for each tab, used in navigation messages.
+type TabID int
+
+const (
+	TabRecommended   TabID = iota
+	TabSubscriptions
+	TabChannels
+	TabPlaylists
+	TabSearch
+	TabDownloading
+	TabLocal
+	TabHistory
+	TabActivity
+)
+
 // ContextID identifies the UI context for key dispatch and sort filtering.
 type ContextID int
 
@@ -26,6 +41,7 @@ const (
 // Tabs are value types; Update returns the mutated copy.
 type Tab interface {
 	tea.Model
+	ID() TabID
 	Title() string
 	ShortHelp() []key.Binding
 	Context() ContextID
@@ -43,10 +59,10 @@ type PlayVideoMsg struct {
 	AudioOnly bool
 }
 
-// NavigateMsg requests Root to switch to a named tab, optionally pre-seeding state.
+// NavigateMsg requests Root to switch to a tab, optionally pre-seeding state.
 type NavigateMsg struct {
-	Tab   string // tab title (case-insensitive)
-	Query string // pre-filled search query when Tab == "search"
+	Tab   TabID
+	Query string // pre-filled search query when Tab == TabSearch
 }
 
 // HideChannelMsg requests Root to hide a channel from recommendations.

@@ -108,10 +108,10 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleHideChannel(m)
 
 	case tuipkg.NavigateToChannelMsg:
-		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "channels"})
+		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabChannels})
 
 	case tuipkg.NavigateToPlaylistMsg:
-		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "playlists"})
+		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
 
 	case tuipkg.StatusMsg:
 		sb, cmd := r.statusBar.Update(msg)
@@ -184,7 +184,7 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 
 func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {
 	for i, t := range r.tabs {
-		if strings.EqualFold(t.Title(), m.Tab) {
+		if t.ID() == m.Tab {
 			r.activeIdx = i
 			r.tabBar = r.tabBar.WithActive(i)
 			break

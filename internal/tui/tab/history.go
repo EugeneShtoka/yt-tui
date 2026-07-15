@@ -48,7 +48,8 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 	return History{backend: backend, keys: keys, circular: circular}
 }
 
-func (t History) Title() string { return "History" }
+func (t History) ID() tuipkg.TabID        { return tuipkg.TabHistory }
+func (t History) Title() string            { return "History" }
 func (t History) ShortHelp() []key.Binding { return nil }
 func (t History) Context() tuipkg.ContextID {
 	if t.detailVideoID != "" {
@@ -138,7 +139,7 @@ func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			e := t.entries[t.cursor]
 			if e.EventType == "search" {
 				return t, func() tea.Msg {
-					return tuipkg.NavigateMsg{Tab: "search", Query: e.Details}
+					return tuipkg.NavigateMsg{Tab: tuipkg.TabSearch, Query: e.Details}
 				}
 			}
 			return t, t.histLoadDetailCmd(e.VideoID)
