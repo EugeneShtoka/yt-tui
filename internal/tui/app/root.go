@@ -49,12 +49,16 @@ func New(backend api.Backend, cfg config.Config) Root {
 		titles[i] = t.Title()
 	}
 
+	var cmds command.Registry
+	cmds.Register(globalCommands(backend)...)
+
 	right := keys.Help.Help().Key + ": help  " + keys.Quit.Help().Key + ": quit"
 
 	return Root{
 		backend:   backend,
 		cfg:       cfg,
 		keys:      keys,
+		cmds:      cmds,
 		tabBar:    component.NewTabBar(titles),
 		statusBar: component.NewStatusBar(right),
 		tabs:      tabs,
