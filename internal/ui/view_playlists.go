@@ -5,7 +5,6 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -138,7 +137,7 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 				return cmd
 			}
 		case key.Matches(msg, keys.NewList):
-			if m.ytClient != nil {
+			if m.ytAPIReady {
 				m.mode = modeCreateType
 				m.createTypeSel = 0
 			} else {
@@ -156,9 +155,9 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 			}
 			idx := m.playlist.cursor
 			var delCmd tea.Cmd
-			if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
+			if m.ytPlLoaded && m.ytAPIReady && idx < len(m.ytPlaylists) {
 				pl := m.ytPlaylists[idx]
-				delCmd = deletePlaylistCmd(m.ytClient, pl.ID)
+				delCmd = deleteYTPlaylistCmd(m.backend, pl.ID)
 				delete(m.playlistVidCache, pl.ID)
 				m.ytPlaylists = append(m.ytPlaylists[:idx], m.ytPlaylists[idx+1:]...)
 			} else {
@@ -199,7 +198,7 @@ func (in playlistsActionIntent) apply(m *Model) tea.Cmd {
 			vid := vids[m.playlist.vidCursor]
 			var cmd tea.Cmd
 			if m.selectedPlaylistIsYT() {
-				cmd = youtube.RemoveYTPlaylistVideo(m.ytClient, plKey, vid.ID)
+				cmd = cmdRemoveFromYTPlaylist(m.backend, plKey, vid.ID)
 			} else {
 				localID := parseLocalPlaylistID(plKey)
 				_ = m.db.RemoveFromPlaylist(localID, vid.ID)

@@ -15,7 +15,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/library"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/player"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -134,7 +133,7 @@ const (
 type Model struct {
 	cfg        *config.Config
 	backend    api.Backend
-	db         Store              // backendStore wrapper; derived from backend in NewModel
+	db         Store                  // backendStore wrapper; derived from backend in NewModel
 	downloader *downloader.Downloader // kept for Items() / WaitForEvent() display primitives
 
 	width  int
@@ -182,7 +181,7 @@ type Model struct {
 	ytPlaylists          []domain.YTPlaylist // YouTube playlists (loaded from YT)
 	ytPlLoading          bool
 	ytPlLoaded           bool
-	ytClient             *youtube.YTClient         // nil until browser cookies extracted
+	ytAPIReady           bool                      // true once InitYTClient succeeds
 	playlist             playlistsView             // P4 slice: cursor/scroll/pane/sort for both panes
 	playlistVidCache     map[string][]domain.Video // per-playlist video cache (written by async fetches)
 	playlistVidLoading   bool
@@ -379,7 +378,7 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 	// Load full channel list from DB for immediate display.
 	cachedChannels, _ := database.GetSubscribedChannels()
 
-	subs := channels.New(cachedChannels, database, nil)
+	subs := channels.New(cachedChannels)
 	recCache = feed.FilterSubscribed(recCache, subs.Index())
 
 	// Load subscriptions all-video list from channel_videos aggregate.
@@ -401,7 +400,7 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 		chLatest = make(map[string]domain.Video)
 	}
 
-	backend, _ := player.New(cfg)
+	playerBackend, _ := player.New(cfg)
 
 	m := Model{
 		cfg:               cfg,
@@ -433,7 +432,7 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 		ytPlLoaded:        len(cachedYTPlaylists) > 0,
 		playlistVidCache:  make(map[string][]domain.Video),
 		keys:              buildKeyMap(cfg.Keybindings),
-		playerBackend:     backend,
+		playerBackend:     playerBackend,
 		recommended:       recommendedView{sort: vidSortViews},
 		subscriptions:     subscriptionsView{sort: vidSortDate},
 		search:            searchView{sort: vidSortNone},
@@ -609,18 +608,6 @@ func mustVideoPositions(d Store) map[string]int64 {
 	return pos
 }
 
-type ytClientInitMsg struct {
-	client *youtube.YTClient
-	err    error
-}
-
-func initYTClient(cfg *config.Config) tea.Cmd {
-	return func() tea.Msg {
-		client, err := youtube.NewYTClient(cfg)
-		return ytClientInitMsg{client: client, err: err}
-	}
-}
-
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		cmdFetchRecommended(m.backend),
@@ -628,7 +615,7 @@ func (m Model) Init() tea.Cmd {
 		m.downloader.WaitForEvent(),
 		m.spinner.Tick,
 		positionTick(),
-		initYTClient(m.cfg),
+		cmdInitYTClient(m.backend),
 	)
 }
 
@@ -684,7 +671,7 @@ func (m Model) selectedPlaylistName() string {
 
 // selectedPlaylistIsYT returns true when the selected playlist is YouTube-backed.
 func (m Model) selectedPlaylistIsYT() bool {
-	return m.ytPlLoaded && m.ytClient != nil && m.playlist.cursor < len(m.ytPlaylists)
+	return m.ytPlLoaded && m.ytAPIReady && m.playlist.cursor < len(m.ytPlaylists)
 }
 
 func (m *Model) currentTabIndex() int {
@@ -829,8 +816,8 @@ func (m Model) contextSupportsNewPlaylist() bool {
 
 // contextSupportsSubscribe reports whether the current focus has an identifiable channel to subscribe to.
 func (m Model) contextSupportsSubscribe() bool {
-	chID, _ := m.currentChannelInfo()
-	return chID != ""
+	ch, ok := m.currentChannel()
+	return ok && ch.ID != ""
 }
 
 // contextSupportsSorting reports whether the current context has any valid sort actions.
@@ -968,16 +955,17 @@ func (m Model) buildChordDefs() []chordDef {
 			label: "remote",
 			ctx:   subCtx,
 			exec: func(m Model) (Model, tea.Cmd) {
-				if m.ytClient == nil {
+				if !m.ytAPIReady {
 					m.setStatus("subscribe: configure 'browser' in config to enable", true)
 					return m, nil
 				}
-				chID, chName := m.currentChannelInfo()
-				if chID == "" {
+				ch, ok := m.currentChannel()
+				if !ok {
 					m.setStatus("subscribe: no channel", true)
 					return m, nil
 				}
-				return m, youtube.SubscribeToChannel(m.ytClient, chID, chName)
+				ch.URL = m.channelURL(ch.ID)
+				return m, cmdSubscribe(m.backend, ch)
 			},
 		},
 		{
@@ -985,28 +973,14 @@ func (m Model) buildChordDefs() []chordDef {
 			label: "local",
 			ctx:   subCtx,
 			exec: func(m Model) (Model, tea.Cmd) {
-				chID, chName := m.currentChannelInfo()
-				if chID == "" {
+				ch, ok := m.currentChannel()
+				if !ok {
 					m.setStatus("local subscribe: no channel", true)
 					return m, nil
 				}
-				ch := domain.Channel{
-					ID:      chID,
-					Name:    chName,
-					URL:     "https://www.youtube.com/channel/" + chID,
-					IsLocal: true,
-				}
-				if err := m.db.AddSubscribedChannel(ch); err != nil {
-					m.setStatus("local subscribe: "+err.Error(), true)
-					return m, nil
-				}
-				m.subs.Subscribe(ch)
-				m.setStatus("Locally subscribed: "+chName, false)
-				_ = m.db.LogActivity(domain.ActivityEntry{
-					Type: "subscribe", IsLocal: true,
-					ChannelID: chID, ChannelName: chName,
-				})
-				return m, nil
+				ch.URL = m.channelURL(ch.ID)
+				ch.IsLocal = true
+				return m, cmdSubscribe(m.backend, ch)
 			},
 		},
 	}
@@ -1020,7 +994,7 @@ func (m Model) buildChordDefs() []chordDef {
 			label: "YouTube",
 			ctx:   plCtx,
 			exec: func(m Model) (Model, tea.Cmd) {
-				if m.ytClient == nil {
+				if !m.ytAPIReady {
 					m.setStatus("new YouTube playlist: configure 'browser' in config to enable", true)
 					return m, nil
 				}

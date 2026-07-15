@@ -8,7 +8,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ── Msg types (moved from youtube package) ────────────────────────────────────
+// ── YTClient init + mutation Msg types ───────────────────────────────────────
+
+type ytClientInitMsg struct{ err error }
+
+type subscribeMsg struct {
+	ch  domain.Channel
+	err error
+}
+
+type unsubscribeMsg struct {
+	ch  domain.Channel
+	err error
+}
+
+type createYTPlaylistMsg struct {
+	name, id string
+	err      error
+}
+
+type removeFromYTPlaylistMsg struct{ err error }
+
+// ── Fetch Msg types (moved from youtube package) ──────────────────────────────
 
 type fetchRecommendedMsg struct {
 	videos []domain.Video
@@ -121,5 +142,38 @@ func cmdFetchVideoDetails(b api.Backend, videoURL string) tea.Cmd {
 	return func() tea.Msg {
 		details, err := b.VideoDetails(context.Background(), videoURL)
 		return fetchVideoDetailsMsg{details: details, err: err}
+	}
+}
+
+// ── YTClient init + mutation Cmd factories ────────────────────────────────────
+
+func cmdInitYTClient(b api.Backend) tea.Cmd {
+	return func() tea.Msg {
+		return ytClientInitMsg{err: b.InitYTClient(context.Background())}
+	}
+}
+
+func cmdSubscribe(b api.Backend, ch domain.Channel) tea.Cmd {
+	return func() tea.Msg {
+		return subscribeMsg{ch: ch, err: b.Subscribe(context.Background(), ch)}
+	}
+}
+
+func cmdUnsubscribe(b api.Backend, ch domain.Channel) tea.Cmd {
+	return func() tea.Msg {
+		return unsubscribeMsg{ch: ch, err: b.Unsubscribe(context.Background(), ch)}
+	}
+}
+
+func cmdCreateYTPlaylist(b api.Backend, name string) tea.Cmd {
+	return func() tea.Msg {
+		id, err := b.CreateYTPlaylist(context.Background(), name)
+		return createYTPlaylistMsg{name: name, id: id, err: err}
+	}
+}
+
+func cmdRemoveFromYTPlaylist(b api.Backend, playlistID, videoID string) tea.Cmd {
+	return func() tea.Msg {
+		return removeFromYTPlaylistMsg{err: b.RemoveFromYTPlaylist(context.Background(), playlistID, videoID)}
 	}
 }

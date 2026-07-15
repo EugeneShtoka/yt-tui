@@ -8,7 +8,6 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 // channelsView owns the Channels tab's private navigation state across its two
@@ -281,21 +280,18 @@ func (v *channelsView) jumpToLast(ctx viewCtx) {
 	}
 }
 
-// unsubscribeCurrentChannel removes the currently focused channel.
-// channels.ChannelSet.Unsubscribe decides local vs remote internally and
-// returns the appropriate backend command; this function handles the common
-// in-memory UI cleanup.
+// unsubscribeCurrentChannel removes the focused channel from in-memory state
+// and dispatches the backend unsubscribe command.
 func (m Model) unsubscribeCurrentChannel() (tea.Model, tea.Cmd) {
-	chID, chName := m.currentChannelInfo()
-	cmd, ok := m.subs.Unsubscribe(chID, chName)
+	ch, ok := m.currentChannel()
 	if !ok {
-		m.setStatus("unsubscribe: configure 'browser' in config to enable", true)
 		return m, nil
 	}
-	m.subFeed.RemoveChannel(chID, chName)
+	m.subs.Remove(ch)
+	m.subFeed.RemoveChannel(ch)
 	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
-	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, chID, chName)
+	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, ch)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 	m.recFeed.StartRefresh()
-	return m, tea.Batch(cmd, youtube.FetchRecommended(m.cfg))
+	return m, tea.Batch(cmdUnsubscribe(m.backend, ch), cmdFetchRecommended(m.backend))
 }

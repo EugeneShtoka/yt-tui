@@ -13,7 +13,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/media"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/sys"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
@@ -60,8 +59,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.setStatus("YouTube sync unavailable: "+msg.err.Error(), true)
 		} else {
-			m.ytClient = msg.client
-			m.subs.SetYTClient(msg.client)
+			m.ytAPIReady = true
 			// If the playlists tab is open, kick off a background refresh now.
 			if m.activeTab == tabPlaylists && !m.ytPlLoading {
 				m.ytPlLoading = true
@@ -100,57 +98,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case youtube.SubscribeMsg:
-		if msg.Err != nil {
-			m.setStatus("subscribe failed: "+msg.Err.Error(), true)
+	case subscribeMsg:
+		if msg.err != nil {
+			m.setStatus("subscribe failed: "+msg.err.Error(), true)
 		} else {
-			m.setStatus("Subscribed to: "+msg.ChannelName, false)
+			if msg.ch.IsLocal {
+				m.subs.Subscribe(msg.ch)
+				m.setStatus("Locally subscribed: "+msg.ch.Name, false)
+			} else {
+				m.setStatus("Subscribed to: "+msg.ch.Name, false)
+			}
 			_ = m.db.LogActivity(domain.ActivityEntry{
-				Type: "subscribe", IsLocal: false,
-				ChannelID: msg.ChannelID, ChannelName: msg.ChannelName,
+				Type: "subscribe", IsLocal: msg.ch.IsLocal,
+				ChannelID: msg.ch.ID, ChannelName: msg.ch.Name,
 			})
 		}
 		return m, nil
 
-	case youtube.UnsubscribeMsg:
-		if msg.Err != nil {
-			m.setStatus("unsubscribe failed: "+msg.Err.Error(), true)
-			return m, nil
-		}
-		m.setStatus("Unsubscribed from: "+msg.ChannelName, false)
-		return m, deleteChannelVideosCmd(m.db, msg.ChannelID)
-
-	case youtube.RemoveYTPlaylistVideoMsg:
-		if msg.Err != nil {
-			m.setStatus("remove from playlist: "+msg.Err.Error(), true)
+	case unsubscribeMsg:
+		if msg.err != nil {
+			m.setStatus("unsubscribe failed: "+msg.err.Error(), true)
+		} else {
+			m.setStatus("Unsubscribed from: "+msg.ch.Name, false)
 		}
 		return m, nil
 
-	case youtube.CreatePlaylistMsg:
+	case removeFromYTPlaylistMsg:
+		if msg.err != nil {
+			m.setStatus("remove from playlist: "+msg.err.Error(), true)
+		}
+		return m, nil
+
+	case createYTPlaylistMsg:
 		var addCmd tea.Cmd
-		if msg.Err != nil {
+		if msg.err != nil {
 			m.addAfterCreate = false
-			m.setStatus("create playlist: "+msg.Err.Error(), true)
+			m.setStatus("create playlist: "+msg.err.Error(), true)
 		} else {
-			m.ytPlaylists = append(m.ytPlaylists, domain.YTPlaylist{ID: msg.ID, Title: msg.Name})
+			m.ytPlaylists = append(m.ytPlaylists, domain.YTPlaylist{ID: msg.id, Title: msg.name})
 			_ = m.db.LogActivity(domain.ActivityEntry{
 				Type: "create_playlist", IsLocal: false,
-				PlaylistID: msg.ID, PlaylistName: msg.Name,
+				PlaylistID: msg.id, PlaylistName: msg.name,
 			})
 			if m.addAfterCreate {
 				m.addAfterCreate = false
 				v := m.addVideo
-				plID := msg.ID
-				addCmd = addToPlaylistCmd(m.ytClient, plID, v.ID)
+				plID := msg.id
+				addCmd = addToYTPlaylistCmd(m.backend, plID, v.ID)
 				delete(m.playlistVidCache, plID)
 				_ = m.db.LogActivity(domain.ActivityEntry{
 					Type: "add_to_playlist", IsLocal: false,
-					PlaylistID: msg.ID, PlaylistName: msg.Name,
+					PlaylistID: msg.id, PlaylistName: msg.name,
 					VideoID: v.ID, VideoTitle: v.Title,
 				})
-				m.setStatus(fmt.Sprintf("Created '%s' and added video", msg.Name), false)
+				m.setStatus(fmt.Sprintf("Created '%s' and added video", msg.name), false)
 			} else {
-				m.setStatus("Created playlist: "+msg.Name, false)
+				m.setStatus("Created playlist: "+msg.name, false)
 			}
 		}
 		return m, addCmd
@@ -1032,7 +1035,7 @@ func (m *Model) onTabActivated() tea.Cmd {
 			return cmdFetchSubscribedChannels(m.backend)
 		}
 	case tabPlaylists:
-		if m.ytClient != nil && !m.ytPlLoading {
+		if m.ytAPIReady && !m.ytPlLoading {
 			m.ytPlLoading = true
 			if m.ytPlLoaded {
 				return cmdFetchYTPlaylistsBackground(m.backend)
@@ -1131,7 +1134,7 @@ func (m *Model) refresh() tea.Cmd {
 		if m.playlist.pane == 1 {
 			return m.fetchCurrentPlaylistVideos()
 		}
-		if m.ytClient != nil && !m.ytPlLoading {
+		if m.ytAPIReady && !m.ytPlLoading {
 			m.ytPlLoading = true
 			return cmdFetchYTPlaylistsBackground(m.backend)
 		}
@@ -1294,7 +1297,7 @@ func (m *Model) loadCurrentPlaylistVideos() tea.Cmd {
 			m.playlistVidCache[plKey] = cached
 		}
 		// Fire a background YouTube fetch only when the client is available.
-		if m.ytClient != nil {
+		if m.ytAPIReady {
 			m.playlistVidLoading = true
 			return cmdFetchPlaylistVideos(m.backend, plKey)
 		}
@@ -1482,8 +1485,8 @@ func (m Model) handleCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.createModeYT = false
 		m.createInput.Blur()
 		if name != "" {
-			if isYT && m.ytClient != nil {
-				return m, youtube.CreateYTPlaylist(m.ytClient, name)
+			if isYT && m.ytAPIReady {
+				return m, cmdCreateYTPlaylist(m.backend, name)
 			}
 			if id, err := m.db.CreatePlaylist(name); err != nil {
 				m.addAfterCreate = false
@@ -1752,7 +1755,7 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addOverlayInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.ytClient != nil && idx == base+1 { // "Create remote playlist"
+		if m.ytAPIReady && idx == base+1 { // "Create remote playlist"
 			m.addOverlayCreateMode = true
 			m.addOverlayCreateYT = true
 			m.addOverlayInput.SetValue("")
@@ -1760,9 +1763,9 @@ func (m Model) handleAddOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addOverlayInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.ytPlLoaded && m.ytClient != nil && idx < len(m.ytPlaylists) {
+		if m.ytPlLoaded && m.ytAPIReady && idx < len(m.ytPlaylists) {
 			pl := m.ytPlaylists[idx]
-			addCmd = addToPlaylistCmd(m.ytClient, pl.ID, v.ID)
+			addCmd = addToYTPlaylistCmd(m.backend, pl.ID, v.ID)
 			delete(m.playlistVidCache, pl.ID)
 			_ = m.db.LogActivity(domain.ActivityEntry{
 				Type: "add_to_playlist", IsLocal: false,
@@ -1797,9 +1800,9 @@ func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addOverlayInput.Blur()
 		m.popOverlay()
 		if name != "" {
-			if m.addOverlayCreateYT && m.ytClient != nil {
+			if m.addOverlayCreateYT && m.ytAPIReady {
 				m.addAfterCreate = true
-				return m, youtube.CreateYTPlaylist(m.ytClient, name)
+				return m, cmdCreateYTPlaylist(m.backend, name)
 			}
 			if id, err := m.db.CreatePlaylist(name); err != nil {
 				m.setStatus("create playlist: "+err.Error(), true)
@@ -1831,7 +1834,7 @@ func (m Model) handleAddOverlayCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // overlayPlaylistCount is the total selectable rows in the add-to-playlist overlay.
 // Includes create entries: 2 when YT client is present (local + remote), 1 otherwise (local only).
 func (m Model) overlayPlaylistCount() int {
-	if m.ytPlLoaded && m.ytClient != nil {
+	if m.ytPlLoaded && m.ytAPIReady {
 		return len(m.ytPlaylists) + 2
 	}
 	return len(m.playlists) + 1
@@ -1839,7 +1842,7 @@ func (m Model) overlayPlaylistCount() int {
 
 // overlayCreateBase returns the index of the first create entry in the overlay.
 func (m Model) overlayCreateBase() int {
-	if m.ytPlLoaded && m.ytClient != nil {
+	if m.ytPlLoaded && m.ytAPIReady {
 		return len(m.ytPlaylists)
 	}
 	return len(m.playlists)
@@ -2153,46 +2156,41 @@ func formatDuration(d time.Duration) string {
 
 // subscribeCurrentChannel subscribes to the channel of the current video or selected channel.
 func (m Model) subscribeCurrentChannel() (tea.Model, tea.Cmd) {
-	if m.ytClient == nil {
-		m.setStatus("subscribe: configure 'browser' in config to enable", true)
-		return m, nil
-	}
-	chID, chName := m.currentChannelInfo()
-	if chID == "" {
+	ch, ok := m.currentChannel()
+	if !ok {
 		m.setStatus("subscribe: no channel", true)
 		return m, nil
 	}
-	return m, youtube.SubscribeToChannel(m.ytClient, chID, chName)
+	ch.URL = m.channelURL(ch.ID)
+	return m, cmdSubscribe(m.backend, ch)
 }
 
-// currentChannelInfo returns the channel ID and name for the currently focused item.
-func (m Model) currentChannelInfo() (id, name string) {
+// currentChannel returns the channel for the currently focused item.
+func (m Model) currentChannel() (domain.Channel, bool) {
 	if m.activeTab == tabChannels && !m.channels.tagsMode && m.channels.pane == 0 {
 		sorted := m.sortedChannels()
 		if m.channels.cursor < len(sorted) {
-			ch := sorted[m.channels.cursor]
-			return ch.ID, ch.Name
+			return sorted[m.channels.cursor], true
 		}
 	}
 	if m.activeTab == tabSearch {
 		if m.searchChSel != nil {
-			return m.searchChSel.ID, m.searchChSel.Name
+			return *m.searchChSel, true
 		}
 		if m.search.cursor < len(m.searchChannels) {
-			ch := m.searchChannels[m.search.cursor]
-			return ch.ID, ch.Name
+			return m.searchChannels[m.search.cursor], true
 		}
 	}
 	if m.activeTab == tabHistory && m.history.detailVideoID == "" {
 		if m.history.cursor < len(m.history.entries) {
 			e := m.history.entries[m.history.cursor]
-			return e.ChannelID, e.Channel
+			return domain.Channel{ID: e.ChannelID, Name: e.Channel}, true
 		}
 	}
 	if v, ok := m.currentVideo(); ok {
-		return v.ChannelID, v.Channel
+		return domain.Channel{ID: v.ChannelID, Name: v.Channel}, true
 	}
-	return "", ""
+	return domain.Channel{}, false
 }
 
 // copyCurrentURL copies the selected video's URL to the system clipboard.
@@ -2209,35 +2207,35 @@ func (m *Model) copyCurrentURL() {
 }
 
 // hideChannel immediately blacklists a channel and removes it from all in-memory feeds.
-func (m *Model) hideChannel(channelID, channelName string) {
-	if channelID == "" && channelName == "" {
+func (m *Model) hideChannel(ch domain.Channel) {
+	if ch.ID == "" && ch.Name == "" {
 		return
 	}
-	m.cfg.AddBlacklistedChannel(channelID, channelName)
+	m.cfg.AddBlacklistedChannel(ch.ID, ch.Name)
 	m.cfg.SaveAsync()
-	m.removeChannelFromFeeds(channelID, channelName)
-	m.setStatus("Blacklisted channel: "+channelName, false)
+	m.removeChannelFromFeeds(ch)
+	m.setStatus("Blacklisted channel: "+ch.Name, false)
 }
 
 // checkVideoHideAutoBlacklist auto-blacklists a channel when hidden-played >= cfg.ChannelStrikes.
-func (m *Model) checkVideoHideAutoBlacklist(channelID, channelName string) {
-	if channelID == "" {
+func (m *Model) checkVideoHideAutoBlacklist(ch domain.Channel) {
+	if ch.ID == "" {
 		return
 	}
-	hidden, played, err := m.db.ChannelHideStats(channelID)
+	hidden, played, err := m.db.ChannelHideStats(ch.ID)
 	if err != nil || hidden-played < m.cfg.ChannelStrikes {
 		return
 	}
-	m.hideChannel(channelID, channelName)
+	m.hideChannel(ch)
 }
 
 // removeChannelFromFeeds strips a channel's videos from all in-memory video lists.
-func (m *Model) removeChannelFromFeeds(channelID, channelName string) {
-	m.recFeed.RemoveChannel(channelID, channelName)
+func (m *Model) removeChannelFromFeeds(ch domain.Channel) {
+	m.recFeed.RemoveChannel(ch)
 	m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
-	m.subFeed.RemoveChannel(channelID, channelName)
+	m.subFeed.RemoveChannel(ch)
 	m.subscriptions.reclamp(m.subFeed.Len(), m.pageSize())
-	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, channelID, channelName)
+	m.subChVideos = feed.RemoveChannelVideos(m.subChVideos, ch)
 	m.channels.vidCursor, m.channels.vidVS = vsMove(clamp(m.channels.vidCursor, len(m.subChVideos)), m.channels.vidVS, len(m.subChVideos), 0, m.pageSize(), false)
 }
 
@@ -2278,7 +2276,7 @@ func (m *Model) openVideoDetail(v domain.Video) tea.Cmd {
 		m.vidDetailLoading = false
 		return nil
 	}
-	return youtube.FetchVideoDetails(m.cfg, v.URL)
+	return cmdFetchVideoDetails(m.backend, v.URL)
 }
 
 // openChaptersForVideo opens the chapter overlay for v, loading from cache if
@@ -2304,7 +2302,7 @@ func (m Model) openChaptersForVideo(v domain.Video) (tea.Model, tea.Cmd) {
 	}
 	m.pendingDirectOverlay = "chapters"
 	m.setStatus("Loading chapters…", false)
-	return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+	return m, cmdFetchVideoDetails(m.backend, v.URL)
 }
 
 // openLinksForVideo opens the link overlay for v, loading from cache if available
@@ -2337,7 +2335,7 @@ func (m Model) openLinksForVideo(v domain.Video) (tea.Model, tea.Cmd) {
 	}
 	m.pendingDirectOverlay = "links"
 	m.setStatus("Loading links…", false)
-	return m, youtube.FetchVideoDetails(m.cfg, v.URL)
+	return m, cmdFetchVideoDetails(m.backend, v.URL)
 }
 
 // ── Chapter playback from overlay ─────────────────────────────────────────────

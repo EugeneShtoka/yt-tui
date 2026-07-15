@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/theme"
 	"github.com/EugeneShtoka/yt-tui/internal/ui"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -60,7 +62,10 @@ func main() {
 
 	dl := downloader.New(cfg, database)
 
-	m := ui.NewModel(cfg, database, dl)
+	ytClient := youtube.NewClient(cfg)
+	backend := api.NewInProc(database, ytClient, dl, cfg)
+
+	m := ui.NewModel(cfg, backend, dl)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {

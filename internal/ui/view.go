@@ -728,7 +728,7 @@ func (m Model) renderAddOverlay(behind string) string {
 		"",
 	}
 	base := m.overlayCreateBase()
-	if m.ytPlLoaded && m.ytClient != nil {
+	if m.ytPlLoaded && m.ytAPIReady {
 		for i, pl := range m.ytPlaylists {
 			label := "  " + pl.Title
 			if m.addOverlaySel == i {
@@ -750,7 +750,7 @@ func (m Model) renderAddOverlay(behind string) string {
 		localLabel = styleSelected.Render("▶ Create local list")
 	}
 	lines = append(lines, localLabel)
-	if m.ytClient != nil {
+	if m.ytAPIReady {
 		remoteLabel := "  Create remote playlist"
 		if m.addOverlaySel == base+1 {
 			remoteLabel = styleSelected.Render("▶ Create remote playlist")

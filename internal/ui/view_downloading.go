@@ -121,7 +121,7 @@ func (in downloadingIntent) apply(m *Model) tea.Cmd {
 		m.playAudio(in.item.Video)
 	case dlIntentHide:
 		v := in.item.Video
-		m.hideChannel(v.ChannelID, v.Channel)
+		m.hideChannel(domain.Channel{ID: v.ChannelID, Name: v.Channel})
 	case dlIntentDelete:
 		item := in.item
 		m.downloader.Remove(item.Video.ID)

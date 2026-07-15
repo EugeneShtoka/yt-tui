@@ -50,11 +50,11 @@ func RemoveVideoByID(videos []domain.Video, id string) []domain.Video {
 
 // RemoveChannelVideos returns a new slice with all of a channel's videos removed,
 // matching by channel ID or (case-insensitive) channel name.
-func RemoveChannelVideos(videos []domain.Video, channelID, channelName string) []domain.Video {
+func RemoveChannelVideos(videos []domain.Video, ch domain.Channel) []domain.Video {
 	out := make([]domain.Video, 0, len(videos))
 	for _, v := range videos {
-		matchID := channelID != "" && v.ChannelID == channelID
-		matchName := channelName != "" && strings.EqualFold(v.Channel, channelName)
+		matchID := ch.ID != "" && v.ChannelID == ch.ID
+		matchName := ch.Name != "" && strings.EqualFold(v.Channel, ch.Name)
 		if !matchID && !matchName {
 			out = append(out, v)
 		}

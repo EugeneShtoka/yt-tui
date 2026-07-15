@@ -96,11 +96,11 @@ func TestRemoveChannelVideos(t *testing.T) {
 		{ID: "c", Channel: "Two"},
 	}
 	// by ID
-	if got := ids(RemoveChannelVideos(videos, "ch1", "")); got != "b c" {
+	if got := ids(RemoveChannelVideos(videos, domain.Channel{ID: "ch1"})); got != "b c" {
 		t.Errorf("remove by channel ID: got %q, want 'b c'", got)
 	}
 	// by name (case-insensitive) removes both b and c
-	if got := ids(RemoveChannelVideos(videos, "", "two")); got != "a" {
+	if got := ids(RemoveChannelVideos(videos, domain.Channel{Name: "two"})); got != "a" {
 		t.Errorf("remove by channel name: got %q, want 'a'", got)
 	}
 }

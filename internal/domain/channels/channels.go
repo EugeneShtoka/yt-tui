@@ -6,17 +6,8 @@ package channels
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
-
-// DB is the narrow persistence interface required for unsubscribe operations.
-type DB interface {
-	RemoveSubscribedChannel(channelID string) error
-	DeleteChannelVideos(channelID string) error
-}
 
 // ChannelSet owns the subscribed-channel slice together with a membership
 // index (channel ID → true, "name:lowercaseName" → true). All mutations go
@@ -24,22 +15,14 @@ type DB interface {
 type ChannelSet struct {
 	channels []domain.Channel
 	index    map[string]bool
-	db       DB
-	ytClient *youtube.YTClient
 }
 
-// New builds a ChannelSet from an initial slice. db and ytClient are injected
-// for use by Unsubscribe; ytClient may be nil until browser cookies are ready.
-func New(channels []domain.Channel, db DB, ytClient *youtube.YTClient) ChannelSet {
+// New builds a ChannelSet from an initial slice.
+func New(channels []domain.Channel) ChannelSet {
 	var s ChannelSet
-	s.db = db
-	s.ytClient = ytClient
 	s.rebuild(channels)
 	return s
 }
-
-// SetYTClient updates the YouTube client after it becomes available.
-func (s *ChannelSet) SetYTClient(client *youtube.YTClient) { s.ytClient = client }
 
 // rebuild replaces the slice and reconstructs the index from scratch.
 func (s *ChannelSet) rebuild(channels []domain.Channel) {
@@ -102,39 +85,27 @@ func (s *ChannelSet) Subscribe(ch domain.Channel) bool {
 	return true
 }
 
-// Remove drops the channel with the given ID and clears its index entries.
-func (s *ChannelSet) Remove(id, name string) {
+// Remove drops the channel from the set and clears its index entries.
+func (s *ChannelSet) Remove(ch domain.Channel) {
 	out := make([]domain.Channel, 0, len(s.channels))
-	for _, ch := range s.channels {
-		if ch.ID != id {
-			out = append(out, ch)
+	for _, c := range s.channels {
+		if c.ID != ch.ID {
+			out = append(out, c)
 		}
 	}
 	s.channels = out
-	s.removeFromIndex(id, name)
+	s.removeFromIndex(ch.ID, ch.Name)
 }
 
-// Unsubscribe removes the channel from the set and returns the appropriate
-// backend command (local DB removal or YouTube API call). Returns (nil, false)
-// if the channel cannot be unsubscribed — remote channel with no YouTube client.
-func (s *ChannelSet) Unsubscribe(id, name string) (tea.Cmd, bool) {
-	local := s.isLocal(id)
-	if !local && s.ytClient == nil {
-		return nil, false
+// Unsubscribe finds the channel by ID, removes it, and returns it.
+// Returns (zero, false) if not found.
+func (s *ChannelSet) Unsubscribe(id string) (domain.Channel, bool) {
+	ch, found := s.ByID(id)
+	if !found {
+		return domain.Channel{}, false
 	}
-	s.Remove(id, name)
-	if local {
-		return localUnsubscribeCmd(s.db, id), true
-	}
-	return youtube.UnsubscribeFromChannel(s.ytClient, id, name), true
-}
-
-func localUnsubscribeCmd(db DB, channelID string) tea.Cmd {
-	return func() tea.Msg {
-		_ = db.RemoveSubscribedChannel(channelID)
-		_ = db.DeleteChannelVideos(channelID)
-		return nil
-	}
+	s.Remove(ch)
+	return ch, true
 }
 
 // SetAlias updates the alias of the channel with the given ID in place.

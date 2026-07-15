@@ -3,7 +3,6 @@ package ui
 import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -79,7 +78,7 @@ func (in searchActionIntent) apply(m *Model) tea.Cmd {
 			m.searchChVideos = nil
 			m.search.vidCursor = 0
 			m.searchChLoading = true
-			return youtube.FetchChannelVideos(m.cfg, ch.URL, ch.ID, "search")
+			return cmdFetchChannelVideos(m.backend, ch.URL, ch.ID, "search")
 		}
 		m.handleVideoAction(msg)
 		return nil

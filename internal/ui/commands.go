@@ -1,10 +1,11 @@
 package ui
 
 import (
+	"context"
 	"os"
 
+	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -88,20 +89,18 @@ func deleteFilesCmd(paths []string) tea.Cmd {
 	}
 }
 
-// addToPlaylistCmd / deletePlaylistCmd take the *YTClient as a param so the Cmd
-// closes over the (shareable) client rather than the value-copied Model.
-func addToPlaylistCmd(client *youtube.YTClient, playlistID, videoID string) tea.Cmd {
+func addToYTPlaylistCmd(b api.Backend, playlistID, videoID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := client.AddToPlaylist(playlistID, videoID); err != nil {
+		if err := b.AddToYTPlaylist(context.Background(), playlistID, videoID); err != nil {
 			return persistErrMsg{err}
 		}
 		return nil
 	}
 }
 
-func deletePlaylistCmd(client *youtube.YTClient, playlistID string) tea.Cmd {
+func deleteYTPlaylistCmd(b api.Backend, playlistID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := client.DeletePlaylist(playlistID); err != nil {
+		if err := b.DeleteYTPlaylist(context.Background(), playlistID); err != nil {
 			return persistErrMsg{err}
 		}
 		return nil

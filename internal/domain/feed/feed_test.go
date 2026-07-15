@@ -73,7 +73,7 @@ func TestFeedAtAndMutations(t *testing.T) {
 		t.Errorf("after RemoveVideo(b): %v", ids(f.videos))
 	}
 	f.SetVideos([]domain.Video{{ID: "a", ChannelID: "ch1"}, {ID: "b", ChannelID: "ch2"}})
-	f.RemoveChannel("ch1", "")
+	f.RemoveChannel(domain.Channel{ID: "ch1"})
 	if f.Len() != 1 || f.videos[0].ID != "b" {
 		t.Errorf("after RemoveChannel(ch1): %v", ids(f.videos))
 	}

@@ -104,4 +104,15 @@ type Backend interface {
 	Enqueue(ctx context.Context, video domain.Video, audioOnly bool) error
 	CancelDownload(ctx context.Context, videoID string) error
 	Events(ctx context.Context) (<-chan Event, error)
+
+	// ── Channel subscription (local or remote, decided by ch.IsLocal / channelID lookup) ──
+	Subscribe(ctx context.Context, ch domain.Channel) error
+	Unsubscribe(ctx context.Context, ch domain.Channel) error
+
+	// ── YouTube API mutations (require browser-cookie auth) ────────────────────
+	InitYTClient(ctx context.Context) error
+	CreateYTPlaylist(ctx context.Context, name string) (id string, err error)
+	DeleteYTPlaylist(ctx context.Context, playlistID string) error
+	AddToYTPlaylist(ctx context.Context, playlistID, videoID string) error
+	RemoveFromYTPlaylist(ctx context.Context, playlistID, videoID string) error
 }

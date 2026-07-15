@@ -4,25 +4,9 @@ import (
 	"testing"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
-type mockDB struct {
-	removed       []string
-	deletedVideos []string
-}
-
-func (m *mockDB) RemoveSubscribedChannel(id string) error {
-	m.removed = append(m.removed, id)
-	return nil
-}
-
-func (m *mockDB) DeleteChannelVideos(id string) error {
-	m.deletedVideos = append(m.deletedVideos, id)
-	return nil
-}
-
-func newSet(channels []domain.Channel) ChannelSet { return New(channels, nil, nil) }
+func newSet(channels []domain.Channel) ChannelSet { return New(channels) }
 
 func TestAddDedup(t *testing.T) {
 	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
@@ -48,7 +32,7 @@ func TestAddNew(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
-	s.Remove("ch1", "Alpha")
+	s.Remove(domain.Channel{ID: "ch1", Name: "Alpha"})
 	if s.Len() != 1 || s.Channels()[0].ID != "ch2" {
 		t.Errorf("Remove: got %+v, want [ch2]", s.Channels())
 	}
@@ -106,52 +90,42 @@ func TestSyncFromYTPreservesLocalOnly(t *testing.T) {
 	}
 }
 
-func TestUnsubscribeLocalRemovesAndCallsDB(t *testing.T) {
-	db := &mockDB{}
-	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha", IsLocal: true}}, db, nil)
-	cmd, ok := s.Unsubscribe("ch1", "Alpha")
+func TestUnsubscribeLocal(t *testing.T) {
+	ch := domain.Channel{ID: "ch1", Name: "Alpha", IsLocal: true}
+	s := newSet([]domain.Channel{ch})
+	got, ok := s.Unsubscribe("ch1")
 	if !ok {
-		t.Fatal("Unsubscribe: expected ok=true for local channel")
+		t.Fatal("Unsubscribe: expected ok=true")
+	}
+	if !got.IsLocal {
+		t.Error("Unsubscribe: expected IsLocal=true on returned channel")
 	}
 	if _, found := s.ByID("ch1"); found {
-		t.Error("Unsubscribe: channel still in set after local unsubscribe")
-	}
-	if cmd == nil {
-		t.Fatal("Unsubscribe: expected non-nil cmd for local channel")
-	}
-	cmd() // execute to trigger DB calls
-	if len(db.removed) != 1 || db.removed[0] != "ch1" {
-		t.Errorf("Unsubscribe: RemoveSubscribedChannel not called, got %v", db.removed)
-	}
-	if len(db.deletedVideos) != 1 || db.deletedVideos[0] != "ch1" {
-		t.Errorf("Unsubscribe: DeleteChannelVideos not called, got %v", db.deletedVideos)
+		t.Error("Unsubscribe: channel still in set after removal")
 	}
 }
 
-func TestUnsubscribeRemoteNoClientBlocked(t *testing.T) {
-	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha"}}, nil, nil)
-	cmd, ok := s.Unsubscribe("ch1", "Alpha")
+func TestUnsubscribeRemote(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
+	got, ok := s.Unsubscribe("ch1")
+	if !ok {
+		t.Fatal("Unsubscribe: expected ok=true for remote channel")
+	}
+	if got.IsLocal {
+		t.Error("Unsubscribe: expected IsLocal=false for remote channel")
+	}
+	if _, found := s.ByID("ch1"); found {
+		t.Error("Unsubscribe: channel still in set after removal")
+	}
+}
+
+func TestUnsubscribeNotFound(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	_, ok := s.Unsubscribe("missing")
 	if ok {
-		t.Error("Unsubscribe: expected ok=false when ytClient is nil")
+		t.Error("Unsubscribe: expected ok=false for non-existent channel")
 	}
-	if cmd != nil {
-		t.Error("Unsubscribe: expected nil cmd when ytClient is nil")
-	}
-	if _, found := s.ByID("ch1"); !found {
-		t.Error("Unsubscribe: channel should remain in set when blocked")
-	}
-}
-
-func TestUnsubscribeRemoteWithClientRemoves(t *testing.T) {
-	s := New([]domain.Channel{{ID: "ch1", Name: "Alpha"}}, nil, &youtube.YTClient{})
-	cmd, ok := s.Unsubscribe("ch1", "Alpha")
-	if !ok {
-		t.Fatal("Unsubscribe: expected ok=true when ytClient is set")
-	}
-	if cmd == nil {
-		t.Error("Unsubscribe: expected non-nil cmd for remote channel")
-	}
-	if _, found := s.ByID("ch1"); found {
-		t.Error("Unsubscribe: channel should be removed optimistically")
+	if s.Len() != 1 {
+		t.Error("Unsubscribe: set mutated despite not-found")
 	}
 }

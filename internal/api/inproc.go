@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
@@ -12,14 +13,16 @@ import (
 
 // InProc implements Backend by calling db, youtube.Client, and downloader directly.
 type InProc struct {
-	db  *db.DB
-	yt  *youtube.Client
-	dl  *downloader.Downloader
+	db    *db.DB
+	yt    *youtube.Client
+	ytAPI *youtube.YTClient // nil until InitYTClient is called
+	dl    *downloader.Downloader
+	cfg   *config.Config
 }
 
 // NewInProc creates an InProc Backend.
-func NewInProc(database *db.DB, yt *youtube.Client, dl *downloader.Downloader) *InProc {
-	return &InProc{db: database, yt: yt, dl: dl}
+func NewInProc(database *db.DB, yt *youtube.Client, dl *downloader.Downloader, cfg *config.Config) *InProc {
+	return &InProc{db: database, yt: yt, dl: dl, cfg: cfg}
 }
 
 // ── YouTube fetch ─────────────────────────────────────────────────────────────
@@ -318,6 +321,73 @@ func (p *InProc) Enqueue(_ context.Context, video domain.Video, audioOnly bool) 
 func (p *InProc) CancelDownload(_ context.Context, videoID string) error {
 	p.dl.Remove(videoID)
 	return nil
+}
+
+// ── YouTube API mutations ─────────────────────────────────────────────────────
+
+func (p *InProc) InitYTClient(_ context.Context) error {
+	client, err := youtube.NewYTClient(p.cfg)
+	if err != nil {
+		return err
+	}
+	p.ytAPI = client
+	return nil
+}
+
+func (p *InProc) Subscribe(_ context.Context, ch domain.Channel) error {
+	if !ch.IsLocal {
+		if p.ytAPI == nil {
+			return fmt.Errorf("YouTube API not initialised")
+		}
+		if err := p.ytAPI.Subscribe(ch.ID); err != nil {
+			return err
+		}
+	}
+	return p.db.AddSubscribedChannel(ch)
+}
+
+func (p *InProc) Unsubscribe(_ context.Context, ch domain.Channel) error {
+	if !ch.IsLocal {
+		if p.ytAPI == nil {
+			return fmt.Errorf("YouTube API not initialised")
+		}
+		if err := p.ytAPI.Unsubscribe(ch.ID); err != nil {
+			return err
+		}
+	} else {
+		if err := p.db.RemoveSubscribedChannel(ch.ID); err != nil {
+			return err
+		}
+	}
+	return p.db.DeleteChannelVideos(ch.ID)
+}
+
+func (p *InProc) CreateYTPlaylist(_ context.Context, name string) (string, error) {
+	if p.ytAPI == nil {
+		return "", fmt.Errorf("YouTube API not initialised")
+	}
+	return p.ytAPI.CreatePlaylist(name)
+}
+
+func (p *InProc) DeleteYTPlaylist(_ context.Context, playlistID string) error {
+	if p.ytAPI == nil {
+		return fmt.Errorf("YouTube API not initialised")
+	}
+	return p.ytAPI.DeletePlaylist(playlistID)
+}
+
+func (p *InProc) AddToYTPlaylist(_ context.Context, playlistID, videoID string) error {
+	if p.ytAPI == nil {
+		return fmt.Errorf("YouTube API not initialised")
+	}
+	return p.ytAPI.AddToPlaylist(playlistID, videoID)
+}
+
+func (p *InProc) RemoveFromYTPlaylist(_ context.Context, playlistID, videoID string) error {
+	if p.ytAPI == nil {
+		return fmt.Errorf("YouTube API not initialised")
+	}
+	return p.ytAPI.RemoveFromPlaylist(playlistID, videoID)
 }
 
 // Events bridges the downloader's event channel into api.Event values.

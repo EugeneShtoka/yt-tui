@@ -30,11 +30,11 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 			m.recFeed.RemoveVideo(v.ID)
 			m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
 			m.setStatus("Hidden: "+truncate(v.Title, 50), false)
-			m.checkVideoHideAutoBlacklist(v.ChannelID, v.Channel)
+			m.checkVideoHideAutoBlacklist(domain.Channel{ID: v.ChannelID, Name: v.Channel})
 		}
 	case key.Matches(in.msg, m.keys.HideChannel):
 		if v, ok := m.currentVideo(); ok {
-			m.hideChannel(v.ChannelID, v.Channel)
+			m.hideChannel(domain.Channel{ID: v.ChannelID, Name: v.Channel})
 		}
 	}
 	m.handleVideoAction(in.msg)

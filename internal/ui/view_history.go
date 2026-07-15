@@ -173,7 +173,7 @@ func (in historyIntent) apply(m *Model) tea.Cmd {
 			m.setStatus("Deleted: "+truncate(e.Title, 50), false)
 		}
 	case histIntentHide:
-		m.hideChannel(in.entry.ChannelID, in.entry.Channel)
+		m.hideChannel(domain.Channel{ID: in.entry.ChannelID, Name: in.entry.Channel})
 	}
 	return nil
 }

@@ -98,8 +98,8 @@ func (f *Feed) Sort(mode int) { SortVideos(f.videos, mode) }
 func (f *Feed) RemoveVideo(id string) { f.videos = RemoveVideoByID(f.videos, id) }
 
 // RemoveChannel drops all of a channel's videos (matched by ID or name).
-func (f *Feed) RemoveChannel(channelID, channelName string) {
-	f.videos = RemoveChannelVideos(f.videos, channelID, channelName)
+func (f *Feed) RemoveChannel(ch domain.Channel) {
+	f.videos = RemoveChannelVideos(f.videos, ch)
 }
 
 // MergeOpts carries the inputs to the recommended-feed filter pipeline.
