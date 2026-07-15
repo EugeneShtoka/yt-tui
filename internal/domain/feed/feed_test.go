@@ -3,7 +3,6 @@ package feed
 import (
 	"testing"
 
-	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
@@ -96,28 +95,20 @@ func TestFeedSort(t *testing.T) {
 	}
 }
 
-// Merge must run the full filter pipeline, sort, store, and remap the cursor.
+// Merge must de-duplicate, sort, store, and remap the cursor.
+// Filtering is the backend's responsibility; incoming videos are pre-filtered.
 func TestFeedMerge(t *testing.T) {
 	var f Feed
-	f.SetVideos([]domain.Video{{ID: "keep", ViewCount: 1000}})
-	cfg := &config.Config{}
+	f.SetVideos([]domain.Video{{ID: "existing", ViewCount: 1000}})
 	incoming := []domain.Video{
-		{ID: "downloaded", ViewCount: 50},          // filtered: already local
-		{ID: "hidden", ViewCount: 50},              // filtered: hidden
-		{ID: "sub", ViewCount: 50, ChannelID: "s"}, // filtered: subscribed channel
-		{ID: "new", ViewCount: 300},                // kept
+		{ID: "existing", ViewCount: 1000}, // duplicate — deduped
+		{ID: "new", ViewCount: 300},
 	}
-	newCursor := f.Merge(incoming, 0, MergeOpts{
-		Downloaded: map[string]domain.LocalVideo{"downloaded": {ID: "downloaded"}},
-		Hidden:     map[string]bool{"hidden": true},
-		Subscribed: map[string]bool{"s": true},
-		Cfg:        cfg,
-		Sort:       SortViews,
-	})
-	if ids(f.videos) != "keep new" { // 1000 > 300, both survive filters
-		t.Fatalf("Merge result = %q, want 'keep new'", ids(f.videos))
+	newCursor := f.Merge(incoming, 0, SortViews)
+	if ids(f.videos) != "existing new" { // 1000 > 300
+		t.Fatalf("Merge result = %q, want 'existing new'", ids(f.videos))
 	}
-	// cursor was on "keep" (index 0); it stays index 0 after sort (highest views).
+	// cursor was on "existing" (index 0); still index 0 after sort.
 	if newCursor != 0 {
 		t.Errorf("preserved cursor = %d, want 0", newCursor)
 	}

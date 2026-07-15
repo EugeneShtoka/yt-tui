@@ -270,7 +270,6 @@ type Model struct {
 	// ── Recommended: hide/blacklist state ────────────────────────────────
 	streamedVideoIDs map[string]bool  // video IDs with any play/stream history event
 	videoPositions   map[string]int64 // last known position ms for any video
-	recHidden        map[string]bool  // video IDs hidden from recommended
 
 	// ── Downloading: play-after-download ─────────────────────────────────
 	playAfterDownload map[string]bool
@@ -370,10 +369,6 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 		firstTab = tabs[0]
 	}
 
-	recHidden, _ := database.HiddenRecVideoIDs()
-	if recHidden == nil {
-		recHidden = make(map[string]bool)
-	}
 
 	// Load full channel list from DB for immediate display.
 	cachedChannels, _ := database.GetSubscribedChannels()
@@ -420,7 +415,6 @@ func NewModel(cfg *config.Config, backend api.Backend, dl *downloader.Downloader
 		library:           library.New(localVideos),
 		streamedVideoIDs:  mustWatchedIDs(database),
 		videoPositions:    mustVideoPositions(database),
-		recHidden:         recHidden,
 		subs:              subs,
 		subChLoaded:       len(cachedChannels) > 0,
 		subChLatest:       chLatest,

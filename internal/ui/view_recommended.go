@@ -26,7 +26,6 @@ func (in recActionIntent) apply(m *Model) tea.Cmd {
 	case key.Matches(in.msg, m.keys.HideVideo):
 		if v, ok := m.currentVideo(); ok {
 			_ = m.db.HideRecVideo(v.ID)
-			m.recHidden[v.ID] = true
 			m.recFeed.RemoveVideo(v.ID)
 			m.recommended.reclamp(m.recFeed.Len(), m.pageSize())
 			m.setStatus("Hidden: "+truncate(v.Title, 50), false)

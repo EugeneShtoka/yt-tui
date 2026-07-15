@@ -374,18 +374,7 @@ func (m Model) handleFetchResult(msg fetchRecommendedMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.recFeed.FinishFetch()
-	m.recommended.cursor = m.recFeed.Merge(msg.videos, m.recommended.cursor, feed.MergeOpts{
-		MaxAgeDays:      m.cfg.RecommendedMaxAgeDays,
-		MinDurationSecs: m.cfg.RecommendedMinDurationSecs,
-		MinViews:        m.cfg.RecommendedMinViews,
-		Downloaded:      m.library.IDs(),
-		Hidden:          m.recHidden,
-		Blacklist:       m.cfg.BlacklistedChannels,
-		Cfg:             m.cfg,
-		Subscribed:      m.subs.Index(),
-		Sort:            m.recommended.sort,
-	})
-	saveCmd := saveFeedCacheCmd(m.db, "recommended", m.recFeed.Videos())
+	m.recommended.cursor = m.recFeed.Merge(msg.videos, m.recommended.cursor, m.recommended.sort)
 
 	// If too few results and we haven't hit the page cap, fetch again.
 	maxPages := m.cfg.RecommendedMaxPages
@@ -394,9 +383,9 @@ func (m Model) handleFetchResult(msg fetchRecommendedMsg) (Model, tea.Cmd) {
 	}
 	if m.recFeed.Len() < 20 && m.recFeed.Page() < maxPages {
 		m.recFeed.ContinueFetch()
-		return m, tea.Batch(saveCmd, cmdFetchRecommended(m.backend))
+		return m, cmdFetchRecommended(m.backend)
 	}
-	return m, saveCmd
+	return m, nil
 }
 
 func (m *Model) handleDownloadEvent(ev downloader.Event) {

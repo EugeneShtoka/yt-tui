@@ -1,9 +1,6 @@
 package feed
 
-import (
-	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/EugeneShtoka/yt-tui/internal/domain"
-)
+import "github.com/EugeneShtoka/yt-tui/internal/domain"
 
 // Feed owns a video list together with its fetch lifecycle (loading / refreshing
 // / loaded flags + a page counter) and the merge/filter pipeline that produces
@@ -102,34 +99,14 @@ func (f *Feed) RemoveChannel(ch domain.Channel) {
 	f.videos = RemoveChannelVideos(f.videos, ch)
 }
 
-// MergeOpts carries the inputs to the recommended-feed filter pipeline.
-type MergeOpts struct {
-	MaxAgeDays      int
-	MinDurationSecs int
-	MinViews        int
-	Downloaded      map[string]domain.LocalVideo
-	Hidden          map[string]bool
-	Blacklist       []config.BlacklistedChannel
-	Cfg             *config.Config // receives blacklist-ID enrichment as a side effect
-	Subscribed      map[string]bool
-	Sort            int
-}
-
-// Merge folds incoming videos into the feed, runs the full age / duration /
-// views / downloaded / hidden / blacklist / subscribed filter chain, sorts, and
-// stores the result. It returns the cursor remapped from oldCursor so the
-// caller's selection follows its video across the merge.
-func (f *Feed) Merge(incoming []domain.Video, oldCursor int, o MergeOpts) int {
+// Merge folds incoming videos into the feed, sorts, and stores the result.
+// It returns the cursor remapped from oldCursor so the caller's selection
+// follows its video across the merge. Filtering is the backend's responsibility
+// — incoming should already be clean when this is called.
+func (f *Feed) Merge(incoming []domain.Video, oldCursor, sort int) int {
 	merged := MergeVideos(f.videos, incoming)
-	filtered := FilterByAge(merged, o.MaxAgeDays)
-	filtered = FilterByMinDuration(filtered, o.MinDurationSecs)
-	filtered = FilterByMinViews(filtered, o.MinViews)
-	filtered = FilterDownloaded(filtered, o.Downloaded)
-	filtered = FilterHidden(filtered, o.Hidden)
-	filtered = FilterBlacklisted(filtered, o.Blacklist, o.Cfg)
-	filtered = FilterSubscribed(filtered, o.Subscribed)
-	SortVideos(filtered, o.Sort)
-	newCursor := PreserveCursor(f.videos, oldCursor, filtered)
-	f.videos = filtered
+	SortVideos(merged, sort)
+	newCursor := PreserveCursor(f.videos, oldCursor, merged)
+	f.videos = merged
 	return newCursor
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
+	dfeed "github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
@@ -29,7 +30,28 @@ func NewInProc(database *db.DB, yt *youtube.Client, dl *downloader.Downloader, c
 // ── YouTube fetch ─────────────────────────────────────────────────────────────
 
 func (p *InProc) Recommended(_ context.Context) ([]domain.Video, error) {
-	return p.yt.Recommended()
+	raw, err := p.yt.Recommended()
+	if err != nil {
+		return nil, err
+	}
+	hidden, _ := p.db.HiddenRecVideoIDs()
+	localSlice, _ := p.db.LocalVideos()
+	localMap := make(map[string]domain.LocalVideo, len(localSlice))
+	for _, lv := range localSlice {
+		localMap[lv.ID] = lv
+	}
+	existing, _ := p.db.GetSubscribedChannels()
+	s := channels.New(existing)
+	subIndex := s.Index()
+	filtered := dfeed.FilterByAge(raw, p.cfg.RecommendedMaxAgeDays)
+	filtered = dfeed.FilterByMinDuration(filtered, p.cfg.RecommendedMinDurationSecs)
+	filtered = dfeed.FilterByMinViews(filtered, p.cfg.RecommendedMinViews)
+	filtered = dfeed.FilterDownloaded(filtered, localMap)
+	filtered = dfeed.FilterHidden(filtered, hidden)
+	filtered = dfeed.FilterBlacklisted(filtered, p.cfg.BlacklistedChannels, p.cfg)
+	filtered = dfeed.FilterSubscribed(filtered, subIndex)
+	_ = p.db.SaveFeedCache("recommended", filtered)
+	return filtered, nil
 }
 
 func (p *InProc) SubscribedChannels(_ context.Context) ([]domain.Channel, error) {
