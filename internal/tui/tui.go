@@ -58,6 +58,12 @@ type StatusMsg struct {
 	IsErr bool
 }
 
+// LaunchLocalVideoMsg requests Root to play a downloaded local file.
+type LaunchLocalVideoMsg struct{ Video domain.LocalVideo }
+
+// CopyURLMsg requests Root to write a URL to the system clipboard.
+type CopyURLMsg struct{ URL string }
+
 // OpenOverlayMsg requests Root to open a named overlay over the current tab.
 type OpenOverlayMsg struct {
 	Kind    string // "video_detail", "links", "chapters", "add_to_playlist"

@@ -1,4 +1,4 @@
-package history
+package tab
 
 import (
 	"context"
@@ -18,20 +18,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// tab-private messages
-type loadedMsg struct{ entries []domain.HistoryEntry }
-type detailLoadedMsg struct {
+type histLoadedMsg struct{ entries []domain.HistoryEntry }
+type histDetailLoadedMsg struct {
 	videoID string
 	entries []domain.HistoryEntry
 }
-type deletedMsg struct {
-	title   string
-	query   string
+type histDeletedMsg struct {
+	title    string
+	query    string
 	isSearch bool
 }
 
-// Tab is the History tab: a scrollable list of recently watched videos and searches.
-type Tab struct {
+// History is the History tab: a scrollable list of recently watched videos and searches.
+type History struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
 	circular bool
@@ -45,18 +44,13 @@ type Tab struct {
 	detail        []domain.HistoryEntry
 }
 
-// New returns a History tab wired to the given backend and key map.
-func New(backend api.Backend, keys keymap.KeyMap, circular bool) Tab {
-	return Tab{backend: backend, keys: keys, circular: circular}
+func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
+	return History{backend: backend, keys: keys, circular: circular}
 }
 
-// ── tui.Tab interface ─────────────────────────────────────────────────────────
-
-func (t Tab) Title() string { return "History" }
-
-func (t Tab) ShortHelp() []key.Binding { return nil }
-
-func (t Tab) Context() tuipkg.ContextID {
+func (t History) Title() string { return "History" }
+func (t History) ShortHelp() []key.Binding { return nil }
+func (t History) Context() tuipkg.ContextID {
 	if t.detailVideoID != "" {
 		return tuipkg.CtxHistoryVideo
 	}
@@ -66,23 +60,21 @@ func (t Tab) Context() tuipkg.ContextID {
 	return tuipkg.CtxHistoryVideo
 }
 
-// ── tea.Model ─────────────────────────────────────────────────────────────────
+func (t History) Init() tea.Cmd { return t.loadCmd() }
 
-func (t Tab) Init() tea.Cmd { return t.loadCmd() }
-
-func (t Tab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-	case loadedMsg:
+	case histLoadedMsg:
 		t.entries = m.entries
 		t.loaded = true
 		t.cursor, t.vs = 0, 0
 		t.detailVideoID = ""
-	case detailLoadedMsg:
+	case histDetailLoadedMsg:
 		t.detailVideoID = m.videoID
 		t.detail = m.entries
-	case deletedMsg:
+	case histDeletedMsg:
 		var text string
 		if m.isSearch {
 			text = "Removed search: " + render.Truncate(m.query, 50)
@@ -96,16 +88,14 @@ func (t Tab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Tab) View() string {
+func (t History) View() string {
 	if t.detailVideoID != "" {
 		return t.renderDetail()
 	}
 	return t.renderList()
 }
 
-// ── key handling ──────────────────────────────────────────────────────────────
-
-func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if t.detailVideoID != "" {
@@ -118,7 +108,7 @@ func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	n := len(t.entries)
-	pageH := t.pageHeight()
+	pageH := t.histPageHeight()
 
 	switch {
 	case key.Matches(msg, keys.Up):
@@ -151,7 +141,7 @@ func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return tuipkg.NavigateMsg{Tab: "search", Query: e.Details}
 				}
 			}
-			return t, t.loadDetailCmd(e.VideoID)
+			return t, t.histLoadDetailCmd(e.VideoID)
 		}
 	case key.Matches(msg, keys.Delete):
 		if t.cursor < n {
@@ -160,7 +150,7 @@ func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if t.cursor >= len(t.entries) && t.cursor > 0 {
 				t.cursor--
 			}
-			return t, t.deleteCmd(e)
+			return t, t.histDeleteCmd(e)
 		}
 	case key.Matches(msg, keys.HideChannel):
 		if t.cursor < n {
@@ -174,34 +164,32 @@ func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-// ── background commands ───────────────────────────────────────────────────────
-
-func (t Tab) loadCmd() tea.Cmd {
+func (t History) loadCmd() tea.Cmd {
 	return func() tea.Msg {
 		entries, err := t.backend.HistoryVideos(context.Background(), 200)
 		if err != nil {
 			return tuipkg.StatusMsg{Text: "history: " + err.Error(), IsErr: true}
 		}
-		return loadedMsg{entries}
+		return histLoadedMsg{entries}
 	}
 }
 
-func (t Tab) loadDetailCmd(videoID string) tea.Cmd {
+func (t History) histLoadDetailCmd(videoID string) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := t.backend.VideoHistory(context.Background(), videoID)
 		if err != nil {
 			return tuipkg.StatusMsg{Text: "history detail: " + err.Error(), IsErr: true}
 		}
-		return detailLoadedMsg{videoID: videoID, entries: entries}
+		return histDetailLoadedMsg{videoID: videoID, entries: entries}
 	}
 }
 
-func (t Tab) deleteCmd(e domain.HistoryEntry) tea.Cmd {
+func (t History) histDeleteCmd(e domain.HistoryEntry) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		if e.EventType == "search" {
 			_ = t.backend.DeleteSearchHistory(ctx, e.Details)
-			return deletedMsg{query: e.Details, isSearch: true}
+			return histDeletedMsg{query: e.Details, isSearch: true}
 		}
 		if lv, ok := t.backend.HasLocalVideo(ctx, e.VideoID); ok {
 			_ = os.Remove(lv.FilePath)
@@ -209,22 +197,19 @@ func (t Tab) deleteCmd(e domain.HistoryEntry) tea.Cmd {
 		}
 		_ = t.backend.DeleteVideoHistory(ctx, e.VideoID)
 		_ = t.backend.DeleteVideoPosition(ctx, e.VideoID)
-		return deletedMsg{title: e.Title}
+		return histDeletedMsg{title: e.Title}
 	}
 }
 
-// ── rendering ─────────────────────────────────────────────────────────────────
-
-// pageHeight returns the usable list height (excludes section header + col header).
-func (t Tab) pageHeight() int {
-	h := t.height - 2 // section header (1 line + margin) + col header
+func (t History) histPageHeight() int {
+	h := t.height - 2
 	if h < 1 {
 		h = 1
 	}
 	return h
 }
 
-func (t Tab) renderList() string {
+func (t History) renderList() string {
 	width, height := t.width, t.height
 
 	header := styles.SectionTitle.Render("History")
@@ -251,7 +236,7 @@ func (t Tab) renderList() string {
 		styles.ColHeader.Width(render.ColViews).Render("Views") + " " +
 		styles.ColHeader.Width(render.ColDate).Render("Date")
 
-	listH := height - headerH - 1 // -1 for col header row
+	listH := height - headerH - 1
 	start, end := nav.Window(t.vs, len(t.entries), listH)
 
 	rows := make([]string, 0, end-start+1)
@@ -285,12 +270,6 @@ func (t Tab) renderList() string {
 			continue
 		}
 
-		title := render.Truncate(e.Title, titleW)
-		channel := render.Truncate(e.Channel, render.ColChannel-2)
-		dur := render.Duration(e.Duration)
-		views := render.Views(e.ViewCount)
-		date := render.Date(e.UploadDate)
-
 		titleStyle := styles.Normal.Width(titleW)
 		chStyle := styles.Channel.Width(render.ColChannel)
 		durStyle := styles.Duration.Width(render.ColDuration)
@@ -307,17 +286,17 @@ func (t Tab) renderList() string {
 
 		rows = append(rows,
 			numStr+sep+indicator+statusStyle.Render(e.EventType)+sep+
-				titleStyle.Render(title)+sep+
-				chStyle.Render(channel)+sep+
-				durStyle.Render(dur)+sep+
-				viewsStyle.Render(views)+sep+
-				dateStyle.Render(date))
+				titleStyle.Render(render.Truncate(e.Title, titleW))+sep+
+				chStyle.Render(render.Truncate(e.Channel, render.ColChannel-2))+sep+
+				durStyle.Render(render.Duration(e.Duration))+sep+
+				viewsStyle.Render(render.Views(e.ViewCount))+sep+
+				dateStyle.Render(render.Date(e.UploadDate)))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
-func (t Tab) renderDetail() string {
+func (t History) renderDetail() string {
 	width, height := t.width, t.height
 
 	title := ""
@@ -334,10 +313,10 @@ func (t Tab) renderDetail() string {
 		if i >= height-headerH {
 			break
 		}
-		evType := styles.Warning.Width(colEvW).Render(e.EventType)
-		ts := styles.Channel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))
-		detail := styles.Dim.Render(e.Details)
-		rows = append(rows, "  "+evType+" "+ts+" "+detail)
+		rows = append(rows, "  "+
+			styles.Warning.Width(colEvW).Render(e.EventType)+" "+
+			styles.Channel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))+" "+
+			styles.Dim.Render(e.Details))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }

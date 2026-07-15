@@ -10,8 +10,8 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/tab/activity"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/tab/history"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/tab"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -34,14 +34,15 @@ type Root struct {
 	activeIdx int
 }
 
-// New constructs the Root with the initial tab set (currently History only).
+// New constructs the Root with the current tab set.
 func New(backend api.Backend, cfg config.Config) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
-	histTab := history.New(backend, keys, cfg.CircularNav)
-	actTab := activity.New(backend, keys, cfg.CircularNav)
-
-	tabs := []tuipkg.Tab{histTab, actTab}
+	tabs := []tuipkg.Tab{
+		tab.NewHistory(backend, keys, cfg.CircularNav),
+		tab.NewActivity(backend, keys, cfg.CircularNav),
+		tab.NewLocal(backend, keys, cfg.CircularNav),
+	}
 
 	titles := make([]string, len(tabs))
 	for i, t := range tabs {
@@ -80,9 +81,24 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleKey(m)
 
 	case tuipkg.PlayVideoMsg:
-		// TODO: wire player in a later phase; show a status for now.
+		// TODO: wire player in Phase 4 once tabs reach parity.
 		return r, func() tea.Msg {
 			return tuipkg.StatusMsg{Text: "playback not yet wired in v2", IsErr: true}
+		}
+
+	case tuipkg.LaunchLocalVideoMsg:
+		// TODO: wire player in Phase 4 once tabs reach parity.
+		return r, func() tea.Msg {
+			return tuipkg.StatusMsg{Text: "local playback not yet wired in v2", IsErr: true}
+		}
+
+	case tuipkg.CopyURLMsg:
+		url := m.URL
+		return r, func() tea.Msg {
+			if err := clipboard.WriteAll(url); err != nil {
+				return tuipkg.StatusMsg{Text: "clipboard: " + err.Error(), IsErr: true}
+			}
+			return tuipkg.StatusMsg{Text: "Copied: " + url}
 		}
 
 	case tuipkg.NavigateMsg:
@@ -92,11 +108,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleHideChannel(m)
 
 	case tuipkg.NavigateToChannelMsg:
-		// Navigate to Channels tab when it is ported; for now just switch tabs.
 		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "channels"})
 
 	case tuipkg.NavigateToPlaylistMsg:
-		// Navigate to Playlists tab when it is ported; for now just switch tabs.
 		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "playlists"})
 
 	case tuipkg.StatusMsg:
@@ -105,7 +119,6 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, cmd
 
 	default:
-		// Fan out to active tab.
 		updated, cmd := r.tabs[r.activeIdx].Update(msg)
 		r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
 		return r, cmd
@@ -119,7 +132,6 @@ func (r Root) View() string {
 
 	content := r.tabs[r.activeIdx].View()
 
-	// Pad so status bar stays pinned to the bottom.
 	if actual := lipgloss.Height(content); actual < contentH {
 		content += strings.Repeat("\n", contentH-actual)
 	}
@@ -149,7 +161,6 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 }
 
 func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
-	// Global keys handled at root level.
 	switch {
 	case key.Matches(msg, r.keys.Quit):
 		return r, tea.Quit
@@ -159,7 +170,6 @@ func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
 		return r.cycleTab(-1)
 	}
 
-	// Delegate to active tab.
 	updated, cmd := r.tabs[r.activeIdx].Update(msg)
 	r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
 	return r, cmd

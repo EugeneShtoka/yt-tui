@@ -1,4 +1,4 @@
-package activity
+package tab
 
 import (
 	"context"
@@ -17,53 +17,49 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type loadedMsg struct{ entries []domain.ActivityEntry }
+type actLoadedMsg struct{ entries []domain.ActivityEntry }
 
-// Tab is the Activity tab: a scrollable log of subscription and playlist actions.
-type Tab struct {
+// Activity is the Activity tab: a scrollable log of subscription and playlist actions.
+type Activity struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
 	circular bool
 
 	width, height int
 
-	entries  []domain.ActivityEntry
-	cursor   int
-	vs       int
-	loaded   bool
+	entries []domain.ActivityEntry
+	cursor  int
+	vs      int
+	loaded  bool
 }
 
-func New(backend api.Backend, keys keymap.KeyMap, circular bool) Tab {
-	return Tab{backend: backend, keys: keys, circular: circular}
+func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activity {
+	return Activity{backend: backend, keys: keys, circular: circular}
 }
 
-// ── tui.Tab interface ─────────────────────────────────────────────────────────
+func (t Activity) Title() string             { return "Activity" }
+func (t Activity) ShortHelp() []key.Binding { return nil }
+func (t Activity) Context() tuipkg.ContextID { return tuipkg.CtxVideoList }
 
-func (t Tab) Title() string              { return "Activity" }
-func (t Tab) ShortHelp() []key.Binding  { return nil }
-func (t Tab) Context() tuipkg.ContextID { return tuipkg.CtxVideoList }
+func (t Activity) Init() tea.Cmd { return t.actLoadCmd() }
 
-// ── tea.Model ─────────────────────────────────────────────────────────────────
-
-func (t Tab) Init() tea.Cmd { return t.loadCmd() }
-
-func (t Tab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (t Activity) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-	case loadedMsg:
+	case actLoadedMsg:
 		t.entries = m.entries
 		t.loaded = true
 		if t.cursor >= len(t.entries) && t.cursor > 0 {
 			t.cursor = len(t.entries) - 1
 		}
 	case tea.KeyMsg:
-		return t.handleKey(m)
+		return t.actHandleKey(m)
 	}
 	return t, nil
 }
 
-func (t Tab) View() string {
+func (t Activity) View() string {
 	width, height := t.width, t.height
 	header := styles.SectionTitle.Render("Activity")
 	headerH := lipgloss.Height(header)
@@ -102,7 +98,6 @@ func (t Tab) View() string {
 		if e.IsLocal {
 			locality = "local"
 		}
-
 		var meta string
 		switch e.Type {
 		case "subscribe":
@@ -126,12 +121,10 @@ func (t Tab) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
-// ── key handling ──────────────────────────────────────────────────────────────
-
-func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Activity) actHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := len(t.entries)
-	pageH := t.pageHeight()
+	pageH := t.actPageHeight()
 
 	switch {
 	case key.Matches(msg, keys.Up):
@@ -146,14 +139,13 @@ func (t Tab) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.cursor, t.vs = nav.Jump(n-1, n, pageH)
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 		if t.cursor < n {
-			return t, t.navigateCmd(t.entries[t.cursor])
+			return t, t.actNavigateCmd(t.entries[t.cursor])
 		}
 	}
 	return t, nil
 }
 
-// navigateCmd emits the appropriate cross-root navigation message for an entry.
-func (t Tab) navigateCmd(e domain.ActivityEntry) tea.Cmd {
+func (t Activity) actNavigateCmd(e domain.ActivityEntry) tea.Cmd {
 	switch e.Type {
 	case "subscribe":
 		return func() tea.Msg {
@@ -171,20 +163,20 @@ func (t Tab) navigateCmd(e domain.ActivityEntry) tea.Cmd {
 	return nil
 }
 
-func (t Tab) pageHeight() int {
-	h := t.height - 1 // section header
+func (t Activity) actPageHeight() int {
+	h := t.height - 1
 	if h < 1 {
 		h = 1
 	}
 	return h
 }
 
-func (t Tab) loadCmd() tea.Cmd {
+func (t Activity) actLoadCmd() tea.Cmd {
 	return func() tea.Msg {
 		entries, err := t.backend.ActivityLog(context.Background(), 200)
 		if err != nil {
 			return tuipkg.StatusMsg{Text: "activity: " + err.Error(), IsErr: true}
 		}
-		return loadedMsg{entries}
+		return actLoadedMsg{entries}
 	}
 }
