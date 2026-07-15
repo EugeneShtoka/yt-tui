@@ -10,6 +10,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/tab/activity"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/tab/history"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,8 +39,9 @@ func New(backend api.Backend, cfg config.Config) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
 	histTab := history.New(backend, keys, cfg.CircularNav)
+	actTab := activity.New(backend, keys, cfg.CircularNav)
 
-	tabs := []tuipkg.Tab{histTab}
+	tabs := []tuipkg.Tab{histTab, actTab}
 
 	titles := make([]string, len(tabs))
 	for i, t := range tabs {
@@ -88,6 +90,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.HideChannelMsg:
 		return r.handleHideChannel(m)
+
+	case tuipkg.NavigateToChannelMsg:
+		// Navigate to Channels tab when it is ported; for now just switch tabs.
+		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "channels"})
+
+	case tuipkg.NavigateToPlaylistMsg:
+		// Navigate to Playlists tab when it is ported; for now just switch tabs.
+		return r.handleNavigate(tuipkg.NavigateMsg{Tab: "playlists"})
 
 	case tuipkg.StatusMsg:
 		sb, cmd := r.statusBar.Update(msg)

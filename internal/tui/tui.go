@@ -63,3 +63,16 @@ type OpenOverlayMsg struct {
 	Kind    string // "video_detail", "links", "chapters", "add_to_playlist"
 	VideoID string
 }
+
+// NavigateToChannelMsg requests Root to open the Channels tab scrolled to a channel.
+type NavigateToChannelMsg struct {
+	ChannelID   string
+	ChannelName string
+}
+
+// NavigateToPlaylistMsg requests Root to open the Playlists tab scrolled to a playlist.
+type NavigateToPlaylistMsg struct {
+	PlaylistID      string // YT playlist ID (empty for local)
+	PlaylistLocalID int64  // local playlist DB ID (0 for YT)
+	PlaylistName    string
+}
