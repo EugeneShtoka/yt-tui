@@ -128,34 +128,40 @@ func (s *ChannelSet) SetTags(id string, tags []string) {
 	}
 }
 
-// SyncFromYT merges a fresh YT-fetched channel list into the set.
-// Local-only channels are preserved. Alias and tag fields are carried over
-// from the current set when membership changes. Returns true if the set
-// membership changed (channels added or removed).
-func (s *ChannelSet) SyncFromYT(ytChannels []domain.Channel) bool {
+// Sync merges a fresh YT-fetched channel list with an existing set:
+// local-only channels (present in existing but absent from ytChannels) are
+// preserved, and alias/tag fields are carried over from existing entries.
+func Sync(existing, ytChannels []domain.Channel) []domain.Channel {
 	ytIDs := make(map[string]bool, len(ytChannels))
 	for _, ch := range ytChannels {
 		ytIDs[ch.ID] = true
 	}
 	var localOnly []domain.Channel
-	for _, ch := range s.channels {
+	for _, ch := range existing {
 		if !ytIDs[ch.ID] {
 			localOnly = append(localOnly, ch)
 		}
 	}
 	merged := append(ytChannels, localOnly...)
-	if !membershipChanged(s.channels, merged) {
-		return false
-	}
-	existing := make(map[string]domain.Channel, len(s.channels))
-	for _, ch := range s.channels {
-		existing[ch.ID] = ch
+	existingMap := make(map[string]domain.Channel, len(existing))
+	for _, ch := range existing {
+		existingMap[ch.ID] = ch
 	}
 	for i, ch := range merged {
-		if old, ok := existing[ch.ID]; ok {
+		if old, ok := existingMap[ch.ID]; ok {
 			merged[i].Alias = old.Alias
 			merged[i].Tags = old.Tags
 		}
+	}
+	return merged
+}
+
+// SyncFromYT merges a fresh YT-fetched channel list into the set.
+// Returns true if membership changed.
+func (s *ChannelSet) SyncFromYT(ytChannels []domain.Channel) bool {
+	merged := Sync(s.channels, ytChannels)
+	if !membershipChanged(s.channels, merged) {
+		return false
 	}
 	s.rebuild(merged)
 	return true

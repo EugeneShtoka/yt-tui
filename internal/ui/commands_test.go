@@ -132,23 +132,6 @@ func TestSaveFeedCacheCmd(t *testing.T) {
 	}
 }
 
-func TestSaveSubsAndFeedCmd(t *testing.T) {
-	s := newRecordingStore()
-	chans := []domain.Channel{{ID: "c1"}}
-	vids := []domain.Video{{ID: "v1"}}
-	assertNilMsg(t, saveSubsAndFeedCmd(s, chans, vids))
-	if !s.saveSubsCalled || len(s.savedSubscribedChans) != 1 {
-		t.Fatalf("SaveSubscribedChannels not recorded: %+v", s.savedSubscribedChans)
-	}
-	if s.savedFeedName != "recommended" || !s.saveFeedAfterSubsSeen {
-		t.Fatalf("expected feed saved as 'recommended' after subs; feed=%q afterSubs=%v", s.savedFeedName, s.saveFeedAfterSubsSeen)
-	}
-
-	// On the first failure the combined Cmd must stop and surface the error.
-	boom := errors.New("subs fail")
-	assertPersistErr(t, saveSubsAndFeedCmd(&recordingStore{fakeStore: &fakeStore{}, err: boom}, chans, vids), boom)
-}
-
 func TestDeleteFilesCmd(t *testing.T) {
 	dir := t.TempDir()
 	var paths []string

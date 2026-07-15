@@ -63,20 +63,6 @@ func saveFeedCacheCmd(db Store, feed string, vids []domain.Video) tea.Cmd {
 	}
 }
 
-// saveSubsAndFeedCmd persists the subscribed-channel list and the recommended
-// feed cache in one Cmd, preserving the original ordering (channels then feed).
-func saveSubsAndFeedCmd(db Store, channels []domain.Channel, videos []domain.Video) tea.Cmd {
-	return func() tea.Msg {
-		if err := db.SaveSubscribedChannels(channels); err != nil {
-			return persistErrMsg{err}
-		}
-		if err := db.SaveFeedCache("recommended", videos); err != nil {
-			return persistErrMsg{err}
-		}
-		return nil
-	}
-}
-
 // deleteFilesCmd removes downloaded files off the UI goroutine. Per-file errors
 // are ignored (as the original inline loop did) — a missing file is not worth a
 // status-bar warning.

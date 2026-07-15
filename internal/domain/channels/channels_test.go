@@ -59,6 +59,37 @@ func TestSetTags(t *testing.T) {
 	}
 }
 
+func TestSync(t *testing.T) {
+	existing := []domain.Channel{
+		{ID: "ch1", Name: "Alpha", Alias: "kept"},
+		{ID: "local1", IsLocal: true},
+	}
+	ytChannels := []domain.Channel{
+		{ID: "ch1", Name: "Alpha"},
+		{ID: "ch2", Name: "Beta"},
+	}
+	merged := Sync(existing, ytChannels)
+	if len(merged) != 3 {
+		t.Fatalf("Sync: expected 3 channels, got %d", len(merged))
+	}
+	// local-only preserved
+	found := false
+	for _, ch := range merged {
+		if ch.ID == "local1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Sync: local-only channel was dropped")
+	}
+	// alias carried over
+	for _, ch := range merged {
+		if ch.ID == "ch1" && ch.Alias != "kept" {
+			t.Errorf("Sync: alias not preserved, got %q", ch.Alias)
+		}
+	}
+}
+
 func TestSyncFromYTMembershipChanged(t *testing.T) {
 	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha", Alias: "kept"}})
 	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})

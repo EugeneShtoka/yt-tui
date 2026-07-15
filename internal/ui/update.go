@@ -9,6 +9,7 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/media"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
@@ -249,10 +250,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("channels: "+msg.err.Error(), true)
 			}
 		} else {
-			m.subs.SyncFromYT(msg.channels)
+			// Backend already synced (local-only preserved, aliases/tags kept) and saved.
+			m.subs = channels.New(msg.channels)
 			m.recFeed.SetVideos(feed.FilterSubscribed(m.recFeed.Videos(), m.subs.Index()))
-			bgCmds := []tea.Cmd{saveSubsAndFeedCmd(m.db, m.subs.Channels(), m.recFeed.Videos())}
-			// Always fetch latest N in background — full fetch only happens on explicit channel entry.
+			bgCmds := []tea.Cmd{saveFeedCacheCmd(m.db, "recommended", m.recFeed.Videos())}
 			for _, ch := range msg.channels {
 				if ch.ID == "" {
 					continue

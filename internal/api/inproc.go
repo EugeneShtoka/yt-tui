@@ -7,6 +7,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
@@ -32,7 +33,14 @@ func (p *InProc) Recommended(_ context.Context) ([]domain.Video, error) {
 }
 
 func (p *InProc) SubscribedChannels(_ context.Context) ([]domain.Channel, error) {
-	return p.yt.SubscribedChannels()
+	ytChannels, err := p.yt.SubscribedChannels()
+	if err != nil {
+		return nil, err
+	}
+	existing, _ := p.db.GetSubscribedChannels()
+	merged := channels.Sync(existing, ytChannels)
+	_ = p.db.SaveSubscribedChannels(merged)
+	return merged, nil
 }
 
 func (p *InProc) ChannelVideos(_ context.Context, channelURL, channelID string) ([]domain.Video, error) {
