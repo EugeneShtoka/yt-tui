@@ -68,11 +68,6 @@ func (s *ChannelSet) ByID(id string) (domain.Channel, bool) {
 	return domain.Channel{}, false
 }
 
-func (s *ChannelSet) isLocal(id string) bool {
-	ch, ok := s.ByID(id)
-	return ok && ch.IsLocal
-}
-
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 // Subscribe appends ch if its ID is not already present. Returns false if duplicate.
@@ -142,18 +137,18 @@ func Sync(existing, ytChannels []domain.Channel) []domain.Channel {
 			localOnly = append(localOnly, ch)
 		}
 	}
-	merged := append(ytChannels, localOnly...)
+	ytChannels = append(ytChannels, localOnly...)
 	existingMap := make(map[string]domain.Channel, len(existing))
 	for _, ch := range existing {
 		existingMap[ch.ID] = ch
 	}
-	for i, ch := range merged {
+	for i, ch := range ytChannels {
 		if old, ok := existingMap[ch.ID]; ok {
-			merged[i].Alias = old.Alias
-			merged[i].Tags = old.Tags
+			ytChannels[i].Alias = old.Alias
+			ytChannels[i].Tags = old.Tags
 		}
 	}
-	return merged
+	return ytChannels
 }
 
 // SyncFromYT merges a fresh YT-fetched channel list into the set.

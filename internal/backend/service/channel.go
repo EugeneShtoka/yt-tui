@@ -28,7 +28,7 @@ type ChannelSource interface {
 
 // YTAPIClient performs mutations against the YouTube internal API
 // (subscribe, unsubscribe, playlist operations). May be nil until
-// browser-cookie auth is initialised.
+// browser-cookie auth is initialized.
 type YTAPIClient interface {
 	Subscribe(channelID string) error
 	Unsubscribe(channelID string) error
@@ -65,7 +65,7 @@ func (s *ChannelService) SubscribedChannels() ([]domain.Channel, error) {
 func (s *ChannelService) Subscribe(ch domain.Channel) error {
 	if !ch.IsLocal {
 		if s.ytAPI == nil {
-			return fmt.Errorf("YouTube API not initialised")
+			return fmt.Errorf("YouTube API not initialized")
 		}
 		if err := s.ytAPI.Subscribe(ch.ID); err != nil {
 			return err
@@ -79,7 +79,7 @@ func (s *ChannelService) Subscribe(ch domain.Channel) error {
 func (s *ChannelService) Unsubscribe(ch domain.Channel) error {
 	if !ch.IsLocal {
 		if s.ytAPI == nil {
-			return fmt.Errorf("YouTube API not initialised")
+			return fmt.Errorf("YouTube API not initialized")
 		}
 		if err := s.ytAPI.Unsubscribe(ch.ID); err != nil {
 			return err

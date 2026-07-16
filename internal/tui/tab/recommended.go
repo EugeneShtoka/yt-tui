@@ -47,7 +47,6 @@ type Recommended struct {
 
 func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Recommended {
 	sp := spinner.New()
-	sp.Style = sp.Style // keep default
 	return Recommended{
 		backend:  backend,
 		keys:     keys,
@@ -242,8 +241,8 @@ func (t Recommended) recLoadAuxCmd() tea.Cmd {
 		watched, _ := t.backend.WatchedVideoIDs(ctx)
 		localVids, _ := t.backend.LocalVideos(ctx)
 		localStatus := make(map[string]domain.VideoStatus, len(localVids))
-		for _, lv := range localVids {
-			localStatus[lv.ID] = lv.Status
+		for i := range localVids {
+			localStatus[localVids[i].ID] = localVids[i].Status
 		}
 		return recAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
 	}

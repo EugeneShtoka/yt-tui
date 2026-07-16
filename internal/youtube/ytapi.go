@@ -2,6 +2,7 @@ package youtube
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -39,8 +40,8 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 	f.Close()
 	// Remove the empty file so yt-dlp creates it itself — passing an empty file
 	// to --cookies causes "does not look like a Netscape format cookies file".
-	os.Remove(cookiePath)
-	defer os.Remove(cookiePath)
+	_ = os.Remove(cookiePath)
+	defer func() { _ = os.Remove(cookiePath) }()
 
 	// Use the channels feed — same URL the app already uses for subscriptions,
 	// so it's known to work. --flat-playlist --playlist-end 1 fetches minimal
@@ -56,7 +57,7 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 	)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err = cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
@@ -153,7 +154,7 @@ func (c *YTClient) post(endpoint string, body map[string]any) ([]byte, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST",
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		"https://www.youtube.com/youtubei/v1/"+endpoint,
 		bytes.NewReader(data))
 	if err != nil {

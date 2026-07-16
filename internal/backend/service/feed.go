@@ -41,8 +41,8 @@ func (s *FeedService) Recommended() ([]domain.Video, error) {
 	hidden, _ := s.repo.HiddenRecVideoIDs()
 	localSlice, _ := s.repo.LocalVideos()
 	localMap := make(map[string]domain.LocalVideo, len(localSlice))
-	for _, lv := range localSlice {
-		localMap[lv.ID] = lv
+	for i := range localSlice {
+		localMap[localSlice[i].ID] = localSlice[i]
 	}
 	existing, _ := s.repo.GetSubscribedChannels()
 	subs := channels.New(existing)

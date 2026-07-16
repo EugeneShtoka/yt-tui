@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -23,7 +24,11 @@ type ThumbnailLoadedMsg struct {
 // LoadThumbnailCmd fetches the image at url and delivers ThumbnailLoadedMsg.
 func LoadThumbnailCmd(url string) tea.Cmd {
 	return func() tea.Msg {
-		resp, err := http.Get(url) //nolint:gosec
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		if err != nil {
+			return ThumbnailLoadedMsg{}
+		}
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec
 		if err != nil {
 			return ThumbnailLoadedMsg{}
 		}
@@ -82,7 +87,7 @@ func kittyDeleteSeq() string {
 }
 
 // renderThumbnailHalfBlock renders img using Unicode half-block characters (▄)
-// with true-colour ANSI sequences. Used as a fallback on non-Kitty terminals.
+// with true-color ANSI sequences. Used as a fallback on non-Kitty terminals.
 func renderThumbnailHalfBlock(img image.Image, targetW, targetH int) string {
 	if img == nil || targetW <= 0 || targetH <= 0 {
 		return ""

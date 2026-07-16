@@ -1,0 +1,125 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # Architecture
+    - depguard       # enforce layer boundaries (see rules below)
+    # Bugs
+    - govet          # shadow + copylocks + printf consistency
+    - staticcheck    # industry-leading bug + performance checker
+    - errcheck       # every error must be handled
+    - nilerr         # don't return nil when wrapping a non-nil error
+    - noctx          # http requests must carry a context
+    # Error wrapping is enforced via code review; wrapcheck generates too much
+    # noise in infra adapters where stdlib errors are returned directly by design.
+    # Code quality
+    - gocritic       # diagnostic + style + performance
+    - unconvert      # remove redundant type conversions
+    - misspell       # catch common typos in comments and strings
+    - unused         # dead code detection
+
+  settings:
+    govet:
+      enable:
+        - shadow     # catch variable shadowing — footgun in bubbletea update loops
+        - copylocks  # detect mutex copied by value
+
+    depguard:
+      rules:
+        # Foundation packages are import sinks — nothing internal flows in.
+        foundation-no-internal:
+          files:
+            - "**/internal/config/**"
+            - "**/internal/debug/**"
+            - "**/internal/sys/**"
+            - "**/internal/theme/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal"
+              desc: "foundation packages must not import other internal packages"
+
+        # Domain is pure business logic — no infrastructure, no I/O.
+        domain-no-infra:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "domain must not import db"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "domain must not import youtube (infrastructure adapter)"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/api"
+              desc: "domain must not import api"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "domain must not import downloader"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/player"
+              desc: "domain must not import player"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/backend"
+              desc: "domain must not import backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/tui"
+              desc: "domain must not import tui"
+
+        # Backend/service is the application service layer — orchestrates domain,
+        # but must not reach into infrastructure or presentation directly.
+        backend-no-infra:
+          files:
+            - "**/internal/backend/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "backend must not import db directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "backend must not import youtube directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "backend must not import downloader directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/tui"
+              desc: "backend must not import tui"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/api"
+              desc: "backend must not import api"
+
+        # TUI is the presentation layer — it talks to the world through api,
+        # never by reaching into infrastructure packages directly.
+        tui-no-infra:
+          files:
+            - "**/internal/tui/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "tui must not import db; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "tui must not import youtube; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "tui must not import downloader directly; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/backend"
+              desc: "tui must not import backend/service directly; use api interface"
+
+    errcheck:
+      # Defer Close/Rollback are intentionally fire-and-forget cleanup paths.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (io.Closer).Close
+        - (*os.File).Close
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      # style tag produces too much churn; re-enable when the codebase stabilises.
+      disabled-checks:
+        - hugeParam          # bubbletea models are legitimately large value types
+        - paramTypeCombine
+
+    misspell:
+      locale: US
+
+issues:
+  exclude-rules:
+    # Test files: relax dead-code rules.
+    - path: "_test\\.go"
+      linters:
+        - unused
+    # Generated files (if any).
+    - path: "\\.pb\\.go"
+      linters:
+        - all
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

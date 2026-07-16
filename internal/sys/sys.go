@@ -4,6 +4,7 @@
 package sys
 
 import (
+	"context"
 	"os"
 	"os/exec"
 )
@@ -20,11 +21,11 @@ func EditorCommand(path string) *exec.Cmd {
 	if editor == "" {
 		editor = "vi"
 	}
-	return exec.Command(editor, path)
+	return exec.CommandContext(context.Background(), editor, path)
 }
 
 // OpenURL launches the URL in the desktop's default handler via xdg-open,
 // without waiting for it to exit.
 func OpenURL(url string) error {
-	return exec.Command("xdg-open", url).Start()
+	return exec.CommandContext(context.Background(), "xdg-open", url).Start()
 }

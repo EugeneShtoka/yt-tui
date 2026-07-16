@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -20,7 +21,8 @@ func (d *DB) AddHistory(videoID, eventType, details string) error {
 	if videoID != "" {
 		vid = videoID
 	}
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO history (video_id, event_type, details) VALUES (?, ?, ?)
 	`, vid, eventType, details)
 	return err
@@ -28,7 +30,8 @@ func (d *DB) AddHistory(videoID, eventType, details string) error {
 
 // SearchQueries returns recent unique search queries, newest first.
 func (d *DB) SearchQueries(limit int) ([]string, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT details FROM history
 		WHERE event_type = 'search' AND details != ''
 		GROUP BY details
@@ -53,7 +56,8 @@ func (d *DB) SearchQueries(limit int) ([]string, error) {
 // HistoryVideos returns one entry per video (most recent event) plus one entry per
 // unique search query, all ordered by recency.
 func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT * FROM (
 			SELECT h.id, h.video_id, COALESCE(v.title, h.video_id) AS title,
 			       COALESCE(v.channel, '') AS channel, COALESCE(v.channel_id, '') AS channel_id,
@@ -108,19 +112,22 @@ func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 
 // DeleteVideoHistory removes all history events for a video.
 func (d *DB) DeleteVideoHistory(videoID string) error {
-	_, err := d.sql.Exec(`DELETE FROM history WHERE video_id = ?`, videoID)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE video_id = ?`, videoID)
 	return err
 }
 
 // DeleteSearchHistory removes all history events for a search query.
 func (d *DB) DeleteSearchHistory(query string) error {
-	_, err := d.sql.Exec(`DELETE FROM history WHERE event_type = 'search' AND details = ?`, query)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE event_type = 'search' AND details = ?`, query)
 	return err
 }
 
 // VideoHistory returns all events for a single video, newest first.
 func (d *DB) VideoHistory(videoID string) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -151,7 +158,8 @@ func (d *DB) VideoHistory(videoID string) ([]domain.HistoryEntry, error) {
 
 // History returns recent history entries with video titles.
 func (d *DB) History(limit int) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -182,7 +190,8 @@ func (d *DB) History(limit int) ([]domain.HistoryEntry, error) {
 
 // ClearHistory removes all history entries.
 func (d *DB) ClearHistory() error {
-	_, err := d.sql.Exec(`DELETE FROM history`)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM history`)
 	return err
 }
 
@@ -192,7 +201,8 @@ func (d *DB) LogActivity(e domain.ActivityEntry) error {
 	if e.IsLocal {
 		isLocal = 1
 	}
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO activity_log
 			(type, is_local, channel_id, channel_name, playlist_id, playlist_local_id, playlist_name, video_id, video_title)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -202,7 +212,8 @@ func (d *DB) LogActivity(e domain.ActivityEntry) error {
 
 // GetActivityLog returns the most recent activity entries, newest first.
 func (d *DB) GetActivityLog(limit int) ([]domain.ActivityEntry, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT id, type, is_local,
 		       COALESCE(channel_id,''), COALESCE(channel_name,''),
 		       COALESCE(playlist_id,''), COALESCE(playlist_local_id,0), COALESCE(playlist_name,''),

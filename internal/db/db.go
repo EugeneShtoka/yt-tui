@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -25,7 +26,7 @@ func New(dataDir string, stripEmojis bool, recommendedMaxAgeDays int) (*DB, erro
 	}
 	// Single connection serializes all writes; prevents SQLITE_BUSY from concurrent goroutines.
 	sqlDB.SetMaxOpenConns(1)
-	if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
+	if _, err := sqlDB.ExecContext(context.Background(), `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
 		return nil, err
 	}
 	d := &DB{sql: sqlDB}
@@ -69,14 +70,16 @@ var versionedMigrations = []struct {
 	{
 		version: 1,
 		run: func(db *sql.DB) error {
-			_, err := db.Exec(`UPDATE history SET event_type = 'playVideo' WHERE event_type = 'play'`)
+			ctx := context.Background()
+			_, err := db.ExecContext(ctx, `UPDATE history SET event_type = 'playVideo' WHERE event_type = 'play'`)
 			return err
 		},
 	},
 	{
 		version: 2,
 		run: func(db *sql.DB) error {
-			_, err := db.Exec(`
+			ctx := context.Background()
+			_, err := db.ExecContext(ctx, `
 				INSERT OR IGNORE INTO video_positions (video_id, position_ms)
 				SELECT id, last_position_ms FROM local_videos WHERE last_position_ms > 0
 			`)
@@ -88,7 +91,8 @@ var versionedMigrations = []struct {
 		// Orphaned rows (no matching videos entry) are dropped.
 		version: 3,
 		run: func(db *sql.DB) error {
-			_, err := db.Exec(`
+			ctx := context.Background()
+			_, err := db.ExecContext(ctx, `
 				CREATE TABLE video_positions_new (
 					video_id    TEXT PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
 					position_ms INTEGER NOT NULL DEFAULT 0,
@@ -109,7 +113,8 @@ var versionedMigrations = []struct {
 		// Search entries (video_id = '') become NULL; orphaned video entries are dropped.
 		version: 4,
 		run: func(db *sql.DB) error {
-			_, err := db.Exec(`
+			ctx := context.Background()
+			_, err := db.ExecContext(ctx, `
 				CREATE TABLE history_new (
 					id         INTEGER PRIMARY KEY AUTOINCREMENT,
 					video_id   TEXT REFERENCES videos(id) ON DELETE CASCADE,
@@ -135,8 +140,9 @@ var versionedMigrations = []struct {
 }
 
 func (d *DB) runVersionedMigrations() error {
+	ctx := context.Background()
 	var current int
-	if err := d.sql.QueryRow(`PRAGMA user_version`).Scan(&current); err != nil {
+	if err := d.sql.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&current); err != nil {
 		return err
 	}
 	for _, m := range versionedMigrations {
@@ -146,7 +152,7 @@ func (d *DB) runVersionedMigrations() error {
 		if err := m.run(d.sql); err != nil {
 			return err
 		}
-		if _, err := d.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, m.version)); err != nil {
+		if _, err := d.sql.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, m.version)); err != nil {
 			return err
 		}
 	}
@@ -157,7 +163,8 @@ func (d *DB) runVersionedMigrations() error {
 // and clears the table whenever the schema changes. This means adding or removing
 // a column automatically invalidates all cached entries on next startup.
 func (d *DB) checkAndClearCacheIfChanged() error {
-	rows, err := d.sql.Query(`PRAGMA table_info(video_details_cache)`)
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `PRAGMA table_info(video_details_cache)`)
 	if err != nil {
 		return err
 	}
@@ -167,7 +174,7 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 		var name, colType string
 		var notNull, pk int
 		var dflt interface{}
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+		if err = rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
 			rows.Close()
 			return err
 		}
@@ -177,22 +184,23 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 	fingerprint := strings.Join(parts, ",")
 
 	var stored string
-	err = d.sql.QueryRow(`SELECT value FROM meta WHERE key='cache_schema'`).Scan(&stored)
+	err = d.sql.QueryRowContext(ctx, `SELECT value FROM meta WHERE key='cache_schema'`).Scan(&stored)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	if fingerprint == stored {
 		return nil
 	}
-	if _, err := d.sql.Exec(`DELETE FROM video_details_cache`); err != nil {
+	if _, err = d.sql.ExecContext(ctx, `DELETE FROM video_details_cache`); err != nil {
 		return err
 	}
-	_, err = d.sql.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('cache_schema', ?)`, fingerprint)
+	_, err = d.sql.ExecContext(ctx, `INSERT OR REPLACE INTO meta (key, value) VALUES ('cache_schema', ?)`, fingerprint)
 	return err
 }
 
 func (d *DB) migrate() error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS videos (
 			id TEXT PRIMARY KEY,
 			title TEXT NOT NULL,
@@ -277,7 +285,7 @@ func (d *DB) migrate() error {
 		`ALTER TABLE subscribed_channels ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE subscribed_channels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err = d.sql.Exec(col); err != nil && !isColumnExists(err) {
+		if _, err = d.sql.ExecContext(ctx, col); err != nil && !isColumnExists(err) {
 			return err
 		}
 	}
@@ -336,7 +344,7 @@ func (d *DB) migrate() error {
 			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 	} {
-		if _, err = d.sql.Exec(stmt); err != nil {
+		if _, err = d.sql.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
@@ -344,6 +352,7 @@ func (d *DB) migrate() error {
 }
 
 func (d *DB) cleanEmojiTitles() error {
+	ctx := context.Background()
 	type tableCol struct{ table, idCol, titleCol string }
 	targets := []tableCol{
 		{"videos", "id", "title"},
@@ -351,7 +360,7 @@ func (d *DB) cleanEmojiTitles() error {
 		{"yt_playlists", "id", "title"},
 	}
 	for _, t := range targets {
-		rows, err := d.sql.Query("SELECT " + t.idCol + ", " + t.titleCol + " FROM " + t.table)
+		rows, err := d.sql.QueryContext(ctx, "SELECT "+t.idCol+", "+t.titleCol+" FROM "+t.table)
 		if err != nil {
 			return err
 		}
@@ -369,7 +378,7 @@ func (d *DB) cleanEmojiTitles() error {
 		}
 		rows.Close()
 		for _, u := range updates {
-			if _, err := d.sql.Exec("UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", u.title, u.id); err != nil {
+			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", u.title, u.id); err != nil {
 				return err
 			}
 		}
@@ -380,6 +389,7 @@ func (d *DB) cleanEmojiTitles() error {
 // deleteMemberVideos removes member-only videos (view_count=0) from the DB.
 // Videos that have been downloaded (present in local_videos) are preserved.
 func (d *DB) deleteMemberVideos() error {
+	ctx := context.Background()
 	for _, stmt := range []string{
 		`DELETE FROM feed_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
 		`DELETE FROM channel_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
@@ -389,7 +399,7 @@ func (d *DB) deleteMemberVideos() error {
 		`DELETE FROM video_details_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
 		`DELETE FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos)`,
 	} {
-		if _, err := d.sql.Exec(stmt); err != nil {
+		if _, err := d.sql.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}

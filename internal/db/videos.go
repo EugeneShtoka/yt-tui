@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -8,7 +9,8 @@ import (
 
 // UpsertVideo inserts or updates a video record.
 func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, viewCount int64, uploadDate, url string) error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO videos (id, title, channel, channel_id, duration, view_count, upload_date, url)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -22,7 +24,8 @@ func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, vie
 
 // AddLocalVideo records a downloaded video.
 func (d *DB) AddLocalVideo(v domain.LocalVideo) error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO local_videos (id, file_path, download_type, downloaded_at, status)
 		VALUES (?, ?, ?, ?, 'new')
 		ON CONFLICT(id) DO UPDATE SET file_path=excluded.file_path, download_type=excluded.download_type
@@ -33,7 +36,8 @@ func (d *DB) AddLocalVideo(v domain.LocalVideo) error {
 // SetVideoStatus updates playback status.
 func (d *DB) SetVideoStatus(id string, status domain.VideoStatus) error {
 	now := time.Now()
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		UPDATE local_videos SET status=?, last_played=? WHERE id=?
 	`, string(status), now, id)
 	return err
@@ -41,13 +45,15 @@ func (d *DB) SetVideoStatus(id string, status domain.VideoStatus) error {
 
 // DeleteLocalVideo removes a local video record.
 func (d *DB) DeleteLocalVideo(id string) error {
-	_, err := d.sql.Exec(`DELETE FROM local_videos WHERE id=?`, id)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM local_videos WHERE id=?`, id)
 	return err
 }
 
 // LocalVideos returns all downloaded videos ordered by download date.
 func (d *DB) LocalVideos() ([]domain.LocalVideo, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
 		       lv.file_path, lv.download_type, lv.downloaded_at, lv.status,
@@ -82,7 +88,8 @@ func (d *DB) LocalVideos() ([]domain.LocalVideo, error) {
 
 // AllVideoPositions returns all saved positions as a map of videoID → position_ms.
 func (d *DB) AllVideoPositions() (map[string]int64, error) {
-	rows, err := d.sql.Query(`SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`)
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +107,8 @@ func (d *DB) AllVideoPositions() (map[string]int64, error) {
 
 // SaveVideoPosition upserts the last known playback position for any video (local or streamed).
 func (d *DB) SaveVideoPosition(videoID string, ms int64) error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO video_positions (video_id, position_ms, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(video_id) DO UPDATE SET position_ms=excluded.position_ms, updated_at=excluded.updated_at
@@ -110,14 +118,16 @@ func (d *DB) SaveVideoPosition(videoID string, ms int64) error {
 
 // DeleteVideoPosition removes the saved playback position for a video.
 func (d *DB) DeleteVideoPosition(videoID string) error {
-	_, err := d.sql.Exec(`DELETE FROM video_positions WHERE video_id = ?`, videoID)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM video_positions WHERE video_id = ?`, videoID)
 	return err
 }
 
 // VideoPosition returns the last saved position for any video, or 0 if none.
 func (d *DB) VideoPosition(videoID string) (int64, bool) {
+	ctx := context.Background()
 	var ms int64
-	err := d.sql.QueryRow(`SELECT position_ms FROM video_positions WHERE video_id=?`, videoID).Scan(&ms)
+	err := d.sql.QueryRowContext(ctx, `SELECT position_ms FROM video_positions WHERE video_id=?`, videoID).Scan(&ms)
 	if err != nil || ms == 0 {
 		return 0, false
 	}
@@ -126,7 +136,8 @@ func (d *DB) VideoPosition(videoID string) (int64, bool) {
 
 // WatchedVideoIDs returns the set of video IDs that have any play or stream history event.
 func (d *DB) WatchedVideoIDs() (map[string]bool, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT DISTINCT video_id FROM history
 		WHERE event_type IN ('playVideo','playAudio','streamVideo','streamAudio')
 		AND video_id != ''
@@ -152,8 +163,9 @@ func (d *DB) UpdateLastPosition(id string, ms int64) error {
 
 // HasLocalVideo returns the local video record if it exists.
 func (d *DB) HasLocalVideo(id string) (domain.LocalVideo, bool) {
+	ctx := context.Background()
 	var lv domain.LocalVideo
-	err := d.sql.QueryRow(`
+	err := d.sql.QueryRowContext(ctx, `
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
 		       lv.file_path, lv.download_type, lv.downloaded_at, lv.status,
@@ -174,7 +186,8 @@ func (d *DB) HasLocalVideo(id string) (domain.LocalVideo, bool) {
 
 // ClearDownloads removes all local_videos DB entries and returns their file paths for deletion.
 func (d *DB) ClearDownloads() ([]string, error) {
-	rows, err := d.sql.Query(`SELECT file_path FROM local_videos WHERE file_path != ''`)
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `SELECT file_path FROM local_videos WHERE file_path != ''`)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +200,7 @@ func (d *DB) ClearDownloads() ([]string, error) {
 		}
 		paths = append(paths, p)
 	}
-	if _, err := d.sql.Exec(`DELETE FROM local_videos`); err != nil {
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM local_videos`); err != nil {
 		return nil, err
 	}
 	return paths, nil

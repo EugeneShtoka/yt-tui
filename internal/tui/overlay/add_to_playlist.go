@@ -73,7 +73,8 @@ func (atp AddToPlaylist) WidthReduction() int   { return 0 }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
-func (atp AddToPlaylist) Init() tea.Cmd { return nil }
+func (atp AddToPlaylist) Init() tea.Cmd  { return nil }
+func (atp AddToPlaylist) View() string   { return "" } // rendering done via Render(behind,...)
 
 func (atp AddToPlaylist) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {

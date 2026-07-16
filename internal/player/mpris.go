@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -41,7 +42,7 @@ func newMPRISBackend(driver Driver) (*mprisBackend, error) {
 func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	b.Close()
 
-	cmd := exec.Command(b.driver.Path(), args...)
+	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

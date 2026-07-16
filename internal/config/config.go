@@ -255,7 +255,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	appDir := filepath.Join(configDir, "yt-tui")
-	if err := os.MkdirAll(appDir, 0755); err != nil {
+	if err = os.MkdirAll(appDir, 0755); err != nil {
 		return nil, err
 	}
 
@@ -327,7 +327,7 @@ func (c *Config) Save() error {
 // Falls back to a synchronous save if the worker was never started.
 func (c *Config) SaveAsync() {
 	if c.saveReq == nil {
-		go c.Save()
+		go func() { _ = c.Save() }()
 		return
 	}
 	select {
@@ -356,11 +356,11 @@ func (c *Config) save(path string) error {
 	tmpName := tmp.Name()
 	if err := toml.NewEncoder(tmp).Encode(c); err != nil {
 		tmp.Close()
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return os.Rename(tmpName, path)

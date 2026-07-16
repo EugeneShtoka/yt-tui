@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -8,13 +9,14 @@ import (
 
 // SaveChannelVideos upserts all videos for a channel and links them.
 func (d *DB) SaveChannelVideos(channelID string, videos []domain.Video) error {
-	tx, err := d.sql.Begin()
+	ctx := context.Background()
+	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, v := range videos {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO videos (id, title, channel, channel_id, duration, view_count, upload_date, url)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
@@ -25,7 +27,7 @@ func (d *DB) SaveChannelVideos(channelID string, videos []domain.Video) error {
 		`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO channel_videos (channel_id, video_id) VALUES (?, ?)
 		`, channelID, v.ID); err != nil {
 			return err
@@ -36,7 +38,8 @@ func (d *DB) SaveChannelVideos(channelID string, videos []domain.Video) error {
 
 // GetChannelVideos returns persisted videos for a channel, newest first.
 func (d *DB) GetChannelVideos(channelID string) ([]domain.Video, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
 		       COALESCE(v.upload_date,''), COALESCE(v.url,'')
@@ -67,7 +70,8 @@ func (d *DB) SaveSubscribedChannels(channels []domain.Channel) error {
 	if len(channels) == 0 {
 		return nil
 	}
-	tx, err := d.sql.Begin()
+	ctx := context.Background()
+	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -79,7 +83,7 @@ func (d *DB) SaveSubscribedChannels(channels []domain.Channel) error {
 		ph[i] = "?"
 		ids[i] = ch.ID
 	}
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM subscribed_channels WHERE is_local=0 AND channel_id NOT IN (`+strings.Join(ph, ",")+`)`,
 		ids...,
 	); err != nil {
@@ -90,7 +94,7 @@ func (d *DB) SaveSubscribedChannels(channels []domain.Channel) error {
 		if ch.ID == "" {
 			continue
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local)
 			VALUES (?, ?, ?, ?, 0)
 			ON CONFLICT(channel_id) DO UPDATE SET
@@ -107,19 +111,22 @@ func (d *DB) SaveSubscribedChannels(channels []domain.Channel) error {
 
 // RemoveSubscribedChannel removes a single channel from the local subscriptions DB.
 func (d *DB) RemoveSubscribedChannel(channelID string) error {
-	_, err := d.sql.Exec(`DELETE FROM subscribed_channels WHERE channel_id=?`, channelID)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM subscribed_channels WHERE channel_id=?`, channelID)
 	return err
 }
 
 // DeleteChannelVideos removes all channel_videos rows for a given channel.
 func (d *DB) DeleteChannelVideos(channelID string) error {
-	_, err := d.sql.Exec(`DELETE FROM channel_videos WHERE channel_id=?`, channelID)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM channel_videos WHERE channel_id=?`, channelID)
 	return err
 }
 
 // GetSubscribedChannels returns the persisted channel list including any user-set alias and tags.
 func (d *DB) GetSubscribedChannels() ([]domain.Channel, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT channel_id, name, url, subscribers,
 		       COALESCE(alias,''), COALESCE(tags,''), COALESCE(is_local,0)
 		FROM subscribed_channels ORDER BY name`)
@@ -150,7 +157,8 @@ func (d *DB) AddSubscribedChannel(ch domain.Channel) error {
 	if ch.IsLocal {
 		isLocal = 1
 	}
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(channel_id) DO UPDATE SET
@@ -164,13 +172,15 @@ func (d *DB) AddSubscribedChannel(ch domain.Channel) error {
 
 // SetChannelAlias sets or clears the display-name alias for a subscribed channel.
 func (d *DB) SetChannelAlias(channelID, alias string) error {
-	_, err := d.sql.Exec(`UPDATE subscribed_channels SET alias=? WHERE channel_id=?`, alias, channelID)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `UPDATE subscribed_channels SET alias=? WHERE channel_id=?`, alias, channelID)
 	return err
 }
 
 // SetChannelTags replaces the tag list for a subscribed channel.
 func (d *DB) SetChannelTags(channelID string, tags []string) error {
-	_, err := d.sql.Exec(`UPDATE subscribed_channels SET tags=? WHERE channel_id=?`,
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `UPDATE subscribed_channels SET tags=? WHERE channel_id=?`,
 		strings.Join(tags, ","), channelID)
 	return err
 }
@@ -186,7 +196,8 @@ func (d *DB) GetAllChannelVideos(channelIDs []string) ([]domain.Video, error) {
 	for i, id := range channelIDs {
 		args[i] = id
 	}
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT v.id, v.title, COALESCE(v.channel,''), cv.channel_id,
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
 		       COALESCE(v.upload_date,''), COALESCE(v.url,'')
@@ -213,7 +224,8 @@ func (d *DB) GetAllChannelVideos(channelIDs []string) ([]domain.Video, error) {
 
 // GetChannelLatestAll returns the most recent video per channel derived from channel_videos.
 func (d *DB) GetChannelLatestAll() (map[string]domain.Video, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		WITH latest AS (
 			SELECT cv.channel_id, MAX(v.upload_date) AS max_date
 			FROM channel_videos cv
@@ -247,7 +259,8 @@ func (d *DB) GetChannelLatestAll() (map[string]domain.Video, error) {
 
 // ChannelHideStats returns count of hidden videos and played videos for a channel.
 func (d *DB) ChannelHideStats(channelID string) (hidden, played int, err error) {
-	err = d.sql.QueryRow(`
+	ctx := context.Background()
+	err = d.sql.QueryRowContext(ctx, `
 		SELECT
 			(SELECT COUNT(*) FROM hidden_rec_videos hrv
 			 JOIN videos v ON v.id = hrv.video_id

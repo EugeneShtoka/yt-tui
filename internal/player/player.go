@@ -59,7 +59,7 @@ func New(cfg *config.Config) (Backend, error) {
 	// Default: MPRIS; fall back to simple if D-Bus is unavailable.
 	b, dbusErr := newMPRISBackend(driver)
 	if dbusErr != nil {
-		return newSimpleBackend(driver), nil
+		return newSimpleBackend(driver), nil //nolint:nilerr
 	}
 	return b, nil
 }

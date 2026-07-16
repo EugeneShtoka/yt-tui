@@ -33,8 +33,8 @@ func New(videos []domain.LocalVideo) Library {
 func (l *Library) Set(videos []domain.LocalVideo) {
 	l.videos = videos
 	l.byID = make(map[string]domain.LocalVideo, len(videos))
-	for _, v := range videos {
-		l.byID[v.ID] = v
+	for i := range videos {
+		l.byID[videos[i].ID] = videos[i]
 	}
 }
 

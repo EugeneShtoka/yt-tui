@@ -89,6 +89,7 @@ func (vd VideoDetail) WidthReduction() int   { return panelW }
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
 func (vd VideoDetail) Init() tea.Cmd { return nil }
+func (vd VideoDetail) View() string   { return "" } // rendering done via Render(behind,...)
 
 func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
@@ -117,9 +118,9 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Save to cache.
 		ctx := context.Background()
-		_ = vd.backend.SaveVideoDetailsCache(ctx, details.Video.ID, details.Description, details.ThumbnailURL, details.Subscribers)
+		_ = vd.backend.SaveVideoDetailsCache(ctx, details.ID, details.Description, details.ThumbnailURL, details.Subscribers)
 		if vd.chapters != nil {
-			_ = vd.backend.SaveVideoChapters(ctx, details.Video.ID, *vd.chapters)
+			_ = vd.backend.SaveVideoChapters(ctx, details.ID, *vd.chapters)
 		}
 		// Start thumbnail fetch.
 		if details.ThumbnailURL != "" {
@@ -211,7 +212,7 @@ func (vd VideoDetail) handlePanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if vd.links == nil {
 				urls := media.ExtractLinks(vd.video.Description)
 				vd.links = &urls
-				_ = vd.backend.SaveVideoLinks(context.Background(), vd.video.Video.ID, urls)
+				_ = vd.backend.SaveVideoLinks(context.Background(), vd.video.ID, urls)
 			}
 			if len(*vd.links) == 0 {
 				return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "no links in description"} }
@@ -293,7 +294,7 @@ func (vd VideoDetail) handleChaptersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.CopyURL):
 		if n > 0 && vd.video != nil {
 			ch := chapters[vd.chapterSel]
-			u := fmt.Sprintf("https://www.youtube.com/watch?v=%s&t=%d", vd.video.Video.ID, int(ch.OriginalStart))
+			u := fmt.Sprintf("https://www.youtube.com/watch?v=%s&t=%d", vd.video.ID, int(ch.OriginalStart))
 			if err := clipboard.WriteAll(u); err != nil {
 				return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "clipboard: " + err.Error(), IsErr: true} }
 			}
@@ -351,15 +352,14 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	} else if vd.video != nil {
 		v := vd.video
 
-		if kittyCapable() {
+		switch {
+		case kittyCapable():
 			for i := 0; i < thumbH; i++ {
 				lines = append(lines, norm(""))
 			}
-		} else if vd.thumbRendered != "" {
-			for _, tl := range strings.Split(vd.thumbRendered, "\n") {
-				lines = append(lines, tl)
-			}
-		} else {
+		case vd.thumbRendered != "":
+			lines = append(lines, strings.Split(vd.thumbRendered, "\n")...)
+		default:
 			placeholder := strings.Repeat("░", innerW)
 			for i := 0; i < thumbH; i++ {
 				lines = append(lines, norm(placeholder))
@@ -378,20 +378,20 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 		meta := func(k, val string) string {
 			return styles.Normal.Width(innerW).Render(lbl.Render(k) + val)
 		}
-		lines = append(lines, norm(""))
-		lines = append(lines, meta("Channel  ", render.Truncate(v.Channel, innerW-9)))
+		lines = append(lines, norm(""), meta("Channel  ", render.Truncate(v.Channel, innerW-9)))
 		if v.Subscribers > 0 {
 			lines = append(lines, meta("Subs     ", render.Views(v.Subscribers)))
 		}
-		lines = append(lines, meta("Views    ", v.ViewsStr()))
-		lines = append(lines, meta("Duration ", v.DurationStr()))
-		lines = append(lines, meta("Date     ", v.DateStr()))
-		lines = append(lines, styles.Help.Width(innerW).Render(""))
-		lines = append(lines, styles.Help.Width(innerW).Render(render.Truncate(v.URL, innerW)))
+		lines = append(lines,
+			meta("Views    ", v.ViewsStr()),
+			meta("Duration ", v.DurationStr()),
+			meta("Date     ", v.DateStr()),
+			styles.Help.Width(innerW).Render(""),
+			styles.Help.Width(innerW).Render(render.Truncate(v.URL, innerW)),
+		)
 
 		if v.Description != "" {
-			lines = append(lines, styles.ColHeader.Width(innerW).Render(""))
-			lines = append(lines, styles.ColHeader.Width(innerW).Render("Description"))
+			lines = append(lines, styles.ColHeader.Width(innerW).Render(""), styles.ColHeader.Width(innerW).Render("Description"))
 			available := contentRows - len(lines)
 			if available > 0 {
 				descLines := vd.descLines
@@ -437,8 +437,7 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 		}
 		footerText = strings.Repeat(" ", space) + closeHint
 	}
-	lines = append(lines, styles.Help.Width(innerW).Render(""))
-	lines = append(lines, styles.Help.Width(innerW).Render(footerText))
+	lines = append(lines, styles.Help.Width(innerW).Render(""), styles.Help.Width(innerW).Render(footerText))
 
 	top := accent.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
 	bot := accent.Render("╰" + strings.Repeat("─", innerW) + "╯")

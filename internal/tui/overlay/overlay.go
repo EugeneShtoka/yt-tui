@@ -20,7 +20,7 @@ type Overlay interface {
 	Render(behind string, width, height int) (view, kittySeq string)
 	// InterceptsInput reports whether the overlay owns a focused text input.
 	InterceptsInput() bool
-	// WidthReduction is columns reserved on the right edge (0 for centred modals;
+	// WidthReduction is columns reserved on the right edge (0 for centered modals;
 	// non-zero for the video-detail side panel).
 	WidthReduction() int
 }
@@ -28,7 +28,7 @@ type Overlay interface {
 // PopOverlayMsg is emitted by an overlay when it wants Root to close it.
 type PopOverlayMsg struct{}
 
-// placeOverlayBox renders content inside a rounded bordered box and centres it
+// placeOverlayBox renders content inside a rounded bordered box and centers it
 // over behind, composing the two strings by overwriting matching character cells.
 func placeOverlayBox(behind, content string, totalWidth, boxWidth int) string {
 	box := lipgloss.NewStyle().

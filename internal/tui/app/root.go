@@ -23,7 +23,7 @@ import (
 // It owns focus, size, global key routing, and the tab/overlay stack.
 type Root struct {
 	backend api.Backend
-	cfg     config.Config
+	cfg     *config.Config
 	keys    keymap.KeyMap
 	cmds    command.Registry
 
@@ -66,7 +66,7 @@ func New(backend api.Backend, cfg config.Config) Root {
 
 	return Root{
 		backend:   backend,
-		cfg:       cfg,
+		cfg:       &cfg,
 		keys:      keys,
 		cmds:      cmds,
 		tabBar:    component.NewTabBar(titles),
@@ -155,7 +155,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabChannels})
 
 	case tuipkg.NavigateToPlaylistMsg:
-		r, navCmd := r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
+		var navCmd tea.Cmd
+		r, navCmd = r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
 		r, fwdCmd := r.updateActiveTab(m)
 		return r, tea.Batch(navCmd, fwdCmd)
 

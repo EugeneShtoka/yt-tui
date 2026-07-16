@@ -47,7 +47,7 @@ func TestExtractLinksLabel(t *testing.T) {
 	desc := "Website: https://example.com"
 	result := ExtractLinks(desc)
 	if len(result) != 1 {
-		t.Fatalf("labelled link: got len=%d, want 1", len(result))
+		t.Fatalf("labeled link: got len=%d, want 1", len(result))
 	}
 	if result[0].Label != "Website" {
 		t.Errorf("label = %q, want %q", result[0].Label, "Website")

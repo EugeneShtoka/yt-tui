@@ -302,10 +302,11 @@ func (t History) renderDetail() string {
 	const colEvW = 14
 	const colTsW = 19
 	var rows []string
-	for i, e := range t.detail {
+	for i := range t.detail {
 		if i >= height-headerH {
 			break
 		}
+		e := &t.detail[i]
 		rows = append(rows, "  "+
 			styles.Warning.Width(colEvW).Render(e.EventType)+" "+
 			styles.Channel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))+" "+

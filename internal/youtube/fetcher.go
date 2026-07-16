@@ -3,6 +3,7 @@ package youtube
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -205,7 +206,7 @@ func parseMixedLines(r io.Reader) (channels []domain.Channel, videos []domain.Vi
 }
 
 func tryParseVideos(args []string) ([]domain.Video, string, error) {
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, "", err
@@ -240,7 +241,7 @@ func runAndParseVideos(args []string) ([]domain.Video, error) {
 }
 
 func tryParseChannels(args []string) ([]domain.Channel, string, error) {
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	out, err := cmd.Output()
@@ -349,7 +350,7 @@ func (c *Client) ChannelLatestN(channelURL, channelID string, n int) ([]domain.V
 }
 
 func tryParseMixed(args []string) (channels []domain.Channel, videos []domain.Video, stderrStr string, err error) {
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	stdout, e := cmd.StdoutPipe()
 	if e != nil {
 		return nil, nil, "", e
@@ -395,11 +396,11 @@ func (c *Client) Search(query string) (channels []domain.Channel, videos []domai
 		chURL := "https://www.youtube.com/results?search_query=" +
 			url.QueryEscape(query) + "&sp=EgIQAg%3D%3D"
 		args := buildArgs(c.cfg, chURL, 10)
-		channels, _, err := runAndParseMixed(args)
+		chs, _, chErr := runAndParseMixed(args)
 		if c.cfg.StripEmojis {
-			channels = applyStripEmojisChannels(channels)
+			chs = applyStripEmojisChannels(chs)
 		}
-		chCh <- chResult{channels, err}
+		chCh <- chResult{chs, chErr}
 	}()
 
 	vidArgs := buildArgs(c.cfg, "ytsearch25:"+query, 25)
@@ -461,7 +462,7 @@ func (c *Client) VideoDetails(videoURL string) (domain.VideoDetails, error) {
 	}
 	args = append(args, videoURL)
 
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return domain.VideoDetails{}, fmt.Errorf("yt-dlp: %w", err)
@@ -501,7 +502,7 @@ func (c *Client) VideoDetails(videoURL string) (domain.VideoDetails, error) {
 }
 
 func runAndParsePlaylists(args []string) ([]domain.YTPlaylist, error) {
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("yt-dlp: %w", err)

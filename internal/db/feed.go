@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"time"
@@ -10,16 +11,17 @@ import (
 
 // SaveFeedCache replaces the cached video list for a feed.
 func (d *DB) SaveFeedCache(feed string, videos []domain.Video) error {
-	tx, err := d.sql.Begin()
+	ctx := context.Background()
+	tx, err := d.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM feed_cache WHERE feed=?`, feed); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM feed_cache WHERE feed=?`, feed); err != nil {
 		return err
 	}
 	for i, v := range videos {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO videos (id, title, channel, channel_id, duration, view_count, upload_date, url)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
@@ -30,7 +32,7 @@ func (d *DB) SaveFeedCache(feed string, videos []domain.Video) error {
 		`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT OR REPLACE INTO feed_cache (feed, video_id, position) VALUES (?, ?, ?)`,
 			feed, v.ID, i,
 		); err != nil {
@@ -42,7 +44,8 @@ func (d *DB) SaveFeedCache(feed string, videos []domain.Video) error {
 
 // GetFeedCache returns the cached video list for a feed ordered by position.
 func (d *DB) GetFeedCache(feed string) ([]domain.Video, error) {
-	rows, err := d.sql.Query(`
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT v.id, v.title, COALESCE(v.channel,''), COALESCE(v.channel_id,''),
 		       COALESCE(v.duration,0), COALESCE(v.view_count,0),
 		       COALESCE(v.upload_date,''), COALESCE(v.url,'')
@@ -70,7 +73,8 @@ func (d *DB) GetFeedCache(feed string) ([]domain.Video, error) {
 // PurgeFeedCacheMissingChannelID removes entries from feed_cache whose video
 // has no channel_id so the next fetch repopulates them with correct IDs.
 func (d *DB) PurgeFeedCacheMissingChannelID(feed string) error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		DELETE FROM feed_cache
 		WHERE feed = ?
 		  AND video_id IN (
@@ -82,16 +86,18 @@ func (d *DB) PurgeFeedCacheMissingChannelID(feed string) error {
 
 // HideRecVideo records a video as hidden from the recommended feed.
 func (d *DB) HideRecVideo(videoID string) error {
-	if _, err := d.sql.Exec(`INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID); err != nil {
+	ctx := context.Background()
+	if _, err := d.sql.ExecContext(ctx, `INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID); err != nil {
 		return err
 	}
-	_, err := d.sql.Exec(`DELETE FROM video_details_cache WHERE video_id=?`, videoID)
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM video_details_cache WHERE video_id=?`, videoID)
 	return err
 }
 
 // HiddenRecVideoIDs returns a set of video IDs hidden from recommended.
 func (d *DB) HiddenRecVideoIDs() (map[string]bool, error) {
-	rows, err := d.sql.Query(`SELECT video_id FROM hidden_rec_videos`)
+	ctx := context.Background()
+	rows, err := d.sql.QueryContext(ctx, `SELECT video_id FROM hidden_rec_videos`)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +115,8 @@ func (d *DB) HiddenRecVideoIDs() (map[string]bool, error) {
 
 // SaveVideoDetailsCache stores description, thumbnail URL and subscriber count for a video.
 func (d *DB) SaveVideoDetailsCache(videoID, description, thumbnailURL string, subscribers int64) error {
-	_, err := d.sql.Exec(`
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT OR REPLACE INTO video_details_cache (video_id, description, thumbnail_url, subscribers)
 		VALUES (?, ?, ?, ?)
 	`, videoID, description, thumbnailURL, subscribers)
@@ -120,7 +127,8 @@ func (d *DB) SaveVideoDetailsCache(videoID, description, thumbnailURL string, su
 func (d *DB) GetVideoDetailsCache(videoID string) (domain.CachedDetails, bool, error) {
 	var c domain.CachedDetails
 	var linksJSON, chaptersJSON, sbJSON *string
-	err := d.sql.QueryRow(`
+	ctx := context.Background()
+	err := d.sql.QueryRowContext(ctx, `
 		SELECT description, thumbnail_url, subscribers, links, chapters, sb_segments
 		FROM video_details_cache WHERE video_id=?
 	`, videoID).Scan(&c.Description, &c.ThumbnailURL, &c.Subscribers, &linksJSON, &chaptersJSON, &sbJSON)
@@ -157,7 +165,8 @@ func (d *DB) SaveVideoChapters(videoID string, chapters []domain.Chapter) error 
 	if err != nil {
 		return err
 	}
-	_, err = d.sql.Exec(`UPDATE video_details_cache SET chapters=? WHERE video_id=?`, string(data), videoID)
+	ctx := context.Background()
+	_, err = d.sql.ExecContext(ctx, `UPDATE video_details_cache SET chapters=? WHERE video_id=?`, string(data), videoID)
 	return err
 }
 
@@ -167,7 +176,8 @@ func (d *DB) SaveVideoSBSegments(videoID string, segs []domain.SBSegment) error 
 	if err != nil {
 		return err
 	}
-	_, err = d.sql.Exec(`UPDATE video_details_cache SET sb_segments=? WHERE video_id=?`, string(data), videoID)
+	ctx := context.Background()
+	_, err = d.sql.ExecContext(ctx, `UPDATE video_details_cache SET sb_segments=? WHERE video_id=?`, string(data), videoID)
 	return err
 }
 
@@ -178,15 +188,17 @@ func (d *DB) SaveVideoLinks(videoID string, links []domain.Link) error {
 	if err != nil {
 		return err
 	}
-	_, err = d.sql.Exec(`UPDATE video_details_cache SET links=? WHERE video_id=?`, string(data), videoID)
+	ctx := context.Background()
+	_, err = d.sql.ExecContext(ctx, `UPDATE video_details_cache SET links=? WHERE video_id=?`, string(data), videoID)
 	return err
 }
 
 // pruneRecommendedFeed removes recommended feed entries and their cached details for videos
 // older than maxDays days.
 func (d *DB) pruneRecommendedFeed(maxDays int) error {
+	ctx := context.Background()
 	cutoff := time.Now().AddDate(0, 0, -maxDays).Format("20060102")
-	if _, err := d.sql.Exec(`
+	if _, err := d.sql.ExecContext(ctx, `
 		DELETE FROM video_details_cache WHERE video_id IN (
 			SELECT fc.video_id FROM feed_cache fc
 			JOIN videos v ON v.id = fc.video_id
@@ -199,7 +211,7 @@ func (d *DB) pruneRecommendedFeed(maxDays int) error {
 	`, cutoff); err != nil {
 		return err
 	}
-	_, err := d.sql.Exec(`
+	_, err := d.sql.ExecContext(ctx, `
 		DELETE FROM feed_cache WHERE video_id IN (
 			SELECT id FROM videos WHERE upload_date != '' AND upload_date < ?
 		)
@@ -209,12 +221,14 @@ func (d *DB) pruneRecommendedFeed(maxDays int) error {
 
 // ClearRecommended removes all recommended feed entries.
 func (d *DB) ClearRecommended() error {
-	_, err := d.sql.Exec(`DELETE FROM feed_cache WHERE feed='recommended'`)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM feed_cache WHERE feed='recommended'`)
 	return err
 }
 
 // ClearVideoDetailsCache removes all cached video detail entries.
 func (d *DB) ClearVideoDetailsCache() error {
-	_, err := d.sql.Exec(`DELETE FROM video_details_cache`)
+	ctx := context.Background()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM video_details_cache`)
 	return err
 }

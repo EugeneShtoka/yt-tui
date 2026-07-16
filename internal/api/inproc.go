@@ -347,7 +347,8 @@ func (p *InProc) CancelDownload(_ context.Context, videoID string) error {
 func (p *InProc) DownloadItems(_ context.Context) ([]DownloadItem, error) {
 	raw := p.dl.Items()
 	out := make([]DownloadItem, len(raw))
-	for i, it := range raw {
+	for i := range raw {
+		it := &raw[i]
 		var ds DownloadStatus
 		switch it.Status {
 		case downloader.StatusPending:
@@ -391,34 +392,34 @@ func (p *InProc) InitYTClient(_ context.Context) error {
 
 func (p *InProc) CreateYTPlaylist(_ context.Context, name string) (string, error) {
 	if p.ytAPI == nil {
-		return "", fmt.Errorf("YouTube API not initialised")
+		return "", fmt.Errorf("YouTube API not initialized")
 	}
 	return p.ytAPI.CreatePlaylist(name)
 }
 
 func (p *InProc) DeleteYTPlaylist(_ context.Context, playlistID string) error {
 	if p.ytAPI == nil {
-		return fmt.Errorf("YouTube API not initialised")
+		return fmt.Errorf("YouTube API not initialized")
 	}
 	return p.ytAPI.DeletePlaylist(playlistID)
 }
 
 func (p *InProc) AddToYTPlaylist(_ context.Context, playlistID, videoID string) error {
 	if p.ytAPI == nil {
-		return fmt.Errorf("YouTube API not initialised")
+		return fmt.Errorf("YouTube API not initialized")
 	}
 	return p.ytAPI.AddToPlaylist(playlistID, videoID)
 }
 
 func (p *InProc) RemoveFromYTPlaylist(_ context.Context, playlistID, videoID string) error {
 	if p.ytAPI == nil {
-		return fmt.Errorf("YouTube API not initialised")
+		return fmt.Errorf("YouTube API not initialized")
 	}
 	return p.ytAPI.RemoveFromPlaylist(playlistID, videoID)
 }
 
 // Events bridges the downloader's event channel into api.Event values.
-// The returned channel stays open until ctx is cancelled.
+// The returned channel stays open until ctx is canceled.
 func (p *InProc) Events(ctx context.Context) (<-chan Event, error) {
 	out := make(chan Event, 64)
 	go func() {

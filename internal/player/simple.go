@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"os/exec"
 	"syscall"
 	"time"
@@ -13,7 +14,7 @@ func newSimpleBackend(driver Driver) *simpleBackend {
 }
 
 func (s *simpleBackend) exec(args []string) error {
-	cmd := exec.Command(s.driver.Path(), args...)
+	cmd := exec.CommandContext(context.Background(), s.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
 }

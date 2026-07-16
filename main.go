@@ -12,7 +12,8 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/theme"
-	"github.com/EugeneShtoka/yt-tui/internal/ui"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/app"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -47,7 +48,7 @@ func main() {
 			themeFile = filepath.Join(cfg.DataDir, themeFile)
 		}
 		if t, err := theme.Load(themeFile); err == nil {
-			ui.InitStyles(t)
+			styles.Init(t)
 		} else {
 			fmt.Fprintf(os.Stderr, "theme warning: %v\n", err)
 		}
@@ -65,7 +66,7 @@ func main() {
 	ytClient := youtube.NewClient(cfg)
 	backend := api.NewInProc(database, ytClient, dl, cfg)
 
-	m := ui.NewModel(cfg, backend, dl)
+	m := app.New(backend, *cfg)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
