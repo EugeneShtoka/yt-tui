@@ -41,6 +41,8 @@ func New(backend api.Backend, cfg config.Config) Root {
 
 	tabs := []tuipkg.Tab{
 		tab.NewRecommended(backend, keys, cfg.CircularNav),
+		tab.NewSubscriptions(backend, keys, cfg.CircularNav),
+		tab.NewChannels(backend, keys, cfg.CircularNav, cfg.ChannelLatestCount),
 		tab.NewHistory(backend, keys, cfg.CircularNav),
 		tab.NewActivity(backend, keys, cfg.CircularNav),
 		tab.NewLocal(backend, keys, cfg.CircularNav),
@@ -125,6 +127,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.HideChannelMsg:
 		return r.handleHideChannel(m)
+
+	case tuipkg.UnsubscribeMsg:
+		return r.handleUnsubscribe(m)
 
 	case tuipkg.NavigateToChannelMsg:
 		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabChannels})
@@ -217,5 +222,15 @@ func (r Root) handleHideChannel(m tuipkg.HideChannelMsg) (Root, tea.Cmd) {
 	return r, func() tea.Msg {
 		_ = r.backend.HideRecVideo(context.Background(), ch.ID)
 		return tuipkg.StatusMsg{Text: "Hidden: " + ch.Name}
+	}
+}
+
+func (r Root) handleUnsubscribe(m tuipkg.UnsubscribeMsg) (Root, tea.Cmd) {
+	ch := m.Channel
+	return r, func() tea.Msg {
+		if err := r.backend.Unsubscribe(context.Background(), ch); err != nil {
+			return tuipkg.StatusMsg{Text: "unsubscribe: " + err.Error(), IsErr: true}
+		}
+		return tuipkg.StatusMsg{Text: "Unsubscribed: " + ch.Name}
 	}
 }

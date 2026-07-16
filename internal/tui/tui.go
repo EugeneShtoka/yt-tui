@@ -104,3 +104,7 @@ type NavigateToPlaylistMsg struct {
 	PlaylistLocalID int64  // local playlist DB ID (0 for YT)
 	PlaylistName    string
 }
+
+// UnsubscribeMsg requests Root to unsubscribe from a channel via the backend.
+// The emitting tab has already removed the channel from its local feed.
+type UnsubscribeMsg struct{ Channel domain.Channel }
