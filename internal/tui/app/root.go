@@ -10,6 +10,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	ovpkg "github.com/EugeneShtoka/yt-tui/internal/tui/overlay"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/tab"
 	"github.com/atotto/clipboard"
@@ -33,6 +34,8 @@ type Root struct {
 
 	tabs      []tuipkg.Tab
 	activeIdx int
+
+	overlays []ovpkg.Overlay
 }
 
 // New constructs the Root with the current tab set.
@@ -43,6 +46,9 @@ func New(backend api.Backend, cfg config.Config) Root {
 		tab.NewRecommended(backend, keys, cfg.CircularNav),
 		tab.NewSubscriptions(backend, keys, cfg.CircularNav),
 		tab.NewChannels(backend, keys, cfg.CircularNav, cfg.ChannelLatestCount),
+		tab.NewPlaylists(backend, keys, cfg.CircularNav),
+		tab.NewSearch(backend, keys, cfg.CircularNav),
+		tab.NewDownloading(backend, keys, cfg.CircularNav),
 		tab.NewHistory(backend, keys, cfg.CircularNav),
 		tab.NewActivity(backend, keys, cfg.CircularNav),
 		tab.NewLocal(backend, keys, cfg.CircularNav),
@@ -88,14 +94,20 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return r.handleKey(m)
 
+	case tuipkg.OpenOverlayMsg:
+		return r.handleOpenOverlay(m)
+
+	case ovpkg.PopOverlayMsg:
+		return r.handlePopOverlay()
+
 	case tuipkg.PlayVideoMsg:
-		// TODO: wire player in Phase 4 once tabs reach parity.
+		// TODO: wire player
 		return r, func() tea.Msg {
 			return tuipkg.StatusMsg{Text: "playback not yet wired in v2", IsErr: true}
 		}
 
 	case tuipkg.LaunchLocalVideoMsg:
-		// TODO: wire player in Phase 4 once tabs reach parity.
+		// TODO: wire player
 		return r, func() tea.Msg {
 			return tuipkg.StatusMsg{Text: "local playback not yet wired in v2", IsErr: true}
 		}
@@ -106,12 +118,20 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := r.backend.Enqueue(context.Background(), v, audio); err != nil {
 				return tuipkg.StatusMsg{Text: "enqueue: " + err.Error(), IsErr: true}
 			}
-			label := "video"
-			if audio {
-				label = "audio"
-			}
-			return tuipkg.StatusMsg{Text: "Queued " + label + ": " + render.Truncate(v.Title, 50)}
+			return tuipkg.EnqueueSucceededMsg{Title: v.Title, AudioOnly: audio}
 		}
+
+	case tuipkg.EnqueueSucceededMsg:
+		label := "video"
+		if m.AudioOnly {
+			label = "audio"
+		}
+		return r, tea.Batch(
+			func() tea.Msg {
+				return tuipkg.StatusMsg{Text: "Queued " + label + ": " + render.Truncate(m.Title, 50)}
+			},
+			func() tea.Msg { return tuipkg.DownloadItemsChangedMsg{} },
+		)
 
 	case tuipkg.CopyURLMsg:
 		url := m.URL
@@ -135,7 +155,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabChannels})
 
 	case tuipkg.NavigateToPlaylistMsg:
-		return r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
+		r, navCmd := r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
+		r, fwdCmd := r.updateActiveTab(m)
+		return r, tea.Batch(navCmd, fwdCmd)
 
 	case tuipkg.StatusMsg:
 		sb, cmd := r.statusBar.Update(msg)
@@ -143,9 +165,15 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, cmd
 
 	default:
-		updated, cmd := r.tabs[r.activeIdx].Update(msg)
-		r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
-		return r, cmd
+		// Route to both the top overlay and the active tab so each can handle
+		// its own private response messages (e.g. vdDetailsMsg → VideoDetail,
+		// DownloadItemsChangedMsg → Downloading tab).
+		var c1, c2 tea.Cmd
+		if len(r.overlays) > 0 {
+			r, c1 = r.updateTopOverlay(msg)
+		}
+		r, c2 = r.updateActiveTab(msg)
+		return r, tea.Batch(c1, c2)
 	}
 }
 
@@ -154,13 +182,22 @@ func (r Root) View() string {
 	status := r.statusBar.View()
 	contentH := r.height - lipgloss.Height(tabBar) - lipgloss.Height(status)
 
-	content := r.tabs[r.activeIdx].View()
+	content := r.activeTab().View()
+
+	var kittySeq string
+	for _, o := range r.overlays {
+		var kseq string
+		content, kseq = o.Render(content, r.width, contentH)
+		if kseq != "" {
+			kittySeq = kseq
+		}
+	}
 
 	if actual := lipgloss.Height(content); actual < contentH {
 		content += strings.Repeat("\n", contentH-actual)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status)
+	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status) + kittySeq
 }
 
 // ── message handlers ──────────────────────────────────────────────────────────
@@ -173,8 +210,9 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 	tabBarH := lipgloss.Height(r.tabBar.View())
 	statusH := lipgloss.Height(r.statusBar.View())
 	contentH := h - tabBarH - statusH
+	contentW := w - r.overlayWidthReduction()
 
-	sizeMsg := tuipkg.ContentSizeMsg{Width: w, Height: contentH}
+	sizeMsg := tuipkg.ContentSizeMsg{Width: contentW, Height: contentH}
 	var cmds []tea.Cmd
 	for i, t := range r.tabs {
 		updated, cmd := t.Update(sizeMsg)
@@ -184,7 +222,42 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 	return r, tea.Batch(cmds...)
 }
 
+func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
+	switch m.Kind {
+	case "video_detail":
+		vd, cmd := ovpkg.NewVideoDetail(r.backend, r.keys, m.Video, r.cfg.CloseOnLinkOpen, r.cfg.CircularNav)
+		r.overlays = append(r.overlays, vd)
+		_, resizeCmd := r.handleResize(r.width, r.height)
+		return r, tea.Batch(cmd, resizeCmd)
+	case "add_to_playlist":
+		atp, cmd := ovpkg.NewAddToPlaylist(r.backend, r.keys, m.Video, r.cfg.CircularNav)
+		r.overlays = append(r.overlays, atp)
+		return r, cmd
+	}
+	return r, nil
+}
+
+func (r Root) handlePopOverlay() (Root, tea.Cmd) {
+	n := len(r.overlays)
+	if n == 0 {
+		return r, nil
+	}
+	hadWidthReduction := r.overlays[n-1].WidthReduction() > 0
+	r.overlays = r.overlays[:n-1]
+	if hadWidthReduction {
+		return r.handleResize(r.width, r.height)
+	}
+	return r, nil
+}
+
 func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
+	if len(r.overlays) > 0 {
+		return r.updateTopOverlay(msg)
+	}
+	if r.activeTab().InterceptsInput() {
+		return r.updateActiveTab(msg)
+	}
+
 	switch {
 	case key.Matches(msg, r.keys.Quit):
 		return r, tea.Quit
@@ -194,16 +267,7 @@ func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
 		return r.cycleTab(-1)
 	}
 
-	updated, cmd := r.tabs[r.activeIdx].Update(msg)
-	r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
-	return r, cmd
-}
-
-func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
-	n := len(r.tabs)
-	r.activeIdx = ((r.activeIdx + dir) % n + n) % n
-	r.tabBar = r.tabBar.WithActive(r.activeIdx)
-	return r, nil
+	return r.updateActiveTab(msg)
 }
 
 func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {
@@ -213,6 +277,10 @@ func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {
 			r.tabBar = r.tabBar.WithActive(i)
 			break
 		}
+	}
+	if m.Query != "" && m.Tab == tuipkg.TabSearch {
+		q := m.Query
+		return r, func() tea.Msg { return tuipkg.SearchActivateMsg{Query: q} }
 	}
 	return r, nil
 }
@@ -233,4 +301,37 @@ func (r Root) handleUnsubscribe(m tuipkg.UnsubscribeMsg) (Root, tea.Cmd) {
 		}
 		return tuipkg.StatusMsg{Text: "Unsubscribed: " + ch.Name}
 	}
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func (r Root) activeTab() tuipkg.Tab { return r.tabs[r.activeIdx] }
+
+func (r Root) updateActiveTab(msg tea.Msg) (Root, tea.Cmd) {
+	updated, cmd := r.tabs[r.activeIdx].Update(msg)
+	r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
+	return r, cmd
+}
+
+func (r Root) updateTopOverlay(msg tea.Msg) (Root, tea.Cmd) {
+	n := len(r.overlays)
+	updated, cmd := r.overlays[n-1].Update(msg)
+	r.overlays[n-1] = updated.(ovpkg.Overlay)
+	return r, cmd
+}
+
+func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
+	n := len(r.tabs)
+	r.activeIdx = ((r.activeIdx + dir) % n + n) % n
+	r.tabBar = r.tabBar.WithActive(r.activeIdx)
+	return r, nil
+}
+
+func (r Root) overlayWidthReduction() int {
+	for _, o := range r.overlays {
+		if red := o.WidthReduction(); red > 0 {
+			return red
+		}
+	}
+	return 0
 }

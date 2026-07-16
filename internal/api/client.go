@@ -22,6 +22,32 @@ type Event struct {
 	Detail  string // human-readable status / error message
 }
 
+// DownloadStatus mirrors downloader.Status without importing that package from the TUI.
+type DownloadStatus string
+
+const (
+	DownloadPending  DownloadStatus = "pending"
+	DownloadActive   DownloadStatus = "active"
+	DownloadComplete DownloadStatus = "complete"
+	DownloadFailed   DownloadStatus = "failed"
+)
+
+// DownloadItem is a snapshot of one queue entry, safe to pass across the api boundary.
+type DownloadItem struct {
+	VideoID   string
+	Title     string
+	Channel   string
+	Duration  string
+	URL       string
+	AudioOnly bool
+	Status    DownloadStatus
+	Progress  float64
+	Speed     string
+	ETA       string
+	FilePath  string
+	Err       error
+}
+
 // Backend is the contract between the TUI and the data layer.
 // InProc implements it by calling db/youtube/downloader directly.
 type Backend interface {
@@ -103,6 +129,7 @@ type Backend interface {
 	// ── Download queue ─────────────────────────────────────────────────────────
 	Enqueue(ctx context.Context, video domain.Video, audioOnly bool) error
 	CancelDownload(ctx context.Context, videoID string) error
+	DownloadItems(ctx context.Context) ([]DownloadItem, error)
 	Events(ctx context.Context) (<-chan Event, error)
 
 	// ── Channel subscription (local or remote, decided by ch.IsLocal / channelID lookup) ──

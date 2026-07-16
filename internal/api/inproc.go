@@ -344,6 +344,39 @@ func (p *InProc) CancelDownload(_ context.Context, videoID string) error {
 	return nil
 }
 
+func (p *InProc) DownloadItems(_ context.Context) ([]DownloadItem, error) {
+	raw := p.dl.Items()
+	out := make([]DownloadItem, len(raw))
+	for i, it := range raw {
+		var ds DownloadStatus
+		switch it.Status {
+		case downloader.StatusPending:
+			ds = DownloadPending
+		case downloader.StatusActive:
+			ds = DownloadActive
+		case downloader.StatusComplete:
+			ds = DownloadComplete
+		default:
+			ds = DownloadFailed
+		}
+		out[i] = DownloadItem{
+			VideoID:   it.Video.ID,
+			Title:     it.Video.Title,
+			Channel:   it.Video.Channel,
+			Duration:  it.Video.DurationStr(),
+			URL:       it.Video.URL,
+			AudioOnly: it.Type == downloader.TypeAudio,
+			Status:    ds,
+			Progress:  it.Progress,
+			Speed:     it.Speed,
+			ETA:       it.ETA,
+			FilePath:  it.FilePath,
+			Err:       it.Err,
+		}
+	}
+	return out, nil
+}
+
 // ── YouTube API mutations ─────────────────────────────────────────────────────
 
 func (p *InProc) InitYTClient(_ context.Context) error {

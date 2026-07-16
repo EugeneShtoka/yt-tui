@@ -129,18 +129,7 @@ func (t Channels) ID() tuipkg.TabID { return tuipkg.TabChannels }
 func (t Channels) Title() string    { return "Channels" }
 func (t Channels) ShortHelp() []key.Binding { return nil }
 
-func (t Channels) Context() tuipkg.ContextID {
-	if t.tagsMode {
-		if t.pane == 1 {
-			return tuipkg.CtxVideoList
-		}
-		return tuipkg.CtxTagList
-	}
-	if t.pane == 0 {
-		return tuipkg.CtxChannelList
-	}
-	return tuipkg.CtxVideoList
-}
+func (t Channels) InterceptsInput() bool { return t.editInput.Focused() }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
@@ -456,7 +445,9 @@ func (t Channels) handleVideoAction(msg tea.KeyMsg, v domain.Video) (tea.Model, 
 	case key.Matches(msg, keys.CopyURL):
 		return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }
 	case key.Matches(msg, keys.VideoInfo):
-		return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", VideoID: v.ID} }
+		return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
+	case key.Matches(msg, keys.AddList):
+		return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 	}
 	return t, nil
 }

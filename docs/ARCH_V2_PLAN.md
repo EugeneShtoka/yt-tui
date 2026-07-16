@@ -1,6 +1,13 @@
 # yt-tui v2 — Ground-Up Architecture Plan
 
-**Created:** 2026-07-12 · **Status:** design · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
+**Created:** 2026-07-12 · **Status:** in progress (Phases 1–3 ✓, Phase 4 ~80%) · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
+
+**Progress (updated 2026-07-16):**
+- **Phase 1** ✓ — `internal/domain/` exists with all pure types; feed, library, channels, media subpackages moved.
+- **Phase 2** ✓ — `api.Backend` interface in `api/client.go`; `InProc` in `api/inproc.go` wrapping all collaborators; all `youtube.*` call sites eliminated from the UI layer.
+- **Phase 3** ✓ — `backend/service/` created with `FeedService` and `ChannelService`; `InProc` delegates to services; subscription/unsubscribe routing consolidated in backend layer; `recHidden` state and ytAPIReady checks removed from UI.
+- **Phase 4** in progress — `tui/app.Root` + component tree built; tabs ported: Recommended ✓ Subscriptions ✓ Channels ✓ Search ✓ Downloading ✓ History ✓ Activity ✓ Local ✓. Still outstanding: Playlists, overlays, `internal/ui/` deletion.
+- **Phases 5–6** — not started.
 
 **Decisions locked (2026-07-12):**
 - **Remote media:** media-server model — the daemon downloads/stores files and serves them over an HTTP range endpoint; the client's player plays daemon-provided URLs (Jellyfin-like). See §2, §8.
@@ -331,7 +338,7 @@ services are still thin). **5** depends on 2+4. **6** depends on 5.
 
 ---
 
-### Phase 1 — Extract `internal/domain/` (pure vocabulary)
+### Phase 1 ✓ — Extract `internal/domain/` (pure vocabulary)
 
 **Goal:** one dependency-free package both sides import; nothing depends on SQLite or
 bubbletea to name a `Video`.
@@ -353,7 +360,7 @@ bubbletea to name a `Video`.
 
 ---
 
-### Phase 2 — Define `api.Backend` + `InProc`; de-bubbletea the fetchers
+### Phase 2 ✓ — Define `api.Backend` + `InProc`; de-bubbletea the fetchers
 
 **Goal:** the contract exists and the TUI talks to the backend only through it — while
 still one process.
@@ -384,7 +391,7 @@ load-bearing seam — do it carefully.
 
 ---
 
-### Phase 3 — Split services out of `ui/update.go` (dissolve the God `Update`)
+### Phase 3 ✓ — Split services out of `ui/update.go` (dissolve the God `Update`)
 
 **Goal:** business logic leaves the 2,422-line `update.go`; handlers shrink to
 "call backend → apply result to view state."
@@ -409,27 +416,26 @@ payoff — logic testable without a TUI or DB). Manual smoke of each mutating ac
 
 ---
 
-### Phase 4 — Rebuild the TUI as a component tree
+### Phase 4 (in progress) — Rebuild the TUI as a component tree
 
 **Goal:** replace the God `Model` with `tui/app.Root` + per-tab components, each a
 `tea.Model` talking only to `api.Backend`.
 
 **Work (incremental, tab by tab — the old and new UIs need not coexist; build the new tree
 in `internal/tui` and switch `main.go` over once it reaches parity):**
-1. **Scaffolding first:** `tui/app.Root` (focus, size, key routing), `keymap` resolver
-   (port today's `keys.go` + chord system), `tui/command` registry + global command set
-   (§7), `component/statusbar`, `component/tabbar`, `component/commandbar`,
-   `component/overlaystack`, the `Tab`/`Component`/`CommandProvider` interfaces (§6–7).
-2. **First tab: History** (leaf, read-only) — validates `Tab` + `bubbles/list` + `SetSize`
-   + single-focus routing on the simplest case.
-3. **Local**, then **Recommended** (validates event-driven data updates from `Backend`).
-4. **Split-pane tabs:** Subscriptions, Playlists, Channels (the entangled ones — now clean
-   because the daemon owns the shared slices; the tab holds only cursor/scroll/sort).
-5. **Search** (input + history + drill-down), **Downloading** (Events subscription),
-   **Activity**.
-6. **Overlays** as `Component`s in the stack: videodetails, links, chapters, addtoplaylist,
-   help. Port the Kitty/half-block thumbnail render from `ui/image.go`.
-7. Delete `internal/ui/` once `main.go` points at `tui/app.Root`.
+1. ✓ **Scaffolding:** `tui/app.Root` (focus, size, key routing), `keymap` resolver,
+   `tui/command` registry + global command set (§7), `component/statusbar`,
+   `component/tabbar`, the `Tab` interface + typed `TabID` enum.
+2. ✓ **History** (leaf, read-only) — validated `Tab` + `SetSize` + single-focus routing.
+3. ✓ **Local**, then **Recommended** — validated event-driven data updates from `Backend`.
+4. ✓ **Subscriptions**, **Channels**, **Activity** — split-pane and list tabs ported.
+5. ✓ **Search** (text input + channel+video results + drill-down; `CtxSearchInput` guard
+   prevents global key intercept while typing). ✓ **Downloading** (self-re-arming Events
+   subscription + `DownloadItems` snapshot; `EnqueueSucceededMsg` notifies tab immediately).
+6. ○ **Playlists** (split panes: playlist list ⇆ video list; local + YT).
+7. ○ **Overlays** as `Component`s: videodetails, links, chapters, addtoplaylist, help.
+   Port Kitty/half-block thumbnail render from `ui/image.go`.
+8. ○ Delete `internal/ui/` once `main.go` points at `tui/app.Root`.
 
 **Verification:** per-tab unit tests against a fake `Backend`; manual parity pass against
 the feature list in `README.md`; `teatest` golden tests for a couple of tabs if useful.

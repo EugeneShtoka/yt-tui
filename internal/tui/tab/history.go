@@ -51,15 +51,7 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 func (t History) ID() tuipkg.TabID        { return tuipkg.TabHistory }
 func (t History) Title() string            { return "History" }
 func (t History) ShortHelp() []key.Binding { return nil }
-func (t History) Context() tuipkg.ContextID {
-	if t.detailVideoID != "" {
-		return tuipkg.CtxHistoryVideo
-	}
-	if t.cursor < len(t.entries) && t.entries[t.cursor].EventType == "search" {
-		return tuipkg.CtxHistorySearch
-	}
-	return tuipkg.CtxHistoryVideo
-}
+func (t History) InterceptsInput() bool { return false }
 
 func (t History) Init() tea.Cmd { return t.loadCmd() }
 

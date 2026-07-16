@@ -61,7 +61,7 @@ func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Reco
 func (t Recommended) ID() tuipkg.TabID          { return tuipkg.TabRecommended }
 func (t Recommended) Title() string             { return "Recommended" }
 func (t Recommended) ShortHelp() []key.Binding { return nil }
-func (t Recommended) Context() tuipkg.ContextID { return tuipkg.CtxVideoList }
+func (t Recommended) InterceptsInput() bool { return false }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
@@ -191,7 +191,11 @@ func (t Recommended) recHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.VideoInfo):
 		if v, ok := t.feed.At(t.cursor); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", VideoID: v.ID} }
+			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
+		}
+	case key.Matches(msg, keys.AddList):
+		if v, ok := t.feed.At(t.cursor); ok {
+			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 		}
 	}
 	return t, nil

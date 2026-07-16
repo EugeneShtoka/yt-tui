@@ -57,7 +57,7 @@ func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Su
 func (t Subscriptions) ID() tuipkg.TabID           { return tuipkg.TabSubscriptions }
 func (t Subscriptions) Title() string              { return "Subscriptions" }
 func (t Subscriptions) ShortHelp() []key.Binding  { return nil }
-func (t Subscriptions) Context() tuipkg.ContextID { return tuipkg.CtxVideoList }
+func (t Subscriptions) InterceptsInput() bool { return false }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
@@ -170,7 +170,11 @@ func (t Subscriptions) subHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.VideoInfo):
 		if v, ok := t.feed.At(t.cursor); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", VideoID: v.ID} }
+			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
+		}
+	case key.Matches(msg, keys.AddList):
+		if v, ok := t.feed.At(t.cursor); ok {
+			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 		}
 	case key.Matches(msg, keys.HideChannel):
 		if v, ok := t.feed.At(t.cursor); ok {

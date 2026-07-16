@@ -21,22 +21,6 @@ const (
 	TabActivity
 )
 
-// ContextID identifies the UI context for key dispatch and sort filtering.
-type ContextID int
-
-const (
-	CtxVideoList     ContextID = iota // rec, subs, channel drill-down, playlist vids
-	CtxChannelList                    // subscriptions channel pane
-	CtxTagList                        // channels tab: tag list
-	CtxSearchVideo                    // search: video rows
-	CtxSearchChannel                  // search: channel rows
-	CtxPlaylistList                   // playlists top level
-	CtxLocal                          // local tab
-	CtxDownloading                    // downloading tab
-	CtxHistoryVideo                   // history: video entry
-	CtxHistorySearch                  // history: search entry
-)
-
 // Tab is a full-screen content area with tab-bar identity and keyboard metadata.
 // Tabs are value types; Update returns the mutated copy.
 type Tab interface {
@@ -44,7 +28,9 @@ type Tab interface {
 	ID() TabID
 	Title() string
 	ShortHelp() []key.Binding
-	Context() ContextID
+	// InterceptsInput returns true when the tab has a text input focused and
+	// Root should bypass global key bindings (quit, tab-switch, etc.).
+	InterceptsInput() bool
 }
 
 // ── Cross-root messages ───────────────────────────────────────────────────────
@@ -88,8 +74,8 @@ type CopyURLMsg struct{ URL string }
 
 // OpenOverlayMsg requests Root to open a named overlay over the current tab.
 type OpenOverlayMsg struct {
-	Kind    string // "video_detail", "links", "chapters", "add_to_playlist"
-	VideoID string
+	Kind  string       // "video_detail" | "add_to_playlist"
+	Video domain.Video // the video the overlay concerns
 }
 
 // NavigateToChannelMsg requests Root to open the Channels tab scrolled to a channel.
@@ -108,3 +94,19 @@ type NavigateToPlaylistMsg struct {
 // UnsubscribeMsg requests Root to unsubscribe from a channel via the backend.
 // The emitting tab has already removed the channel from its local feed.
 type UnsubscribeMsg struct{ Channel domain.Channel }
+
+// SearchActivateMsg tells the Search tab to prefill its query and execute a search.
+// Root dispatches this when NavigateMsg.Query is non-empty.
+type SearchActivateMsg struct{ Query string }
+
+// EnqueueSucceededMsg is an internal root→root message produced after a successful
+// backend.Enqueue call, carrying enough info to build the status text and notify
+// the Downloading tab.
+type EnqueueSucceededMsg struct {
+	Title     string
+	AudioOnly bool
+}
+
+// DownloadItemsChangedMsg tells the Downloading tab to refresh its queue snapshot.
+// Root dispatches this after a successful Enqueue call.
+type DownloadItemsChangedMsg struct{}
