@@ -255,8 +255,8 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	appDir := filepath.Join(configDir, "yt-tui")
-	if err = os.MkdirAll(appDir, 0755); err != nil {
-		return nil, err
+	if mkdirErr := os.MkdirAll(appDir, 0755); mkdirErr != nil {
+		return nil, mkdirErr
 	}
 
 	cfg := defaultConfig()

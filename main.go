@@ -19,19 +19,25 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	debugFlag := flag.Bool("debug", false, "write debug log to ~/.config/yt-tui/debug.log")
 	flag.Parse()
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("config: %w", err)
 	}
 
 	if *debugFlag {
 		logPath := filepath.Join(cfg.DataDir, "debug.log")
-		if err := debug.Init(logPath); err != nil {
-			fmt.Fprintf(os.Stderr, "debug log: %v\n", err)
+		if initErr := debug.Init(logPath); initErr != nil {
+			fmt.Fprintf(os.Stderr, "debug log: %v\n", initErr)
 		} else {
 			fmt.Fprintf(os.Stderr, "debug log: %s\n", logPath)
 			defer debug.Close()
@@ -47,30 +53,27 @@ func main() {
 		if !filepath.IsAbs(themeFile) {
 			themeFile = filepath.Join(cfg.DataDir, themeFile)
 		}
-		if t, err := theme.Load(themeFile); err == nil {
+		if t, loadErr := theme.Load(themeFile); loadErr == nil {
 			styles.Init(t)
 		} else {
-			fmt.Fprintf(os.Stderr, "theme warning: %v\n", err)
+			fmt.Fprintf(os.Stderr, "theme warning: %v\n", loadErr)
 		}
 	}
 
 	database, err := db.New(cfg.DataDir, cfg.StripEmojis, cfg.RecommendedMaxAgeDays)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "db error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("db: %w", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	dl := downloader.New(cfg, database)
 
 	ytClient := youtube.NewClient(cfg)
 	backend := api.NewInProc(database, ytClient, dl, cfg)
 
-	m := app.New(backend, *cfg)
+	m := app.New(backend, cfg)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	_, err = p.Run()
+	return err
 }

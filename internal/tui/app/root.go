@@ -39,7 +39,7 @@ type Root struct {
 }
 
 // New constructs the Root with the current tab set.
-func New(backend api.Backend, cfg config.Config) Root {
+func New(backend api.Backend, cfg *config.Config) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
 	tabs := []tuipkg.Tab{
@@ -66,7 +66,7 @@ func New(backend api.Backend, cfg config.Config) Root {
 
 	return Root{
 		backend:   backend,
-		cfg:       &cfg,
+		cfg:       cfg,
 		keys:      keys,
 		cmds:      cmds,
 		tabBar:    component.NewTabBar(titles),
@@ -157,7 +157,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.NavigateToPlaylistMsg:
 		var navCmd tea.Cmd
 		r, navCmd = r.handleNavigate(tuipkg.NavigateMsg{Tab: tuipkg.TabPlaylists})
-		r, fwdCmd := r.updateActiveTab(m)
+		var fwdCmd tea.Cmd
+		r, fwdCmd = r.updateActiveTab(m)
 		return r, tea.Batch(navCmd, fwdCmd)
 
 	case tuipkg.StatusMsg:

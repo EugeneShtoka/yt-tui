@@ -46,7 +46,7 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 	// Use the channels feed — same URL the app already uses for subscriptions,
 	// so it's known to work. --flat-playlist --playlist-end 1 fetches minimal
 	// data; the important side-effect is yt-dlp writing the cookie jar to file.
-	cmd := exec.Command("yt-dlp",
+	cmd := exec.CommandContext(context.Background(), "yt-dlp",
 		"--cookies-from-browser", cfg.Browser,
 		"--cookies", cookiePath,
 		"--flat-playlist",
