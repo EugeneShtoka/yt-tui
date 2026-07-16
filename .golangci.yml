@@ -11,13 +11,17 @@ linters:
     - errcheck       # every error must be handled
     - nilerr         # don't return nil when wrapping a non-nil error
     - noctx          # http requests must carry a context
-    # Error wrapping is enforced via code review; wrapcheck generates too much
-    # noise in infra adapters where stdlib errors are returned directly by design.
+    - wrapcheck      # errors from external packages must be wrapped with context
+    # api/inproc.go is exempted via file-level nolint (pass-through adapter by design).
     # Code quality
     - gocritic       # diagnostic + style + performance
     - unconvert      # remove redundant type conversions
     - misspell       # catch common typos in comments and strings
     - unused         # dead code detection
+    - bodyclose      # HTTP response bodies must be closed
+    - ineffassign    # detect ineffective assignments
+    # Security
+    - gosec          # security checks (G202/G204/G304/G104 excluded below)
 
   settings:
     govet:
@@ -105,17 +109,25 @@ linters:
       # style tag produces too much churn; re-enable when the codebase stabilises.
       disabled-checks:
         - hugeParam          # bubbletea models are legitimately large value types
-        - paramTypeCombine
+        - paramTypeCombine   # minor style; not worth the churn
 
     misspell:
       locale: US
 
+    gosec:
+      excludes:
+        - G202  # SQL concat: structure/placeholders only, not user input
+        - G204  # subprocess: intentional tool launching (yt-dlp, mpv, editor)
+        - G304  # file include: legitimate config/debug file path ops
+        - G104  # unhandled errors: covered by errcheck exclusions (Close/Rollback)
+
 issues:
   exclude-rules:
-    # Test files: relax dead-code rules.
+    # Test files: relax dead-code and security rules.
     - path: "_test\\.go"
       linters:
         - unused
+        - gosec
     # Generated files (if any).
     - path: "\\.pb\\.go"
       linters:

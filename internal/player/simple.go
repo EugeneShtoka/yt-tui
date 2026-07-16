@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"syscall"
 	"time"
@@ -16,7 +17,10 @@ func newSimpleBackend(driver Driver) *simpleBackend {
 func (s *simpleBackend) exec(args []string) error {
 	cmd := exec.CommandContext(context.Background(), s.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	return nil
 }
 
 func (s *simpleBackend) Launch(source string, startAt time.Duration) error {

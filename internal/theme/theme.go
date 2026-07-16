@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/BurntSushi/toml"
@@ -39,10 +40,10 @@ func Load(path string) (Theme, error) {
 	t := Default()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return t, err
+		return t, fmt.Errorf("Load read: %w", err)
 	}
 	if err := toml.Unmarshal(data, &t); err != nil {
-		return t, err
+		return t, fmt.Errorf("Load unmarshal: %w", err)
 	}
 	return t, nil
 }
@@ -55,8 +56,11 @@ func WriteDefault(path string) error {
 	}
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("WriteDefault: %w", err)
 	}
 	defer f.Close()
-	return toml.NewEncoder(f).Encode(Default())
+	if err := toml.NewEncoder(f).Encode(Default()); err != nil {
+		return fmt.Errorf("WriteDefault encode: %w", err)
+	}
+	return nil
 }

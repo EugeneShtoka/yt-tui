@@ -52,7 +52,7 @@ func (s *ChannelService) SetYTAPI(client YTAPIClient) { s.ytAPI = client }
 func (s *ChannelService) SubscribedChannels() ([]domain.Channel, error) {
 	ytChannels, err := s.source.SubscribedChannels()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("SubscribedChannels: %w", err)
 	}
 	existing, _ := s.repo.GetSubscribedChannels()
 	merged := channels.Sync(existing, ytChannels)
@@ -68,10 +68,13 @@ func (s *ChannelService) Subscribe(ch domain.Channel) error {
 			return fmt.Errorf("YouTube API not initialized")
 		}
 		if err := s.ytAPI.Subscribe(ch.ID); err != nil {
-			return err
+			return fmt.Errorf("Subscribe: %w", err)
 		}
 	}
-	return s.repo.AddSubscribedChannel(ch)
+	if err := s.repo.AddSubscribedChannel(ch); err != nil {
+		return fmt.Errorf("Subscribe: %w", err)
+	}
+	return nil
 }
 
 // Unsubscribe removes a channel subscription. Routes local/remote based on
@@ -82,14 +85,17 @@ func (s *ChannelService) Unsubscribe(ch domain.Channel) error {
 			return fmt.Errorf("YouTube API not initialized")
 		}
 		if err := s.ytAPI.Unsubscribe(ch.ID); err != nil {
-			return err
+			return fmt.Errorf("Unsubscribe: %w", err)
 		}
 	} else {
 		if err := s.repo.RemoveSubscribedChannel(ch.ID); err != nil {
-			return err
+			return fmt.Errorf("Unsubscribe: %w", err)
 		}
 	}
-	return s.repo.DeleteChannelVideos(ch.ID)
+	if err := s.repo.DeleteChannelVideos(ch.ID); err != nil {
+		return fmt.Errorf("Unsubscribe: %w", err)
+	}
+	return nil
 }
 
 // ChannelVideos fetches a channel's full video list, merges with the DB cache,
@@ -97,7 +103,7 @@ func (s *ChannelService) Unsubscribe(ch domain.Channel) error {
 func (s *ChannelService) ChannelVideos(channelURL, channelID string) ([]domain.Video, error) {
 	fresh, err := s.source.ChannelVideos(channelURL, channelID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ChannelVideos: %w", err)
 	}
 	cached, _ := s.repo.GetChannelVideos(channelID)
 	merged := feed.MergeVideos(cached, fresh)
@@ -109,7 +115,7 @@ func (s *ChannelService) ChannelVideos(channelURL, channelID string) ([]domain.V
 func (s *ChannelService) ChannelLatestN(channelURL, channelID string, n int) ([]domain.Video, error) {
 	fresh, err := s.source.ChannelLatestN(channelURL, channelID, n)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ChannelLatestN: %w", err)
 	}
 	if len(fresh) > 0 {
 		_ = s.repo.SaveChannelVideos(channelID, fresh)

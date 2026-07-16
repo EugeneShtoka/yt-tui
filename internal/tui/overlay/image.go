@@ -138,5 +138,5 @@ func sampleRegion(img image.Image, bounds image.Rectangle, dstCol, dstRow, dstW,
 	if n == 0 {
 		return 0, 0, 0
 	}
-	return uint8(rSum / n), uint8(gSum / n), uint8(bSum / n)
+	return uint8(rSum / n), uint8(gSum / n), uint8(bSum / n) //nolint:gosec // RGBA()>>8 ≤ 255; sum/n ≤ 255 fits uint8
 }

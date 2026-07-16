@@ -3,7 +3,7 @@ package youtube
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // SHA1 required by YouTube SAPISIDHASH protocol
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -34,7 +34,7 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 
 	f, err := os.CreateTemp("", "yt-tui-cookies-*.txt")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("NewYTClient mktemp: %w", err)
 	}
 	cookiePath := f.Name()
 	f.Close()
@@ -79,7 +79,7 @@ func NewYTClient(cfg *config.Config) (*YTClient, error) {
 func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("parseCookieFile: %w", err)
 	}
 
 	seen := make(map[string]bool)
@@ -128,7 +128,7 @@ func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 
 func (c *YTClient) sapisidhash() string {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	h := sha1.New()
+	h := sha1.New() //nolint:gosec // required by YouTube SAPISIDHASH protocol
 	h.Write([]byte(ts + " " + c.sapisid + " https://www.youtube.com"))
 	hash := ts + "_" + hex.EncodeToString(h.Sum(nil))
 	debug.Log("sapisidhash: ts=%s sapisid_prefix=%q", ts, c.sapisid[:min(6, len(c.sapisid))])
@@ -151,14 +151,14 @@ func (c *YTClient) post(endpoint string, body map[string]any) ([]byte, error) {
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("post marshal: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		"https://www.youtube.com/youtubei/v1/"+endpoint,
 		bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("post request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -171,13 +171,13 @@ func (c *YTClient) post(endpoint string, body map[string]any) ([]byte, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("post do: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("post read: %w", err)
 	}
 	if resp.StatusCode >= 400 {
 		preview := string(respData)
@@ -237,7 +237,7 @@ func (c *YTClient) CreatePlaylist(title string) (string, error) {
 		PlaylistID string `json:"playlistId"`
 	}
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return "", err
+		return "", fmt.Errorf("CreatePlaylist unmarshal: %w", err)
 	}
 	if result.PlaylistID == "" {
 		return "", fmt.Errorf("empty playlist ID in response")

@@ -157,7 +157,10 @@ func parseVideoLines(r io.Reader) ([]domain.Video, error) {
 		}
 		videos = append(videos, e.toVideo())
 	}
-	return videos, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return videos, fmt.Errorf("parseVideoLines: %w", err)
+	}
+	return videos, nil
 }
 
 // parseChannelLines scans yt-dlp output for channel entries (any entry with an ID).
@@ -178,7 +181,10 @@ func parseChannelLines(r io.Reader) ([]domain.Channel, error) {
 		}
 		channels = append(channels, e.toChannel())
 	}
-	return channels, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return channels, fmt.Errorf("parseChannelLines: %w", err)
+	}
+	return channels, nil
 }
 
 // parseMixedLines scans yt-dlp output that interleaves channels and videos
@@ -202,19 +208,22 @@ func parseMixedLines(r io.Reader) (channels []domain.Channel, videos []domain.Vi
 			videos = append(videos, entry.toVideo())
 		}
 	}
-	return channels, videos, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return channels, videos, fmt.Errorf("parseMixedLines: %w", err)
+	}
+	return channels, videos, nil
 }
 
 func tryParseVideos(args []string) ([]domain.Video, string, error) {
 	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("tryParseVideos stdout: %w", err)
 	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	if err := cmd.Start(); err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("tryParseVideos start: %w", err)
 	}
 	videos, scanErr := parseVideoLines(stdout)
 	_ = cmd.Wait()
@@ -353,12 +362,12 @@ func tryParseMixed(args []string) (channels []domain.Channel, videos []domain.Vi
 	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	stdout, e := cmd.StdoutPipe()
 	if e != nil {
-		return nil, nil, "", e
+		return nil, nil, "", fmt.Errorf("tryParseMixed stdout: %w", e)
 	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	if e := cmd.Start(); e != nil {
-		return nil, nil, "", e
+		return nil, nil, "", fmt.Errorf("tryParseMixed start: %w", e)
 	}
 	channels, videos, scanErr := parseMixedLines(stdout)
 	_ = cmd.Wait()

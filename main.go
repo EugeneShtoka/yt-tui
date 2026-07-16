@@ -74,6 +74,8 @@ func run() error {
 	m := app.New(backend, cfg)
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err = p.Run()
-	return err
+	if _, err = p.Run(); err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+	return nil
 }

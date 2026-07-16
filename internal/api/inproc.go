@@ -1,3 +1,4 @@
+//nolint:wrapcheck // pass-through adapter; errors from backend/db/yt are already contextual
 package api
 
 import (

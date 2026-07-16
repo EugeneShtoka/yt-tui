@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -252,11 +253,11 @@ func defaultConfig() *Config {
 func Load() (*Config, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Load: %w", err)
 	}
 	appDir := filepath.Join(configDir, "yt-tui")
-	if mkdirErr := os.MkdirAll(appDir, 0755); mkdirErr != nil {
-		return nil, mkdirErr
+	if mkdirErr := os.MkdirAll(appDir, 0750); mkdirErr != nil {
+		return nil, fmt.Errorf("Load mkdir: %w", mkdirErr)
 	}
 
 	cfg := defaultConfig()
@@ -264,11 +265,11 @@ func Load() (*Config, error) {
 	cfgFile := filepath.Join(appDir, "config.toml")
 	data, err := os.ReadFile(cfgFile)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+		return nil, fmt.Errorf("Load read: %w", err)
 	}
 	if err == nil {
 		if err := toml.Unmarshal(data, cfg); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Load unmarshal: %w", err)
 		}
 		cfg.Keybindings.fillDefaults()
 		if cfg.HintMode == "" {
@@ -302,8 +303,8 @@ func Load() (*Config, error) {
 		cfg.DownloadDir = filepath.Join(os.Getenv("HOME"), cfg.DownloadDir[2:])
 	}
 
-	if err := os.MkdirAll(cfg.DownloadDir, 0755); err != nil {
-		return nil, err
+	if err := os.MkdirAll(cfg.DownloadDir, 0750); err != nil {
+		return nil, fmt.Errorf("Load mkdir download: %w", err)
 	}
 
 	return cfg, nil
@@ -351,19 +352,22 @@ func (c *Config) save(path string) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
-		return err
+		return fmt.Errorf("save mktemp: %w", err)
 	}
 	tmpName := tmp.Name()
 	if err := toml.NewEncoder(tmp).Encode(c); err != nil {
 		tmp.Close()
 		_ = os.Remove(tmpName)
-		return err
+		return fmt.Errorf("save encode: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
-		return err
+		return fmt.Errorf("save close: %w", err)
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("save rename: %w", err)
+	}
+	return nil
 }
 
 func (c *Config) SubtitleLangsArg() string {

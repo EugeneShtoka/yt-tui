@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
@@ -36,7 +38,7 @@ func NewFeedService(repo FeedRepo, source RecommendSource, cfg *config.Config) *
 func (s *FeedService) Recommended() ([]domain.Video, error) {
 	raw, err := s.source.Recommended()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Recommended: %w", err)
 	}
 	hidden, _ := s.repo.HiddenRecVideoIDs()
 	localSlice, _ := s.repo.LocalVideos()

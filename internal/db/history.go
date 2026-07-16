@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -22,10 +23,12 @@ func (d *DB) AddHistory(videoID, eventType, details string) error {
 		vid = videoID
 	}
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		INSERT INTO history (video_id, event_type, details) VALUES (?, ?, ?)
-	`, vid, eventType, details)
-	return err
+	`, vid, eventType, details); err != nil {
+		return fmt.Errorf("AddHistory: %w", err)
+	}
+	return nil
 }
 
 // SearchQueries returns recent unique search queries, newest first.
@@ -39,18 +42,21 @@ func (d *DB) SearchQueries(limit int) ([]string, error) {
 		LIMIT ?
 	`, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("SearchQueries query: %w", err)
 	}
 	defer rows.Close()
 	var result []string
 	for rows.Next() {
 		var q string
 		if err := rows.Scan(&q); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("SearchQueries scan: %w", err)
 		}
 		result = append(result, q)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("SearchQueries rows: %w", err)
+	}
+	return result, nil
 }
 
 // HistoryVideos returns one entry per video (most recent event) plus one entry per
@@ -84,7 +90,7 @@ func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 		) ORDER BY timestamp DESC LIMIT ?
 	`, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("HistoryVideos query: %w", err)
 	}
 	defer rows.Close()
 	var result []domain.HistoryEntry
@@ -96,7 +102,7 @@ func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
 			&e.EventType, &e.Details, &tsStr,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("HistoryVideos scan: %w", err)
 		}
 		// UNION ALL causes the driver to return timestamps as strings.
 		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05Z"} {
@@ -107,21 +113,28 @@ func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 		}
 		result = append(result, e)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("HistoryVideos rows: %w", err)
+	}
+	return result, nil
 }
 
 // DeleteVideoHistory removes all history events for a video.
 func (d *DB) DeleteVideoHistory(videoID string) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE video_id = ?`, videoID)
-	return err
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE video_id = ?`, videoID); err != nil {
+		return fmt.Errorf("DeleteVideoHistory: %w", err)
+	}
+	return nil
 }
 
 // DeleteSearchHistory removes all history events for a search query.
 func (d *DB) DeleteSearchHistory(query string) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE event_type = 'search' AND details = ?`, query)
-	return err
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM history WHERE event_type = 'search' AND details = ?`, query); err != nil {
+		return fmt.Errorf("DeleteSearchHistory: %w", err)
+	}
+	return nil
 }
 
 // VideoHistory returns all events for a single video, newest first.
@@ -138,7 +151,7 @@ func (d *DB) VideoHistory(videoID string) ([]domain.HistoryEntry, error) {
 		ORDER BY h.timestamp DESC
 	`, videoID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("VideoHistory query: %w", err)
 	}
 	defer rows.Close()
 	var result []domain.HistoryEntry
@@ -149,11 +162,14 @@ func (d *DB) VideoHistory(videoID string) ([]domain.HistoryEntry, error) {
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
 			&e.EventType, &e.Details, &e.Timestamp,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("VideoHistory scan: %w", err)
 		}
 		result = append(result, e)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("VideoHistory rows: %w", err)
+	}
+	return result, nil
 }
 
 // History returns recent history entries with video titles.
@@ -170,7 +186,7 @@ func (d *DB) History(limit int) ([]domain.HistoryEntry, error) {
 		LIMIT ?
 	`, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("History query: %w", err)
 	}
 	defer rows.Close()
 	var result []domain.HistoryEntry
@@ -181,18 +197,23 @@ func (d *DB) History(limit int) ([]domain.HistoryEntry, error) {
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
 			&e.EventType, &e.Details, &e.Timestamp,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("History scan: %w", err)
 		}
 		result = append(result, e)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("History rows: %w", err)
+	}
+	return result, nil
 }
 
 // ClearHistory removes all history entries.
 func (d *DB) ClearHistory() error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM history`)
-	return err
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM history`); err != nil {
+		return fmt.Errorf("ClearHistory: %w", err)
+	}
+	return nil
 }
 
 // LogActivity records a user action in the activity log.
@@ -202,12 +223,14 @@ func (d *DB) LogActivity(e domain.ActivityEntry) error {
 		isLocal = 1
 	}
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		INSERT INTO activity_log
 			(type, is_local, channel_id, channel_name, playlist_id, playlist_local_id, playlist_name, video_id, video_title)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, e.Type, isLocal, e.ChannelID, e.ChannelName, e.PlaylistID, nullInt64(e.PlaylistLocalID), e.PlaylistName, e.VideoID, e.VideoTitle)
-	return err
+	`, e.Type, isLocal, e.ChannelID, e.ChannelName, e.PlaylistID, nullInt64(e.PlaylistLocalID), e.PlaylistName, e.VideoID, e.VideoTitle); err != nil {
+		return fmt.Errorf("LogActivity: %w", err)
+	}
+	return nil
 }
 
 // GetActivityLog returns the most recent activity entries, newest first.
@@ -221,7 +244,7 @@ func (d *DB) GetActivityLog(limit int) ([]domain.ActivityEntry, error) {
 		FROM activity_log ORDER BY timestamp DESC LIMIT ?
 	`, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetActivityLog query: %w", err)
 	}
 	defer rows.Close()
 	var entries []domain.ActivityEntry
@@ -232,10 +255,13 @@ func (d *DB) GetActivityLog(limit int) ([]domain.ActivityEntry, error) {
 			&e.ChannelID, &e.ChannelName,
 			&e.PlaylistID, &e.PlaylistLocalID, &e.PlaylistName,
 			&e.VideoID, &e.VideoTitle, &e.Timestamp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GetActivityLog scan: %w", err)
 		}
 		e.IsLocal = isLocal != 0
 		entries = append(entries, e)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return entries, fmt.Errorf("GetActivityLog rows: %w", err)
+	}
+	return entries, nil
 }

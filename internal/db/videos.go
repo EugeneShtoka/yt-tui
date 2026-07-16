@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -10,7 +11,7 @@ import (
 // UpsertVideo inserts or updates a video record.
 func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, viewCount int64, uploadDate, url string) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		INSERT INTO videos (id, title, channel, channel_id, duration, view_count, upload_date, url)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -18,36 +19,44 @@ func (d *DB) UpsertVideo(id, title, channel, channelID string, duration int, vie
 			channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
 			duration=excluded.duration, view_count=excluded.view_count,
 			upload_date=excluded.upload_date, url=excluded.url
-	`, id, title, channel, channelID, duration, viewCount, uploadDate, url)
-	return err
+	`, id, title, channel, channelID, duration, viewCount, uploadDate, url); err != nil {
+		return fmt.Errorf("UpsertVideo: %w", err)
+	}
+	return nil
 }
 
 // AddLocalVideo records a downloaded video.
 func (d *DB) AddLocalVideo(v domain.LocalVideo) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		INSERT INTO local_videos (id, file_path, download_type, downloaded_at, status)
 		VALUES (?, ?, ?, ?, 'new')
 		ON CONFLICT(id) DO UPDATE SET file_path=excluded.file_path, download_type=excluded.download_type
-	`, v.ID, v.FilePath, v.DownloadType, v.DownloadedAt)
-	return err
+	`, v.ID, v.FilePath, v.DownloadType, v.DownloadedAt); err != nil {
+		return fmt.Errorf("AddLocalVideo: %w", err)
+	}
+	return nil
 }
 
 // SetVideoStatus updates playback status.
 func (d *DB) SetVideoStatus(id string, status domain.VideoStatus) error {
 	now := time.Now()
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		UPDATE local_videos SET status=?, last_played=? WHERE id=?
-	`, string(status), now, id)
-	return err
+	`, string(status), now, id); err != nil {
+		return fmt.Errorf("SetVideoStatus: %w", err)
+	}
+	return nil
 }
 
 // DeleteLocalVideo removes a local video record.
 func (d *DB) DeleteLocalVideo(id string) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM local_videos WHERE id=?`, id)
-	return err
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM local_videos WHERE id=?`, id); err != nil {
+		return fmt.Errorf("DeleteLocalVideo: %w", err)
+	}
+	return nil
 }
 
 // LocalVideos returns all downloaded videos ordered by download date.
@@ -63,7 +72,7 @@ func (d *DB) LocalVideos() ([]domain.LocalVideo, error) {
 		ORDER BY lv.downloaded_at DESC
 	`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("LocalVideos query: %w", err)
 	}
 	defer rows.Close()
 	var result []domain.LocalVideo
@@ -76,14 +85,17 @@ func (d *DB) LocalVideos() ([]domain.LocalVideo, error) {
 			&lv.FilePath, &lv.DownloadType, &lv.DownloadedAt,
 			&lv.Status, &lastPlayed, &lv.LastPositionMs,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("LocalVideos scan: %w", err)
 		}
 		if lastPlayed != "" {
 			lv.LastPlayed, _ = time.Parse("2006-01-02T15:04:05Z", lastPlayed)
 		}
 		result = append(result, lv)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("LocalVideos rows: %w", err)
+	}
+	return result, nil
 }
 
 // AllVideoPositions returns all saved positions as a map of videoID → position_ms.
@@ -91,7 +103,7 @@ func (d *DB) AllVideoPositions() (map[string]int64, error) {
 	ctx := context.Background()
 	rows, err := d.sql.QueryContext(ctx, `SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("AllVideoPositions query: %w", err)
 	}
 	defer rows.Close()
 	m := make(map[string]int64)
@@ -102,25 +114,32 @@ func (d *DB) AllVideoPositions() (map[string]int64, error) {
 			m[id] = ms
 		}
 	}
-	return m, rows.Err()
+	if err := rows.Err(); err != nil {
+		return m, fmt.Errorf("AllVideoPositions rows: %w", err)
+	}
+	return m, nil
 }
 
 // SaveVideoPosition upserts the last known playback position for any video (local or streamed).
 func (d *DB) SaveVideoPosition(videoID string, ms int64) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `
+	if _, err := d.sql.ExecContext(ctx, `
 		INSERT INTO video_positions (video_id, position_ms, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(video_id) DO UPDATE SET position_ms=excluded.position_ms, updated_at=excluded.updated_at
-	`, videoID, ms)
-	return err
+	`, videoID, ms); err != nil {
+		return fmt.Errorf("SaveVideoPosition: %w", err)
+	}
+	return nil
 }
 
 // DeleteVideoPosition removes the saved playback position for a video.
 func (d *DB) DeleteVideoPosition(videoID string) error {
 	ctx := context.Background()
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM video_positions WHERE video_id = ?`, videoID)
-	return err
+	if _, err := d.sql.ExecContext(ctx, `DELETE FROM video_positions WHERE video_id = ?`, videoID); err != nil {
+		return fmt.Errorf("DeleteVideoPosition: %w", err)
+	}
+	return nil
 }
 
 // VideoPosition returns the last saved position for any video, or 0 if none.
@@ -143,7 +162,7 @@ func (d *DB) WatchedVideoIDs() (map[string]bool, error) {
 		AND video_id != ''
 	`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("WatchedVideoIDs query: %w", err)
 	}
 	defer rows.Close()
 	ids := make(map[string]bool)
@@ -153,7 +172,10 @@ func (d *DB) WatchedVideoIDs() (map[string]bool, error) {
 			ids[id] = true
 		}
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		return ids, fmt.Errorf("WatchedVideoIDs rows: %w", err)
+	}
+	return ids, nil
 }
 
 // UpdateLastPosition saves the last known playback position for a local video.
@@ -189,19 +211,19 @@ func (d *DB) ClearDownloads() ([]string, error) {
 	ctx := context.Background()
 	rows, err := d.sql.QueryContext(ctx, `SELECT file_path FROM local_videos WHERE file_path != ''`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ClearDownloads query: %w", err)
 	}
 	defer rows.Close()
 	var paths []string
 	for rows.Next() {
 		var p string
 		if err := rows.Scan(&p); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ClearDownloads scan: %w", err)
 		}
 		paths = append(paths, p)
 	}
 	if _, err := d.sql.ExecContext(ctx, `DELETE FROM local_videos`); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ClearDownloads delete: %w", err)
 	}
 	return paths, nil
 }

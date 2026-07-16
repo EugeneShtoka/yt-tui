@@ -1,6 +1,7 @@
 package debug
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -16,9 +17,9 @@ var (
 // Init opens path for writing and enables debug logging.
 // The file is truncated on each run so old sessions don't accumulate.
 func Init(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return err
+		return fmt.Errorf("Init: %w", err)
 	}
 	file = f
 	logger = log.New(f, "", 0)

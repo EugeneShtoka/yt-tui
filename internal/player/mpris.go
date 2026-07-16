@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -26,15 +27,15 @@ type mprisBackend struct {
 func newMPRISBackend(driver Driver) (*mprisBackend, error) {
 	conn, err := dbus.SessionBusPrivate()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newMPRISBackend: %w", err)
 	}
 	if err := conn.Auth(nil); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("newMPRISBackend auth: %w", err)
 	}
 	if err := conn.Hello(); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("newMPRISBackend hello: %w", err)
 	}
 	return &mprisBackend{driver: driver, conn: conn}, nil
 }
@@ -45,7 +46,7 @@ func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("exec: %w", err)
 	}
 
 	b.mu.Lock()

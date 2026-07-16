@@ -22,12 +22,12 @@ func New(dataDir string, stripEmojis bool, recommendedMaxAgeDays int) (*DB, erro
 	path := filepath.Join(dataDir, "yt-tui.db")
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("New open: %w", err)
 	}
 	// Single connection serializes all writes; prevents SQLITE_BUSY from concurrent goroutines.
 	sqlDB.SetMaxOpenConns(1)
 	if _, err := sqlDB.ExecContext(context.Background(), `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("New pragma: %w", err)
 	}
 	d := &DB{sql: sqlDB}
 	if err := d.migrate(); err != nil {
@@ -55,7 +55,10 @@ func New(dataDir string, stripEmojis bool, recommendedMaxAgeDays int) (*DB, erro
 
 // Close closes the underlying SQLite connection.
 func (d *DB) Close() error {
-	return d.sql.Close()
+	if err := d.sql.Close(); err != nil {
+		return fmt.Errorf("DB.Close: %w", err)
+	}
+	return nil
 }
 
 // versionedMigrations is an ordered list of one-time data migrations. To add a new
@@ -71,19 +74,23 @@ var versionedMigrations = []struct {
 		version: 1,
 		run: func(db *sql.DB) error {
 			ctx := context.Background()
-			_, err := db.ExecContext(ctx, `UPDATE history SET event_type = 'playVideo' WHERE event_type = 'play'`)
-			return err
+			if _, err := db.ExecContext(ctx, `UPDATE history SET event_type = 'playVideo' WHERE event_type = 'play'`); err != nil {
+				return fmt.Errorf("migration v1: %w", err)
+			}
+			return nil
 		},
 	},
 	{
 		version: 2,
 		run: func(db *sql.DB) error {
 			ctx := context.Background()
-			_, err := db.ExecContext(ctx, `
+			if _, err := db.ExecContext(ctx, `
 				INSERT OR IGNORE INTO video_positions (video_id, position_ms)
 				SELECT id, last_position_ms FROM local_videos WHERE last_position_ms > 0
-			`)
-			return err
+			`); err != nil {
+				return fmt.Errorf("migration v2: %w", err)
+			}
+			return nil
 		},
 	},
 	{
@@ -92,7 +99,7 @@ var versionedMigrations = []struct {
 		version: 3,
 		run: func(db *sql.DB) error {
 			ctx := context.Background()
-			_, err := db.ExecContext(ctx, `
+			if _, err := db.ExecContext(ctx, `
 				CREATE TABLE video_positions_new (
 					video_id    TEXT PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
 					position_ms INTEGER NOT NULL DEFAULT 0,
@@ -104,8 +111,10 @@ var versionedMigrations = []struct {
 					WHERE video_id IN (SELECT id FROM videos);
 				DROP TABLE video_positions;
 				ALTER TABLE video_positions_new RENAME TO video_positions;
-			`)
-			return err
+			`); err != nil {
+				return fmt.Errorf("migration v3: %w", err)
+			}
+			return nil
 		},
 	},
 	{
@@ -114,7 +123,7 @@ var versionedMigrations = []struct {
 		version: 4,
 		run: func(db *sql.DB) error {
 			ctx := context.Background()
-			_, err := db.ExecContext(ctx, `
+			if _, err := db.ExecContext(ctx, `
 				CREATE TABLE history_new (
 					id         INTEGER PRIMARY KEY AUTOINCREMENT,
 					video_id   TEXT REFERENCES videos(id) ON DELETE CASCADE,
@@ -133,8 +142,10 @@ var versionedMigrations = []struct {
 				ALTER TABLE history_new RENAME TO history;
 				CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
 				CREATE INDEX IF NOT EXISTS idx_history_video ON history(video_id);
-			`)
-			return err
+			`); err != nil {
+				return fmt.Errorf("migration v4: %w", err)
+			}
+			return nil
 		},
 	},
 }
@@ -143,7 +154,7 @@ func (d *DB) runVersionedMigrations() error {
 	ctx := context.Background()
 	var current int
 	if err := d.sql.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&current); err != nil {
-		return err
+		return fmt.Errorf("runVersionedMigrations read version: %w", err)
 	}
 	for _, m := range versionedMigrations {
 		if m.version <= current {
@@ -153,7 +164,7 @@ func (d *DB) runVersionedMigrations() error {
 			return err
 		}
 		if _, err := d.sql.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, m.version)); err != nil {
-			return err
+			return fmt.Errorf("runVersionedMigrations set version %d: %w", m.version, err)
 		}
 	}
 	return nil
@@ -166,7 +177,7 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 	ctx := context.Background()
 	rows, err := d.sql.QueryContext(ctx, `PRAGMA table_info(video_details_cache)`)
 	if err != nil {
-		return err
+		return fmt.Errorf("checkAndClearCacheIfChanged query: %w", err)
 	}
 	var parts []string
 	for rows.Next() {
@@ -176,7 +187,7 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 		var dflt interface{}
 		if err = rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
 			rows.Close()
-			return err
+			return fmt.Errorf("checkAndClearCacheIfChanged scan: %w", err)
 		}
 		parts = append(parts, name+":"+colType)
 	}
@@ -186,16 +197,18 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 	var stored string
 	err = d.sql.QueryRowContext(ctx, `SELECT value FROM meta WHERE key='cache_schema'`).Scan(&stored)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		return fmt.Errorf("checkAndClearCacheIfChanged read schema: %w", err)
 	}
 	if fingerprint == stored {
 		return nil
 	}
 	if _, err = d.sql.ExecContext(ctx, `DELETE FROM video_details_cache`); err != nil {
-		return err
+		return fmt.Errorf("checkAndClearCacheIfChanged delete: %w", err)
 	}
-	_, err = d.sql.ExecContext(ctx, `INSERT OR REPLACE INTO meta (key, value) VALUES ('cache_schema', ?)`, fingerprint)
-	return err
+	if _, err = d.sql.ExecContext(ctx, `INSERT OR REPLACE INTO meta (key, value) VALUES ('cache_schema', ?)`, fingerprint); err != nil {
+		return fmt.Errorf("checkAndClearCacheIfChanged update schema: %w", err)
+	}
+	return nil
 }
 
 func (d *DB) migrate() error {
@@ -270,7 +283,7 @@ func (d *DB) migrate() error {
 		);
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("migrate schema: %w", err)
 	}
 	// Columns added after initial schema; safe to ignore "duplicate column" errors.
 	for _, col := range []string{
@@ -286,7 +299,7 @@ func (d *DB) migrate() error {
 		`ALTER TABLE subscribed_channels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err = d.sql.ExecContext(ctx, col); err != nil && !isColumnExists(err) {
-			return err
+			return fmt.Errorf("migrate alter: %w", err)
 		}
 	}
 	// Tables added after initial schema.
@@ -345,7 +358,7 @@ func (d *DB) migrate() error {
 		)`,
 	} {
 		if _, err = d.sql.ExecContext(ctx, stmt); err != nil {
-			return err
+			return fmt.Errorf("migrate create table: %w", err)
 		}
 	}
 	return nil
@@ -362,7 +375,7 @@ func (d *DB) cleanEmojiTitles() error {
 	for _, t := range targets {
 		rows, err := d.sql.QueryContext(ctx, "SELECT "+t.idCol+", "+t.titleCol+" FROM "+t.table)
 		if err != nil {
-			return err
+			return fmt.Errorf("cleanEmojiTitles query %s: %w", t.table, err)
 		}
 		type row struct{ id, title string }
 		var updates []row
@@ -370,7 +383,7 @@ func (d *DB) cleanEmojiTitles() error {
 			var r row
 			if err := rows.Scan(&r.id, &r.title); err != nil {
 				rows.Close()
-				return err
+				return fmt.Errorf("cleanEmojiTitles scan %s: %w", t.table, err)
 			}
 			if clean := youtube.StripEmojis(r.title); clean != r.title {
 				updates = append(updates, row{r.id, clean})
@@ -379,7 +392,7 @@ func (d *DB) cleanEmojiTitles() error {
 		rows.Close()
 		for _, u := range updates {
 			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", u.title, u.id); err != nil {
-				return err
+				return fmt.Errorf("cleanEmojiTitles update %s: %w", t.table, err)
 			}
 		}
 	}
@@ -400,7 +413,7 @@ func (d *DB) deleteMemberVideos() error {
 		`DELETE FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos)`,
 	} {
 		if _, err := d.sql.ExecContext(ctx, stmt); err != nil {
-			return err
+			return fmt.Errorf("deleteMemberVideos: %w", err)
 		}
 	}
 	return nil

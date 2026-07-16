@@ -5,6 +5,7 @@ package sys
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 )
@@ -21,11 +22,14 @@ func EditorCommand(path string) *exec.Cmd {
 	if editor == "" {
 		editor = "vi"
 	}
-	return exec.CommandContext(context.Background(), editor, path)
+	return exec.CommandContext(context.Background(), editor, path) //nolint:gosec // $EDITOR is user-controlled by design
 }
 
 // OpenURL launches the URL in the desktop's default handler via xdg-open,
 // without waiting for it to exit.
 func OpenURL(url string) error {
-	return exec.CommandContext(context.Background(), "xdg-open", url).Start()
+	if err := exec.CommandContext(context.Background(), "xdg-open", url).Start(); err != nil {
+		return fmt.Errorf("OpenURL: %w", err)
+	}
+	return nil
 }
