@@ -335,6 +335,13 @@ func (p *InProc) ReportPosition(_ context.Context, videoID string, posMs int64) 
 	return p.db.SaveVideoPosition(videoID, posMs)
 }
 
+func (p *InProc) ResolveSource(_ context.Context, videoID, fallbackURL string) (PlayableSource, error) {
+	if lv, ok := p.db.HasLocalVideo(videoID); ok && lv.FilePath != "" {
+		return PlayableSource{URI: lv.FilePath}, nil
+	}
+	return PlayableSource{URI: fallbackURL}, nil
+}
+
 // ── Download queue ────────────────────────────────────────────────────────────
 
 func (p *InProc) Enqueue(_ context.Context, video domain.Video, audioOnly bool) error {

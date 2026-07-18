@@ -165,6 +165,9 @@ const (
 	// VideoServiceReportPositionProcedure is the fully-qualified name of the VideoService's
 	// ReportPosition RPC.
 	VideoServiceReportPositionProcedure = "/backend.v1.VideoService/ReportPosition"
+	// VideoServiceResolveSourceProcedure is the fully-qualified name of the VideoService's
+	// ResolveSource RPC.
+	VideoServiceResolveSourceProcedure = "/backend.v1.VideoService/ResolveSource"
 	// LibraryServiceLocalVideosProcedure is the fully-qualified name of the LibraryService's
 	// LocalVideos RPC.
 	LibraryServiceLocalVideosProcedure = "/backend.v1.LibraryService/LocalVideos"
@@ -1065,6 +1068,7 @@ type VideoServiceClient interface {
 	DeleteVideoPosition(context.Context, *connect.Request[v1.DeleteVideoPositionRequest]) (*connect.Response[v1.DeleteVideoPositionResponse], error)
 	UpdateLastPosition(context.Context, *connect.Request[v1.UpdateLastPositionRequest]) (*connect.Response[v1.UpdateLastPositionResponse], error)
 	ReportPosition(context.Context, *connect.Request[v1.ReportPositionRequest]) (*connect.Response[v1.ReportPositionResponse], error)
+	ResolveSource(context.Context, *connect.Request[v1.ResolveSourceRequest]) (*connect.Response[v1.ResolveSourceResponse], error)
 }
 
 // NewVideoServiceClient constructs a client for the backend.v1.VideoService service. By default, it
@@ -1168,6 +1172,12 @@ func NewVideoServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(videoServiceMethods.ByName("ReportPosition")),
 			connect.WithClientOptions(opts...),
 		),
+		resolveSource: connect.NewClient[v1.ResolveSourceRequest, v1.ResolveSourceResponse](
+			httpClient,
+			baseURL+VideoServiceResolveSourceProcedure,
+			connect.WithSchema(videoServiceMethods.ByName("ResolveSource")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1188,6 +1198,7 @@ type videoServiceClient struct {
 	deleteVideoPosition    *connect.Client[v1.DeleteVideoPositionRequest, v1.DeleteVideoPositionResponse]
 	updateLastPosition     *connect.Client[v1.UpdateLastPositionRequest, v1.UpdateLastPositionResponse]
 	reportPosition         *connect.Client[v1.ReportPositionRequest, v1.ReportPositionResponse]
+	resolveSource          *connect.Client[v1.ResolveSourceRequest, v1.ResolveSourceResponse]
 }
 
 // VideoDetails calls backend.v1.VideoService.VideoDetails.
@@ -1265,6 +1276,11 @@ func (c *videoServiceClient) ReportPosition(ctx context.Context, req *connect.Re
 	return c.reportPosition.CallUnary(ctx, req)
 }
 
+// ResolveSource calls backend.v1.VideoService.ResolveSource.
+func (c *videoServiceClient) ResolveSource(ctx context.Context, req *connect.Request[v1.ResolveSourceRequest]) (*connect.Response[v1.ResolveSourceResponse], error) {
+	return c.resolveSource.CallUnary(ctx, req)
+}
+
 // VideoServiceHandler is an implementation of the backend.v1.VideoService service.
 type VideoServiceHandler interface {
 	VideoDetails(context.Context, *connect.Request[v1.VideoDetailsRequest]) (*connect.Response[v1.VideoDetailsResponse], error)
@@ -1282,6 +1298,7 @@ type VideoServiceHandler interface {
 	DeleteVideoPosition(context.Context, *connect.Request[v1.DeleteVideoPositionRequest]) (*connect.Response[v1.DeleteVideoPositionResponse], error)
 	UpdateLastPosition(context.Context, *connect.Request[v1.UpdateLastPositionRequest]) (*connect.Response[v1.UpdateLastPositionResponse], error)
 	ReportPosition(context.Context, *connect.Request[v1.ReportPositionRequest]) (*connect.Response[v1.ReportPositionResponse], error)
+	ResolveSource(context.Context, *connect.Request[v1.ResolveSourceRequest]) (*connect.Response[v1.ResolveSourceResponse], error)
 }
 
 // NewVideoServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1381,6 +1398,12 @@ func NewVideoServiceHandler(svc VideoServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(videoServiceMethods.ByName("ReportPosition")),
 		connect.WithHandlerOptions(opts...),
 	)
+	videoServiceResolveSourceHandler := connect.NewUnaryHandler(
+		VideoServiceResolveSourceProcedure,
+		svc.ResolveSource,
+		connect.WithSchema(videoServiceMethods.ByName("ResolveSource")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/backend.v1.VideoService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case VideoServiceVideoDetailsProcedure:
@@ -1413,6 +1436,8 @@ func NewVideoServiceHandler(svc VideoServiceHandler, opts ...connect.HandlerOpti
 			videoServiceUpdateLastPositionHandler.ServeHTTP(w, r)
 		case VideoServiceReportPositionProcedure:
 			videoServiceReportPositionHandler.ServeHTTP(w, r)
+		case VideoServiceResolveSourceProcedure:
+			videoServiceResolveSourceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1480,6 +1505,10 @@ func (UnimplementedVideoServiceHandler) UpdateLastPosition(context.Context, *con
 
 func (UnimplementedVideoServiceHandler) ReportPosition(context.Context, *connect.Request[v1.ReportPositionRequest]) (*connect.Response[v1.ReportPositionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.VideoService.ReportPosition is not implemented"))
+}
+
+func (UnimplementedVideoServiceHandler) ResolveSource(context.Context, *connect.Request[v1.ResolveSourceRequest]) (*connect.Response[v1.ResolveSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.VideoService.ResolveSource is not implemented"))
 }
 
 // LibraryServiceClient is a client for the backend.v1.LibraryService service.

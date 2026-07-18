@@ -48,6 +48,12 @@ type DownloadItem struct {
 	Err       error
 }
 
+// PlayableSource is returned by ResolveSource. URI is either an absolute file
+// path (co-located InProc with a downloaded file) or an http[s]:// URL.
+type PlayableSource struct {
+	URI string
+}
+
 // Backend is the contract between the TUI and the data layer.
 // InProc implements it by calling db/youtube/downloader directly.
 type Backend interface {
@@ -125,6 +131,12 @@ type Backend interface {
 	ClearDownloads(ctx context.Context) ([]string, error)
 	PurgeFeedCacheMissingChannelID(ctx context.Context, feed string) error
 	SaveFeedCache(ctx context.Context, feed string, videos []domain.Video) error
+
+	// ── Source resolution (returns a playable URI: local file path or HTTP URL) ───
+	// videoID is used to check for a locally-downloaded file; fallbackURL is the
+	// YouTube URL used when no local file exists so the player can handle streaming.
+	// In remote mode the daemon returns an authenticated /media/{id} URL for downloads.
+	ResolveSource(ctx context.Context, videoID, fallbackURL string) (PlayableSource, error)
 
 	// ── Playback position (client reports position back to daemon for resume tracking) ──
 	ReportPosition(ctx context.Context, videoID string, posMs int64) error

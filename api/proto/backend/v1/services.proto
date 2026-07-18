@@ -191,6 +191,12 @@ message UpdateLastPositionResponse {}
 message ReportPositionRequest { string video_id = 1; int64 position_ms = 2; }
 message ReportPositionResponse {}
 
+message ResolveSourceRequest {
+  string video_id = 1;
+  string fallback_url = 2;
+}
+message ResolveSourceResponse { string uri = 1; }
+
 service VideoService {
   rpc VideoDetails(VideoDetailsRequest) returns (VideoDetailsResponse);
   rpc GetVideoDetailsCache(GetVideoDetailsCacheRequest) returns (GetVideoDetailsCacheResponse);
@@ -207,6 +213,7 @@ service VideoService {
   rpc DeleteVideoPosition(DeleteVideoPositionRequest) returns (DeleteVideoPositionResponse);
   rpc UpdateLastPosition(UpdateLastPositionRequest) returns (UpdateLastPositionResponse);
   rpc ReportPosition(ReportPositionRequest) returns (ReportPositionResponse);
+  rpc ResolveSource(ResolveSourceRequest) returns (ResolveSourceResponse);
 }
 
 // ── LibraryService ────────────────────────────────────────────────────────────

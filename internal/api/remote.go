@@ -14,6 +14,7 @@ import (
 
 // Remote implements Backend by dialing a yt-tuid daemon over Connect (HTTP/2 or HTTP/1.1).
 type Remote struct {
+	baseURL  string
 	feed     backendv1connect.FeedServiceClient
 	ch       backendv1connect.ChannelServiceClient
 	vid      backendv1connect.VideoServiceClient
@@ -23,10 +24,35 @@ type Remote struct {
 	dl       backendv1connect.DownloadServiceClient
 }
 
-// NewRemote dials baseURL (e.g. "http://localhost:7373") with the given HTTP client.
-// Pass http.DefaultClient for plain HTTP; supply a TLS-configured client for remote use.
-func NewRemote(baseURL string, httpClient *http.Client) *Remote {
+// authTransport injects a bearer token into every outbound request.
+type authTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (a authTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if a.token != "" {
+		r = r.Clone(r.Context())
+		r.Header.Set("Authorization", "Bearer "+a.token)
+	}
+	return a.base.RoundTrip(r)
+}
+
+// NewRemote dials baseURL (e.g. "http://localhost:7373") with the given HTTP client and
+// optional bearer token. Pass token="" for unauthenticated connections.
+func NewRemote(baseURL, token string, httpClient *http.Client) *Remote {
+	base := httpClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if token != "" {
+		httpClient = &http.Client{
+			Transport: authTransport{base: base, token: token},
+			Timeout:   httpClient.Timeout,
+		}
+	}
 	return &Remote{
+		baseURL:  baseURL,
 		feed:     backendv1connect.NewFeedServiceClient(httpClient, baseURL),
 		ch:       backendv1connect.NewChannelServiceClient(httpClient, baseURL),
 		vid:      backendv1connect.NewVideoServiceClient(httpClient, baseURL),
@@ -548,6 +574,14 @@ func (r *Remote) Unsubscribe(ctx context.Context, ch domain.Channel) error {
 func (r *Remote) ReportPosition(ctx context.Context, videoID string, posMs int64) error {
 	_, err := r.vid.ReportPosition(ctx, connect.NewRequest(&v1.ReportPositionRequest{VideoId: videoID, PositionMs: posMs}))
 	return err
+}
+
+func (r *Remote) ResolveSource(ctx context.Context, videoID, fallbackURL string) (PlayableSource, error) {
+	resp, err := r.vid.ResolveSource(ctx, connect.NewRequest(&v1.ResolveSourceRequest{VideoId: videoID, FallbackUrl: fallbackURL}))
+	if err != nil {
+		return PlayableSource{}, err
+	}
+	return PlayableSource{URI: resp.Msg.Uri}, nil
 }
 
 // ── Download queue ────────────────────────────────────────────────────────────
