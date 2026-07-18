@@ -11,11 +11,11 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/nav"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -23,49 +23,43 @@ import (
 
 const ytWatchLaterID = "WL"
 
-// plCreateStage tracks the inline playlist-creation flow.
 type plCreateStage int
 
 const (
 	plCreateNone        plCreateStage = iota
-	plCreateTypeSelect                // picking local vs YT
-	plCreateNameInput                 // typing playlist name
+	plCreateTypeSelect
+	plCreateNameInput
 )
 
-// ── tab-private messages ──────────────────────────────────────────────────────
-
 type plLocalLoadedMsg struct{ playlists []domain.Playlist }
-
 type plYTLoadedMsg struct {
 	playlists  []domain.YTPlaylist
 	err        error
 	background bool
 }
-
 type plVideosLoadedMsg struct {
 	playlistID string
 	videos     []domain.Video
 	err        error
 }
-
 type plYTCreatedMsg struct {
 	name string
 	id   string
 	err  error
 }
-
 type plLocalCreatedMsg struct {
 	name string
 	id   int64
 	err  error
 }
-
 type plDeletedMsg struct{ err error }
 type plRemovedMsg struct{ err error }
+type plAuxLoadedMsg struct {
+	positions   map[string]int64
+	watched     map[string]bool
+	localStatus map[string]domain.VideoStatus
+}
 
-// ── Playlists ─────────────────────────────────────────────────────────────────
-
-// Playlists is the Playlists tab: two panes — playlist list and per-playlist video list.
 type Playlists struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
@@ -80,20 +74,23 @@ type Playlists struct {
 
 	vidCache   map[string][]domain.Video
 	vidLoading bool
+	vidSort    int
 
-	cursor    int
-	vs        int
-	vidCursor int
-	vidVS     int
-	pane      int // 0 = playlist list, 1 = video list
-	vidSort   int // feed.Sort* constant
+	positions   map[string]int64
+	watched     map[string]bool
+	localStatus map[string]domain.VideoStatus
+
+	pane int // 0 = playlist list, 1 = video list
 
 	createStage   plCreateStage
-	createTypeSel int // 0 = local, 1 = YT
+	createTypeSel int
 	createModeYT  bool
 	createInput   textinput.Model
 
-	spinner spinner.Model
+	spinner  spinner.Model
+	plTable  table.Model
+	vidTable table.Model
+	numBuf   string
 }
 
 func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playlists {
@@ -106,20 +103,18 @@ func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playli
 		vidCache:    make(map[string][]domain.Video),
 		spinner:     spinner.New(),
 		createInput: ti,
+		plTable:     newTable(),
+		vidTable:    newTable(),
 	}
 }
-
-// ── tui.Tab interface ─────────────────────────────────────────────────────────
 
 func (t Playlists) ID() tuipkg.TabID          { return tuipkg.TabPlaylists }
 func (t Playlists) Title() string             { return "Playlists" }
 func (t Playlists) ShortHelp() []key.Binding { return nil }
 func (t Playlists) InterceptsInput() bool     { return t.createStage == plCreateNameInput }
 
-// ── tea.Model ─────────────────────────────────────────────────────────────────
-
 func (t Playlists) Init() tea.Cmd {
-	return tea.Batch(t.localLoadCmd(), t.ytLoadCmd(false), t.spinner.Tick)
+	return tea.Batch(t.localLoadCmd(), t.ytLoadCmd(false), t.plAuxLoadCmd(), t.spinner.Tick)
 }
 
 func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -127,6 +122,11 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
+		t.plTable.SetColumns(t.plColumns())
+		t.plTable.SetHeight(t.plTableHeight())
+		t.plTable.SetRows(t.toPlaylistRows())
+		t.vidTable.SetColumns(computeVideoColumns(t.width, false))
+		t.vidTable.SetHeight(t.height - 4)
 
 	case spinner.TickMsg:
 		if t.ytPlLoading || t.vidLoading {
@@ -137,6 +137,7 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case plLocalLoadedMsg:
 		t.localPlaylists = m.playlists
+		t.plTable.SetRows(t.toPlaylistRows())
 
 	case plYTLoadedMsg:
 		t.ytPlLoading = false
@@ -151,6 +152,7 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.ytPlaylists = m.playlists
 			t.vidCache = make(map[string][]domain.Video)
 		}
+		t.plTable.SetRows(t.toPlaylistRows())
 
 	case plVideosLoadedMsg:
 		t.vidLoading = false
@@ -163,22 +165,29 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vids := m.videos
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[m.playlistID] = vids
+		t.vidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, false))
+
+	case plAuxLoadedMsg:
+		t.positions = m.positions
+		t.watched = m.watched
+		t.localStatus = m.localStatus
+
+	case tuipkg.RefreshPositionsMsg:
+		return t, t.plAuxLoadCmd()
 
 	case plYTCreatedMsg:
 		if m.err != nil {
 			return t, errMsg("create playlist: " + m.err.Error())
 		}
 		t.ytPlaylists = append(t.ytPlaylists, domain.YTPlaylist{ID: m.id, Title: m.name})
+		t.plTable.SetRows(t.toPlaylistRows())
 		return t, statusMsg("Created playlist: " + m.name)
 
 	case plLocalCreatedMsg:
 		if m.err != nil {
 			return t, errMsg("create playlist: " + m.err.Error())
 		}
-		return t, tea.Batch(
-			t.localLoadCmd(),
-			statusMsg("Created playlist: "+m.name),
-		)
+		return t, tea.Batch(t.localLoadCmd(), statusMsg("Created playlist: "+m.name))
 
 	case plDeletedMsg:
 		if m.err != nil {
@@ -213,8 +222,8 @@ func (t Playlists) View() string {
 			opt1 = styles.Selected.Render("▶ YouTube playlist")
 		}
 		prompt := styles.Bold.Render("New playlist: ") + "\n" + opt0 + "\n" + opt1
-		body := t.renderPlaylistRows(bodyH-3) + "\n\n\n"
-		return lipgloss.JoinVertical(lipgloss.Left, header, body+prompt)
+		return lipgloss.JoinVertical(lipgloss.Left, header,
+			t.plTable.View()+"\n\n\n"+prompt)
 
 	case plCreateNameInput:
 		label := "New local playlist: "
@@ -222,34 +231,41 @@ func (t Playlists) View() string {
 			label = "New YouTube playlist: "
 		}
 		prompt := styles.Bold.Render(label) + t.createInput.View()
-		body := t.renderPlaylistRows(bodyH-2) + "\n\n"
-		return lipgloss.JoinVertical(lipgloss.Left, header, body+prompt)
+		return lipgloss.JoinVertical(lipgloss.Left, header,
+			t.plTable.View()+"\n\n"+prompt)
 	}
 
-	if t.pane == 1 && t.cursor < t.plCount() {
-		plName := t.selectedPlaylistName()
-		subHeader := styles.SectionTitle.Render("← " + plName)
-		subH := lipgloss.Height(subHeader)
-
+	if t.pane == 1 && t.plTable.Cursor() < t.plCount() {
+		subHeader := styles.SectionTitle.Render("← " + t.selectedPlaylistName())
 		plKey := t.selectedPlaylistKey()
 		vids := t.vidCache[plKey]
 		var body string
 		switch {
 		case len(vids) > 0:
-			ctx := VideoListCtx{Width: t.width}
-			body = renderVideoRows(ctx, vids, t.vidCursor, t.vidVS, bodyH-subH)
+			body = t.vidTable.View()
 		case t.vidLoading:
 			body = t.spinner.View() + " Loading from YouTube…"
 		default:
 			body = styles.Dim.Render("Empty playlist.")
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, header, subHeader, body)
+		parts := []string{header, subHeader, body}
+		if t.numBuf != "" {
+			parts = append(parts, gotoLineView(t.numBuf))
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, t.renderPlaylistRows(bodyH))
+	body := t.plTable.View()
+	if t.ytPlLoading {
+		body += "\n" + styles.Dim.Render("  "+t.spinner.View()+" syncing playlists…")
+	}
+	parts := []string{header, body}
+	_ = bodyH
+	if t.numBuf != "" {
+		parts = append(parts, gotoLineView(t.numBuf))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
-
-// ── key handling ──────────────────────────────────────────────────────────────
 
 func (t Playlists) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch t.createStage {
@@ -258,30 +274,63 @@ func (t Playlists) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case plCreateNameInput:
 		return t.handleNameInput(msg)
 	}
-	if t.pane == 1 {
-		return t.handleVideoPaneKey(msg)
+
+	if checkGotoNum(&t.numBuf, msg) {
+		return t, nil
 	}
-	return t.handleListPaneKey(msg)
+	numBuf := t.numBuf
+	t.numBuf = ""
+
+	keys := t.keys
+	if key.Matches(msg, keys.GotoLine) {
+		tbl := &t.plTable
+		if t.pane == 1 {
+			tbl = &t.vidTable
+		}
+		if numBuf != "" {
+			applyGoto(numBuf, tbl)
+		} else {
+			tbl.GotoBottom()
+		}
+		return t, nil
+	}
+
+	if t.pane == 1 {
+		return t.handleVideoPaneKey(msg, numBuf)
+	}
+	return t.handleListPaneKey(msg, numBuf)
 }
 
-func (t Playlists) handleListPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := t.plCount()
+func (t Playlists) handleListPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
-	pageH := t.pageHeight()
+	n := t.plCount()
 
 	switch {
 	case key.Matches(msg, keys.Up):
-		t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, -1, pageH, t.circular)
-
+		if t.circular && n > 0 && t.plTable.Cursor() == 0 {
+			t.plTable.GotoBottom()
+		} else {
+			t.plTable.MoveUp(1)
+		}
 	case key.Matches(msg, keys.Down):
-		t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, +1, pageH, t.circular)
+		if t.circular && n > 0 && t.plTable.Cursor() == n-1 {
+			t.plTable.GotoTop()
+		} else {
+			t.plTable.MoveDown(1)
+		}
+	case key.Matches(msg, keys.PageUp):
+		t.plTable.MoveUp(t.plTable.Height())
+	case key.Matches(msg, keys.PageDown):
+		t.plTable.MoveDown(t.plTable.Height())
+	case key.Matches(msg, keys.GotoBottom):
+		t.plTable.GotoBottom()
 
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-		if t.cursor < n {
+		if t.plTable.Cursor() < n {
 			plKey := t.selectedPlaylistKey()
 			t.pane = 1
-			t.vidCursor, t.vidVS = 0, 0
-			if t.ytPlLoaded && t.cursor < len(t.ytPlaylists) {
+			t.vidTable.GotoTop()
+			if t.ytPlLoaded && t.plTable.Cursor() < len(t.ytPlaylists) {
 				if _, ok := t.vidCache[plKey]; !ok {
 					t.vidLoading = true
 				}
@@ -295,11 +344,13 @@ func (t Playlists) handleListPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if t.ytPlLoaded {
 			t.createTypeSel = 0
 			t.createStage = plCreateTypeSelect
+			t.plTable.SetHeight(t.plTableHeight())
 		} else {
 			t.createModeYT = false
 			t.createInput.SetValue("")
 			t.createInput.Focus()
 			t.createStage = plCreateNameInput
+			t.plTable.SetHeight(t.plTableHeight())
 			return t, textinput.Blink
 		}
 
@@ -309,12 +360,18 @@ func (t Playlists) handleListPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Delete):
 		return t.deleteSelected()
+
+	case key.Matches(msg, keys.Escape):
+		if numBuf != "" {
+			return t, nil
+		}
 	}
+	_ = numBuf
 	return t, nil
 }
 
-func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if t.cursor >= t.plCount() {
+func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
+	if t.plTable.Cursor() >= t.plCount() {
 		t.pane = 0
 		return t, nil
 	}
@@ -322,66 +379,66 @@ func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	plKey := t.selectedPlaylistKey()
 	vids := t.vidCache[plKey]
 	n := len(vids)
-	pageH := t.pageHeight()
 
 	switch {
 	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
+		if numBuf != "" {
+			return t, nil
+		}
 		t.pane = 0
-
 	case key.Matches(msg, keys.Up):
-		t.vidCursor, t.vidVS = nav.Move(t.vidCursor, t.vidVS, n, -1, pageH, t.circular)
-
+		if t.circular && n > 0 && t.vidTable.Cursor() == 0 {
+			t.vidTable.GotoBottom()
+		} else {
+			t.vidTable.MoveUp(1)
+		}
 	case key.Matches(msg, keys.Down):
-		t.vidCursor, t.vidVS = nav.Move(t.vidCursor, t.vidVS, n, +1, pageH, t.circular)
-
+		if t.circular && n > 0 && t.vidTable.Cursor() == n-1 {
+			t.vidTable.GotoTop()
+		} else {
+			t.vidTable.MoveDown(1)
+		}
 	case key.Matches(msg, keys.PageUp):
-		t.vidCursor, t.vidVS = nav.Page(t.vidCursor, t.vidVS, n, -1, pageH, t.circular)
-
+		t.vidTable.MoveUp(t.vidTable.Height())
 	case key.Matches(msg, keys.PageDown):
-		t.vidCursor, t.vidVS = nav.Page(t.vidCursor, t.vidVS, n, +1, pageH, t.circular)
+		t.vidTable.MoveDown(t.vidTable.Height())
+	case key.Matches(msg, keys.GotoBottom):
+		t.vidTable.GotoBottom()
 
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Play):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
 		}
-
 	case key.Matches(msg, keys.PlayAudio):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v, AudioOnly: true} }
 		}
-
 	case key.Matches(msg, keys.Download):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v} }
 		}
-
 	case key.Matches(msg, keys.DownloadAudio):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v, AudioOnly: true} }
 		}
-
 	case key.Matches(msg, keys.CopyURL):
-		if t.vidCursor < len(vids) {
-			url := vids[t.vidCursor].URL
-			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: url} }
+		if t.vidTable.Cursor() < len(vids) {
+			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: vids[t.vidTable.Cursor()].URL} }
 		}
-
 	case key.Matches(msg, keys.VideoInfo):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
 		}
-
 	case key.Matches(msg, keys.AddList):
-		if t.vidCursor < len(vids) {
-			v := vids[t.vidCursor]
+		if t.vidTable.Cursor() < len(vids) {
+			v := vids[t.vidTable.Cursor()]
 			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 		}
-
 	case key.Matches(msg, keys.Delete):
 		return t.removeCurrentVideo(plKey, vids)
 	}
@@ -402,9 +459,11 @@ func (t Playlists) handleTypeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.createInput.SetValue("")
 		t.createInput.Focus()
 		t.createStage = plCreateNameInput
+		t.plTable.SetHeight(t.plTableHeight())
 		return t, textinput.Blink
 	case key.Matches(msg, keys.Escape):
 		t.createStage = plCreateNone
+		t.plTable.SetHeight(t.plTableHeight())
 	}
 	return t, nil
 }
@@ -418,6 +477,7 @@ func (t Playlists) handleNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.createInput.Blur()
 		t.createStage = plCreateNone
 		t.createModeYT = false
+		t.plTable.SetHeight(t.plTableHeight())
 		if name == "" {
 			return t, nil
 		}
@@ -429,6 +489,7 @@ func (t Playlists) handleNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.createInput.Blur()
 		t.createStage = plCreateNone
 		t.createModeYT = false
+		t.plTable.SetHeight(t.plTableHeight())
 	default:
 		var cmd tea.Cmd
 		t.createInput, cmd = t.createInput.Update(msg)
@@ -437,23 +498,21 @@ func (t Playlists) handleNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-// ── action helpers ────────────────────────────────────────────────────────────
-
 func (t Playlists) deleteSelected() (Playlists, tea.Cmd) {
 	n := t.plCount()
-	if t.cursor >= n {
+	cursor := t.plTable.Cursor()
+	if cursor >= n {
 		return t, nil
 	}
 	plKey := t.selectedPlaylistKey()
 	if plKey == ytWatchLaterID {
 		return t, func() tea.Msg { return tuipkg.StatusMsg{Text: "Cannot delete Watch Later", IsErr: true} }
 	}
-	cursor := t.cursor
 	if t.ytPlLoaded && cursor < len(t.ytPlaylists) {
 		pl := t.ytPlaylists[cursor]
 		delete(t.vidCache, pl.ID)
 		t.ytPlaylists = append(t.ytPlaylists[:cursor], t.ytPlaylists[cursor+1:]...)
-		t.cursor, t.vs = nav.Move(plClamp(cursor, t.plCount()), t.vs, t.plCount(), 0, t.pageHeight(), false)
+		t.plTable.SetRows(t.toPlaylistRows())
 		id := pl.ID
 		return t, func() tea.Msg {
 			return plDeletedMsg{err: t.backend.DeleteYTPlaylist(context.Background(), id)}
@@ -469,7 +528,7 @@ func (t Playlists) deleteSelected() (Playlists, tea.Cmd) {
 	pl := t.localPlaylists[localIdx]
 	delete(t.vidCache, fmt.Sprintf("local:%d", pl.ID))
 	t.localPlaylists = append(t.localPlaylists[:localIdx], t.localPlaylists[localIdx+1:]...)
-	t.cursor, t.vs = nav.Move(plClamp(cursor, t.plCount()), t.vs, t.plCount(), 0, t.pageHeight(), false)
+	t.plTable.SetRows(t.toPlaylistRows())
 	id := pl.ID
 	return t, func() tea.Msg {
 		return plDeletedMsg{err: t.backend.DeletePlaylist(context.Background(), id)}
@@ -477,10 +536,11 @@ func (t Playlists) deleteSelected() (Playlists, tea.Cmd) {
 }
 
 func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playlists, tea.Cmd) {
-	if t.vidCursor >= len(vids) {
+	c := t.vidTable.Cursor()
+	if c >= len(vids) {
 		return t, nil
 	}
-	vid := vids[t.vidCursor]
+	vid := vids[c]
 	updated := make([]domain.Video, 0, len(vids)-1)
 	for _, v := range vids {
 		if v.ID != vid.ID {
@@ -488,7 +548,7 @@ func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playli
 		}
 	}
 	t.vidCache[plKey] = updated
-	t.vidCursor, t.vidVS = nav.Move(plClamp(t.vidCursor, len(updated)), t.vidVS, len(updated), 0, t.pageHeight(), false)
+	t.vidTable.SetRows(toVideoRows(updated, t.positions, t.watched, t.localStatus, false))
 
 	vidID := vid.ID
 	if localID := plLocalID(plKey); localID != 0 {
@@ -509,7 +569,7 @@ func (t *Playlists) scrollToPlaylist(m tuipkg.NavigateToPlaylistMsg) {
 		}
 		for i, pl := range t.localPlaylists {
 			if pl.ID == m.PlaylistLocalID {
-				t.cursor = offset + i
+				t.plTable.SetCursor(offset + i)
 				t.pane = 1
 				return
 			}
@@ -519,15 +579,13 @@ func (t *Playlists) scrollToPlaylist(m tuipkg.NavigateToPlaylistMsg) {
 	if m.PlaylistID != "" && t.ytPlLoaded {
 		for i, pl := range t.ytPlaylists {
 			if pl.ID == m.PlaylistID {
-				t.cursor = i
+				t.plTable.SetCursor(i)
 				t.pane = 1
 				return
 			}
 		}
 	}
 }
-
-// ── background commands ───────────────────────────────────────────────────────
 
 func (t Playlists) localLoadCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -555,10 +613,10 @@ func (t Playlists) ytVideosCmd(playlistID string) tea.Cmd {
 }
 
 func (t Playlists) localVideosCmd(playlistID int64) tea.Cmd {
-	key := fmt.Sprintf("local:%d", playlistID)
+	k := fmt.Sprintf("local:%d", playlistID)
 	return func() tea.Msg {
 		vids, err := t.backend.LocalPlaylistVideos(context.Background(), playlistID)
-		return plVideosLoadedMsg{playlistID: key, videos: vids, err: err}
+		return plVideosLoadedMsg{playlistID: k, videos: vids, err: err}
 	}
 }
 
@@ -576,39 +634,62 @@ func (t Playlists) createLocalPlaylistCmd(name string) tea.Cmd {
 	}
 }
 
-// ── render ────────────────────────────────────────────────────────────────────
-
-func (t Playlists) renderPlaylistRows(height int) string {
-	if height <= 0 {
-		return ""
-	}
-	n := t.plCount()
-	labelW := t.width - render.ColNum - 1 - 4
-	selW := t.width - render.ColNum - 1
-	if labelW < 10 {
-		labelW = 10
-	}
-
-	start, end := nav.Window(t.vs, n, height)
-	rows := make([]string, 0, end-start)
-	for i := start; i < end && i < n; i++ {
-		label := t.playlistLabel(i)
-		label = render.Truncate(label, labelW)
-		if i == t.cursor {
-			numStr := styles.RowNum.Background(styles.ColorBgSelect).Render(fmt.Sprintf("%*d ", render.ColNum, i+1))
-			rows = append(rows, numStr+styles.Selected.Width(selW).Render("▶ "+label))
-		} else {
-			numStr := styles.RowNum.Render(fmt.Sprintf("%*d ", render.ColNum, i+1))
-			rows = append(rows, numStr+"  "+label)
+func (t Playlists) plAuxLoadCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		positions, _ := t.backend.AllVideoPositions(ctx)
+		watched, _ := t.backend.WatchedVideoIDs(ctx)
+		localVids, _ := t.backend.LocalVideos(ctx)
+		localStatus := make(map[string]domain.VideoStatus, len(localVids))
+		for i := range localVids {
+			localStatus[localVids[i].ID] = localVids[i].Status
 		}
+		return plAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
 	}
-	if t.ytPlLoading {
-		rows = append(rows, styles.Dim.Render("  "+t.spinner.View()+" syncing playlists…"))
-	}
-	return strings.Join(rows, "\n")
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+func (t Playlists) plColumns() []table.Column {
+	nameW := t.width - render.ColNum
+	if nameW < 10 {
+		nameW = 10
+	}
+	return []table.Column{
+		{Title: "#", Width: render.ColNum},
+		{Title: "Name", Width: nameW},
+	}
+}
+
+func (t Playlists) toPlaylistRows() []table.Row {
+	n := t.plCount()
+	rows := make([]table.Row, n)
+	for i := 0; i < n; i++ {
+		rows[i] = table.Row{rowNum(i), t.playlistLabel(i)}
+	}
+	return rows
+}
+
+func (t Playlists) plTableHeight() int {
+	switch t.createStage {
+	case plCreateTypeSelect:
+		h := t.height - 2 - 4 // section title + 4 lines for type select prompt
+		if h < 1 {
+			return 1
+		}
+		return h
+	case plCreateNameInput:
+		h := t.height - 2 - 3
+		if h < 1 {
+			return 1
+		}
+		return h
+	default:
+		h := t.height - 2
+		if h < 1 {
+			return 1
+		}
+		return h
+	}
+}
 
 func (t Playlists) plCount() int {
 	if t.ytPlLoaded {
@@ -618,10 +699,11 @@ func (t Playlists) plCount() int {
 }
 
 func (t Playlists) selectedPlaylistKey() string {
-	if t.ytPlLoaded && t.cursor < len(t.ytPlaylists) {
-		return t.ytPlaylists[t.cursor].ID
+	cursor := t.plTable.Cursor()
+	if t.ytPlLoaded && cursor < len(t.ytPlaylists) {
+		return t.ytPlaylists[cursor].ID
 	}
-	localIdx := t.cursor
+	localIdx := cursor
 	if t.ytPlLoaded {
 		localIdx -= len(t.ytPlaylists)
 	}
@@ -632,10 +714,11 @@ func (t Playlists) selectedPlaylistKey() string {
 }
 
 func (t Playlists) selectedPlaylistName() string {
-	if t.ytPlLoaded && t.cursor < len(t.ytPlaylists) {
-		return t.ytPlaylists[t.cursor].Title
+	cursor := t.plTable.Cursor()
+	if t.ytPlLoaded && cursor < len(t.ytPlaylists) {
+		return t.ytPlaylists[cursor].Title
 	}
-	localIdx := t.cursor
+	localIdx := cursor
 	if t.ytPlLoaded {
 		localIdx -= len(t.ytPlaylists)
 	}
@@ -659,15 +742,6 @@ func (t Playlists) playlistLabel(i int) string {
 	return ""
 }
 
-func (t Playlists) pageHeight() int {
-	h := t.height - 2
-	if h < 1 {
-		return 1
-	}
-	return h
-}
-
-// plLocalID extracts the int64 DB id from a "local:<id>" cache key.
 func plLocalID(cacheKey string) int64 {
 	if !strings.HasPrefix(cacheKey, "local:") {
 		return 0
@@ -676,21 +750,7 @@ func plLocalID(cacheKey string) int64 {
 	return id
 }
 
-// plClamp returns v clamped to [0, max-1].
-func plClamp(v, max int) int {
-	if max <= 0 {
-		return 0
-	}
-	if v >= max {
-		return max - 1
-	}
-	if v < 0 {
-		return 0
-	}
-	return v
-}
 
-// ytPlaylistSetChanged reports whether two YT playlist lists differ by ID set.
 func ytPlaylistSetChanged(a, b []domain.YTPlaylist) bool {
 	if len(a) != len(b) {
 		return true
@@ -714,3 +774,4 @@ func statusMsg(text string) tea.Cmd {
 func errMsg(text string) tea.Cmd {
 	return func() tea.Msg { return tuipkg.StatusMsg{Text: text, IsErr: true} }
 }
+

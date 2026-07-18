@@ -12,17 +12,15 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/nav"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-// ── channel sort modes ────────────────────────────────────────────────────────
 
 const (
 	chSortDate     = 0
@@ -34,15 +32,11 @@ const (
 	chSortTags     = 6
 )
 
-// ── edit mode ─────────────────────────────────────────────────────────────────
-
 const (
 	chEditNone  = 0
 	chEditAlias = 1
 	chEditTags  = 2
 )
-
-// ── column widths ─────────────────────────────────────────────────────────────
 
 const (
 	colChName = 22
@@ -50,27 +44,25 @@ const (
 	colChTags = 14
 )
 
-// ── tab-private messages ──────────────────────────────────────────────────────
-
 type chsLoadedMsg struct {
 	chans     []domain.Channel
 	latest    map[string]domain.Video
 	subVideos []domain.Video
 }
-
 type chVideosCachedMsg struct {
 	channelID string
 	videos    []domain.Video
 }
-
 type chVideosFetchedMsg struct {
 	channelID string
 	videos    []domain.Video
 }
+type chAuxLoadedMsg struct {
+	positions   map[string]int64
+	watched     map[string]bool
+	localStatus map[string]domain.VideoStatus
+}
 
-// ── Channels ──────────────────────────────────────────────────────────────────
-
-// Channels is the Channels tab: subscribed-channel list with flat and tag modes.
 type Channels struct {
 	backend            api.Backend
 	keys               keymap.KeyMap
@@ -81,34 +73,33 @@ type Channels struct {
 
 	subs      channels.ChannelSet
 	chLatest  map[string]domain.Video
-	subVideos []domain.Video // all subscription videos for tag-mode filtering
+	subVideos []domain.Video
 	loading   bool
 	sortMode  int
 	spinner   spinner.Model
 
-	// flat mode
-	cursor        int
-	vs            int
-	pane          int // 0=channel list, 1=channel video pane
+	positions   map[string]int64
+	watched     map[string]bool
+	localStatus map[string]domain.VideoStatus
+
+	pane          int
 	chVideos      []domain.Video
 	chVidsLoading bool
 	chVidsRefresh bool
-	vidCursor     int
-	vidVS         int
 	activeChID    string
 	activeChURL   string
 
-	// tags mode
-	tagsMode     bool
-	tagCursor    int
-	tagVS        int
-	tagSel       string
-	tagVidCursor int
-	tagVidVS     int
+	tagsMode bool
+	tagSel   string
 
-	// inline alias/tags edit
 	editMode  int
 	editInput textinput.Model
+
+	chTable     table.Model
+	chVidTable  table.Model
+	tagTable    table.Model
+	tagVidTable table.Model
+	numBuf      string
 }
 
 func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channelLatestCount int) Channels {
@@ -120,22 +111,21 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		sortMode:           chSortDate,
 		spinner:            spinner.New(),
 		editInput:          textinput.New(),
+		chTable:            newTable(),
+		chVidTable:         newTable(),
+		tagTable:           newTable(),
+		tagVidTable:        newTable(),
 	}
 }
 
-// ── tui.Tab interface ─────────────────────────────────────────────────────────
-
-func (t Channels) ID() tuipkg.TabID { return tuipkg.TabChannels }
-func (t Channels) Title() string    { return "Channels" }
+func (t Channels) ID() tuipkg.TabID          { return tuipkg.TabChannels }
+func (t Channels) Title() string             { return "Channels" }
 func (t Channels) ShortHelp() []key.Binding { return nil }
-
-func (t Channels) InterceptsInput() bool { return t.editInput.Focused() }
-
-// ── tea.Model ─────────────────────────────────────────────────────────────────
+func (t Channels) InterceptsInput() bool     { return t.editInput.Focused() }
 
 func (t Channels) Init() tea.Cmd {
 	t.loading = true
-	return tea.Batch(t.chsLoadCmd(), t.spinner.Tick)
+	return tea.Batch(t.chsLoadCmd(), t.chAuxLoadCmd(), t.spinner.Tick)
 }
 
 func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -143,6 +133,17 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
+		t.chTable.SetColumns(t.chChannelColumns())
+		t.chTable.SetHeight(t.height - 2)
+		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+		t.chVidTable.SetColumns(computeVideoColumns(t.width, false))
+		t.chVidTable.SetHeight(t.height - 4)
+		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+		t.tagTable.SetColumns(t.chTagColumns())
+		t.tagTable.SetHeight(t.height - 2)
+		t.tagTable.SetRows(t.toTagRows())
+		t.tagVidTable.SetColumns(computeVideoColumns(t.width, true))
+		t.tagVidTable.SetHeight(t.height - 4)
 
 	case spinner.TickMsg:
 		if t.loading || t.chVidsLoading || t.chVidsRefresh {
@@ -156,12 +157,24 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.chLatest = m.latest
 		t.subVideos = m.subVideos
 		t.loading = false
+		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+		t.tagTable.SetRows(t.toTagRows())
+
+	case chAuxLoadedMsg:
+		t.positions = m.positions
+		t.watched = m.watched
+		t.localStatus = m.localStatus
+		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+
+	case tuipkg.RefreshPositionsMsg:
+		return t, t.chAuxLoadCmd()
 
 	case chVideosCachedMsg:
 		if m.channelID == t.activeChID {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = true
+			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
 			return t, t.chVideosFetchCmd()
 		}
 
@@ -170,6 +183,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = false
+			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
 		}
 
 	case tea.KeyMsg:
@@ -180,8 +194,6 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return t, nil
 }
-
-// ── View ──────────────────────────────────────────────────────────────────────
 
 func (t Channels) View() string {
 	headerText := "Channels"
@@ -196,12 +208,13 @@ func (t Channels) View() string {
 	contentH := t.height - headerH
 
 	if t.tagsMode {
-		return t.viewTags(header, headerH, contentH)
+		return t.viewTags(header, contentH)
 	}
-	return t.viewFlat(header, headerH, contentH)
+	return t.viewFlat(header, contentH)
 }
 
-func (t Channels) viewFlat(header string, headerH, contentH int) string {
+func (t Channels) viewFlat(header string, contentH int) string {
+	_ = contentH
 	if t.pane == 0 {
 		var body string
 		switch {
@@ -210,57 +223,63 @@ func (t Channels) viewFlat(header string, headerH, contentH int) string {
 		case t.subs.Len() == 0:
 			body = styles.Dim.Render("No channels found.")
 		default:
-			body = t.renderChannelList(contentH)
+			body = t.chTable.View()
 		}
 		if t.editMode != chEditNone {
 			body = t.appendEditInput(body)
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, header, body)
+		parts := []string{header, body}
+		if t.numBuf != "" {
+			parts = append(parts, gotoLineView(t.numBuf))
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
-	// video pane
 	sorted := t.sortedChannels()
 	chName := ""
-	if t.cursor < len(sorted) {
-		chName = sorted[t.cursor].DisplayName()
+	if t.chTable.Cursor() < len(sorted) {
+		chName = sorted[t.chTable.Cursor()].DisplayName()
 	}
 	subHeaderText := "← " + chName
 	if t.chVidsRefresh {
 		subHeaderText += "  " + styles.Dim.Render(t.spinner.View()+" refreshing…")
 	}
 	subHeader := styles.SectionTitle.Render(subHeaderText)
-	subH := lipgloss.Height(subHeader)
-	videoH := t.height - headerH - subH
-
 	var body string
 	if t.chVidsLoading {
 		body = t.spinner.View() + " Loading…"
 	} else {
-		ctx := VideoListCtx{Width: t.width, ShowChannel: false}
-		body = renderVideoRows(ctx, t.chVideos, t.vidCursor, t.vidVS, videoH)
+		body = t.chVidTable.View()
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, subHeader, body)
+	parts := []string{header, subHeader, body}
+	if t.numBuf != "" {
+		parts = append(parts, gotoLineView(t.numBuf))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (t Channels) viewTags(header string, headerH, contentH int) string {
+func (t Channels) viewTags(header string, contentH int) string {
+	_ = contentH
 	if t.pane == 1 {
 		tagHeader := styles.SectionTitle.Render("← " + tagDisplayName(t.tagSel))
-		tagH := lipgloss.Height(tagHeader)
-		vids := t.tagVideos()
-		ctx := VideoListCtx{Width: t.width, ShowChannel: true}
-		body := renderVideoRows(ctx, vids, t.tagVidCursor, t.tagVidVS, t.height-headerH-tagH)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tagHeader, body)
+		parts := []string{header, tagHeader, t.tagVidTable.View()}
+		if t.numBuf != "" {
+			parts = append(parts, gotoLineView(t.numBuf))
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 	var body string
 	if t.loading && t.subs.Len() == 0 {
 		body = t.spinner.View() + " Loading channels…"
 	} else {
-		body = t.renderTagList(contentH)
+		body = t.tagTable.View()
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, body)
+	parts := []string{header, body}
+	if t.numBuf != "" {
+		parts = append(parts, gotoLineView(t.numBuf))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
-
-// ── key handling ──────────────────────────────────────────────────────────────
 
 func (t Channels) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
@@ -268,36 +287,67 @@ func (t Channels) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.ToggleMode) {
 		t.tagsMode = !t.tagsMode
 		t.pane = 0
-		t.tagCursor = 0
-		t.tagVS = 0
+		t.tagTable.GotoTop()
+		t.numBuf = ""
+		return t, nil
+	}
+
+	if checkGotoNum(&t.numBuf, msg) {
+		return t, nil
+	}
+	numBuf := t.numBuf
+	t.numBuf = ""
+
+	// GotoLine dispatched to whichever table is currently active
+	if key.Matches(msg, keys.GotoLine) {
+		var tbl *table.Model
+		switch {
+		case t.tagsMode && t.pane == 1:
+			tbl = &t.tagVidTable
+		case t.tagsMode:
+			tbl = &t.tagTable
+		case t.pane == 1:
+			tbl = &t.chVidTable
+		default:
+			tbl = &t.chTable
+		}
+		if numBuf != "" {
+			applyGoto(numBuf, tbl)
+		} else {
+			tbl.GotoBottom()
+		}
 		return t, nil
 	}
 
 	if t.tagsMode {
-		return t.handleKeyTags(msg)
+		return t.handleKeyTags(msg, numBuf)
 	}
-	return t.handleKeyFlat(msg)
+	return t.handleKeyFlat(msg, numBuf)
 }
 
-func (t Channels) handleKeyFlat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Channels) handleKeyFlat(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
-	pageH := t.pageHeight()
 
-	// ── channel list pane ──────────────────────────────────────────────────────
 	if t.pane == 0 {
 		sorted := t.sortedChannels()
 		n := len(sorted)
 		switch {
 		case key.Matches(msg, keys.Up):
-			t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, -1, pageH, t.circular)
+			if t.circular && n > 0 && t.chTable.Cursor() == 0 {
+				t.chTable.GotoBottom()
+			} else {
+				t.chTable.MoveUp(1)
+			}
 		case key.Matches(msg, keys.Down):
-			t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, +1, pageH, t.circular)
+			if t.circular && n > 0 && t.chTable.Cursor() == n-1 {
+				t.chTable.GotoTop()
+			} else {
+				t.chTable.MoveDown(1)
+			}
 		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-			if t.cursor < n {
-				ch := sorted[t.cursor]
+			if t.chTable.Cursor() < n {
+				ch := sorted[t.chTable.Cursor()]
 				t.pane = 1
-				t.vidCursor = 0
-				t.vidVS = 0
 				if ch.ID == t.activeChID && len(t.chVideos) > 0 {
 					t.chVidsLoading = false
 					t.chVidsRefresh = true
@@ -308,11 +358,13 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				t.chVideos = nil
 				t.chVidsLoading = true
 				t.chVidsRefresh = false
+				t.chVidTable.GotoTop()
+				t.chVidTable.SetRows(nil)
 				return t, tea.Batch(t.chDrilldownCmd(ch), t.spinner.Tick)
 			}
 		case key.Matches(msg, keys.RenameChannel):
-			if t.cursor < n {
-				ch := sorted[t.cursor]
+			if t.chTable.Cursor() < n {
+				ch := sorted[t.chTable.Cursor()]
 				t.editInput.SetValue(ch.Alias)
 				t.editInput.Placeholder = "alias (empty to clear)…"
 				t.editInput.Focus()
@@ -320,8 +372,8 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return t, textinput.Blink
 			}
 		case key.Matches(msg, keys.TagChannel):
-			if t.cursor < n {
-				ch := sorted[t.cursor]
+			if t.chTable.Cursor() < n {
+				ch := sorted[t.chTable.Cursor()]
 				t.editInput.SetValue(strings.Join(ch.Tags, ", "))
 				t.editInput.Placeholder = "comma-separated tags…"
 				t.editInput.Focus()
@@ -329,48 +381,49 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return t, textinput.Blink
 			}
 		case key.Matches(msg, keys.Unsubscribe):
-			if t.cursor < n {
-				ch := sorted[t.cursor]
+			if t.chTable.Cursor() < n {
+				ch := sorted[t.chTable.Cursor()]
 				t.subs.Remove(ch)
-				newN := t.subs.Len()
-				if t.cursor >= newN {
-					if newN > 0 {
-						t.cursor = newN - 1
-					} else {
-						t.cursor, t.vs = 0, 0
-					}
-				}
+				t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
 				return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 			}
 		}
+		_ = numBuf
 		return t, nil
 	}
 
-	// ── channel video pane ─────────────────────────────────────────────────────
 	n := len(t.chVideos)
 	switch {
 	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
+		if numBuf != "" {
+			return t, nil
+		}
 		t.pane = 0
 	case key.Matches(msg, keys.Up):
-		t.vidCursor, t.vidVS = nav.Move(t.vidCursor, t.vidVS, n, -1, pageH, t.circular)
+		if t.circular && n > 0 && t.chVidTable.Cursor() == 0 {
+			t.chVidTable.GotoBottom()
+		} else {
+			t.chVidTable.MoveUp(1)
+		}
 	case key.Matches(msg, keys.Down):
-		t.vidCursor, t.vidVS = nav.Move(t.vidCursor, t.vidVS, n, +1, pageH, t.circular)
+		if t.circular && n > 0 && t.chVidTable.Cursor() == n-1 {
+			t.chVidTable.GotoTop()
+		} else {
+			t.chVidTable.MoveDown(1)
+		}
 	case key.Matches(msg, keys.PageUp):
-		t.vidCursor, t.vidVS = nav.Page(t.vidCursor, t.vidVS, n, -1, pageH, t.circular)
+		t.chVidTable.MoveUp(t.chVidTable.Height())
 	case key.Matches(msg, keys.PageDown):
-		t.vidCursor, t.vidVS = nav.Page(t.vidCursor, t.vidVS, n, +1, pageH, t.circular)
+		t.chVidTable.MoveDown(t.chVidTable.Height())
 	case key.Matches(msg, keys.GotoBottom):
-		t.vidCursor, t.vidVS = nav.Jump(n-1, n, pageH)
+		t.chVidTable.GotoBottom()
 	case key.Matches(msg, keys.Unsubscribe):
 		sorted := t.sortedChannels()
-		if t.cursor < len(sorted) {
-			ch := sorted[t.cursor]
+		if t.chTable.Cursor() < len(sorted) {
+			ch := sorted[t.chTable.Cursor()]
 			t.subs.Remove(ch)
 			t.pane = 0
-			newN := t.subs.Len()
-			if t.cursor >= newN && newN > 0 {
-				t.cursor = newN - 1
-			}
+			t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 		}
 	default:
@@ -381,51 +434,68 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Channels) handleKeyTags(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Channels) handleKeyTags(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
-	pageH := t.pageHeight()
 
 	if t.pane == 0 {
-		// tag list
 		items := t.allTags()
 		n := len(items)
 		switch {
 		case key.Matches(msg, keys.Up):
-			t.tagCursor, t.tagVS = nav.Move(t.tagCursor, t.tagVS, n, -1, pageH, t.circular)
+			if t.circular && n > 0 && t.tagTable.Cursor() == 0 {
+				t.tagTable.GotoBottom()
+			} else {
+				t.tagTable.MoveUp(1)
+			}
 		case key.Matches(msg, keys.Down):
-			t.tagCursor, t.tagVS = nav.Move(t.tagCursor, t.tagVS, n, +1, pageH, t.circular)
+			if t.circular && n > 0 && t.tagTable.Cursor() == n-1 {
+				t.tagTable.GotoTop()
+			} else {
+				t.tagTable.MoveDown(1)
+			}
 		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-			if t.tagCursor < n {
-				t.tagSel = items[t.tagCursor]
-				t.tagVidCursor = 0
-				t.tagVidVS = 0
+			if t.tagTable.Cursor() < n {
+				t.tagSel = items[t.tagTable.Cursor()]
+				vids := t.tagVideos()
+				t.tagVidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, true))
+				t.tagVidTable.GotoTop()
 				t.pane = 1
 			}
 		}
+		_ = numBuf
 		return t, nil
 	}
 
-	// tag video list
 	vids := t.tagVideos()
 	n := len(vids)
 	switch {
 	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
+		if numBuf != "" {
+			return t, nil
+		}
 		t.pane = 0
-		t.tagVidCursor = 0
-		t.tagVidVS = 0
+		t.tagVidTable.GotoTop()
 	case key.Matches(msg, keys.Up):
-		t.tagVidCursor, t.tagVidVS = nav.Move(t.tagVidCursor, t.tagVidVS, n, -1, pageH, t.circular)
+		if t.circular && n > 0 && t.tagVidTable.Cursor() == 0 {
+			t.tagVidTable.GotoBottom()
+		} else {
+			t.tagVidTable.MoveUp(1)
+		}
 	case key.Matches(msg, keys.Down):
-		t.tagVidCursor, t.tagVidVS = nav.Move(t.tagVidCursor, t.tagVidVS, n, +1, pageH, t.circular)
+		if t.circular && n > 0 && t.tagVidTable.Cursor() == n-1 {
+			t.tagVidTable.GotoTop()
+		} else {
+			t.tagVidTable.MoveDown(1)
+		}
 	case key.Matches(msg, keys.PageUp):
-		t.tagVidCursor, t.tagVidVS = nav.Page(t.tagVidCursor, t.tagVidVS, n, -1, pageH, t.circular)
+		t.tagVidTable.MoveUp(t.tagVidTable.Height())
 	case key.Matches(msg, keys.PageDown):
-		t.tagVidCursor, t.tagVidVS = nav.Page(t.tagVidCursor, t.tagVidVS, n, +1, pageH, t.circular)
+		t.tagVidTable.MoveDown(t.tagVidTable.Height())
 	case key.Matches(msg, keys.GotoBottom):
-		t.tagVidCursor, t.tagVidVS = nav.Jump(n-1, n, pageH)
+		t.tagVidTable.GotoBottom()
 	default:
-		if t.tagVidCursor < n {
-			return t.handleVideoAction(msg, vids[t.tagVidCursor])
+		if t.tagVidTable.Cursor() < n {
+			return t.handleVideoAction(msg, vids[t.tagVidTable.Cursor()])
 		}
 	}
 	return t, nil
@@ -462,19 +532,24 @@ func (t Channels) handleEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DrillDown):
 		val := strings.TrimSpace(t.editInput.Value())
 		sorted := t.sortedChannels()
-		if t.cursor < len(sorted) {
-			ch := sorted[t.cursor]
+		if t.chTable.Cursor() < len(sorted) {
+			ch := sorted[t.chTable.Cursor()]
 			if t.editMode == chEditAlias {
 				t.subs.SetAlias(ch.ID, val)
+				t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+				t.editMode = chEditNone
+				t.editInput.Blur()
 				if val == "" {
 					return t, t.chSetAliasCmd(ch.ID, val, "Alias cleared")
 				}
 				return t, t.chSetAliasCmd(ch.ID, val, "Alias set: "+val)
-			} else {
-				tags := parseTags(val)
-				t.subs.SetTags(ch.ID, tags)
-				return t, t.chSetTagsCmd(ch.ID, tags)
 			}
+			tags := parseTags(val)
+			t.subs.SetTags(ch.ID, tags)
+			t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+			t.editMode = chEditNone
+			t.editInput.Blur()
+			return t, t.chSetTagsCmd(ch.ID, tags)
 		}
 		t.editMode = chEditNone
 		t.editInput.Blur()
@@ -485,8 +560,6 @@ func (t Channels) handleEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return t, cmd
 	}
 }
-
-// ── data helpers ──────────────────────────────────────────────────────────────
 
 func (t Channels) sortedChannels() []domain.Channel {
 	return t.sortChannelSlice(t.subs.Channels())
@@ -514,9 +587,7 @@ func (t Channels) sortChannelSlice(chs []domain.Channel) []domain.Channel {
 		})
 	case chSortVidName:
 		sort.SliceStable(out, func(i, j int) bool {
-			ti := strings.ToLower(t.chLatest[out[i].ID].Title)
-			tj := strings.ToLower(t.chLatest[out[j].ID].Title)
-			return ti < tj
+			return strings.ToLower(t.chLatest[out[i].ID].Title) < strings.ToLower(t.chLatest[out[j].ID].Title)
 		})
 	case chSortDuration:
 		sort.SliceStable(out, func(i, j int) bool {
@@ -524,8 +595,7 @@ func (t Channels) sortChannelSlice(chs []domain.Channel) []domain.Channel {
 		})
 	case chSortTags:
 		sort.SliceStable(out, func(i, j int) bool {
-			ti := chFirstTag(out[i].Tags)
-			tj := chFirstTag(out[j].Tags)
+			ti, tj := chFirstTag(out[i].Tags), chFirstTag(out[j].Tags)
 			if ti != tj {
 				return ti < tj
 			}
@@ -536,9 +606,8 @@ func (t Channels) sortChannelSlice(chs []domain.Channel) []domain.Channel {
 }
 
 func (t Channels) channelsInTag(tag string) []domain.Channel {
-	all := t.subs.Channels()
 	var out []domain.Channel
-	for _, ch := range all {
+	for _, ch := range t.subs.Channels() {
 		for _, tg := range ch.Tags {
 			if tg == tag {
 				out = append(out, ch)
@@ -588,124 +657,69 @@ func (t Channels) allTags() []string {
 }
 
 func (t Channels) currentChVideo() (domain.Video, bool) {
-	if t.vidCursor >= 0 && t.vidCursor < len(t.chVideos) {
-		return t.chVideos[t.vidCursor], true
+	c := t.chVidTable.Cursor()
+	if c >= 0 && c < len(t.chVideos) {
+		return t.chVideos[c], true
 	}
 	return domain.Video{}, false
 }
 
-func (t Channels) pageHeight() int {
-	h := t.height - 4 // header + sub-header + col-header
-	if h < 1 {
-		h = 1
-	}
-	return h
-}
-
-// ── rendering ─────────────────────────────────────────────────────────────────
-
-func (t Channels) renderChannelList(height int) string {
-	sorted := t.sortedChannels()
-	if len(sorted) == 0 {
-		return ""
-	}
-	titleW := t.width - render.ColNum - 1 - 2 - colChName - 1 - colChTags - 1 - colChSubs - 1 - render.ColDuration - 1 - render.ColViews - 1 - render.ColDate
+func (t Channels) chChannelColumns() []table.Column {
+	titleW := t.width - render.ColNum - colIndicator - colChName - colChTags - colChSubs - render.ColDuration - render.ColViews - render.ColDate
 	if titleW < 10 {
 		titleW = 10
 	}
-
-	colHdr := strings.Repeat(" ", render.ColNum) + " " + "  " +
-		styles.ColHeader.Width(colChName).Render("Channel") + " " +
-		styles.ColHeader.Width(colChTags).Render("Tags") + " " +
-		styles.ColHeader.Width(colChSubs).Render("Subs") + " " +
-		styles.ColHeader.Width(titleW).Render("Latest Video") + " " +
-		styles.ColHeader.Width(render.ColDuration).Render("Duration") + " " +
-		styles.ColHeader.Width(render.ColViews).Render("Views") + " " +
-		styles.ColHeader.Width(render.ColDate).Render("Date")
-
-	start, end := nav.Window(t.vs, len(sorted), height-1)
-	rows := []string{colHdr}
-	for i := start; i < end; i++ {
-		rows = append(rows, t.renderChannelRow(sorted[i], i == t.cursor, i+1, titleW))
+	return []table.Column{
+		{Title: "#", Width: render.ColNum},
+		{Title: " ", Width: colIndicator},
+		{Title: "Channel", Width: colChName},
+		{Title: "Tags", Width: colChTags},
+		{Title: "Subs", Width: colChSubs},
+		{Title: "Latest Video", Width: titleW},
+		{Title: "Duration", Width: render.ColDuration},
+		{Title: "Views", Width: render.ColViews},
+		{Title: "Date", Width: render.ColDate},
 	}
-	return strings.Join(rows, "\n")
 }
 
-func (t Channels) renderChannelRow(ch domain.Channel, selected bool, num, titleW int) string {
-	latest := t.chLatest[ch.ID]
-
-	chName := render.Truncate(ch.DisplayName(), colChName-2)
-	tagsStr := render.Truncate(strings.Join(ch.Tags, ", "), colChTags)
-	subs := render.Views(ch.Subscribers)
-	vidTitle := render.Truncate(latest.Title, titleW)
-	dur := latest.DurationStr()
-	views := latest.ViewsStr()
-	date := latest.DateStr()
-
-	sep := " "
-	numStyle := styles.RowNum
-	chStyle := styles.Normal.Width(colChName)
-	tagsStyle := styles.Dim.Width(colChTags)
-	subsStyle := styles.Duration.Width(colChSubs)
-	titleStyle := styles.Normal.Width(titleW)
-	durStyle := styles.Duration.Width(render.ColDuration)
-	viewsStyle := styles.Duration.Width(render.ColViews)
-	dateStyle := styles.Channel.Width(render.ColDate)
-	indicator := "  "
-
-	if selected {
-		indicator = styles.Selected.Render("▶ ")
-		numStyle = numStyle.Background(styles.ColorBgSelect)
-		sep = lipgloss.NewStyle().Background(styles.ColorBgSelect).Render(" ")
-		chStyle = chStyle.Background(styles.ColorBgSelect)
-		tagsStyle = tagsStyle.Background(styles.ColorBgSelect)
-		subsStyle = subsStyle.Background(styles.ColorBgSelect)
-		titleStyle = styles.Selected.Width(titleW)
-		durStyle = durStyle.Background(styles.ColorBgSelect)
-		viewsStyle = viewsStyle.Background(styles.ColorBgSelect)
-		dateStyle = dateStyle.Background(styles.ColorBgSelect)
+func (t Channels) chTagColumns() []table.Column {
+	labelW := t.width - render.ColNum - colIndicator
+	if labelW < 10 {
+		labelW = 10
 	}
-
-	numStr := numStyle.Render(fmt.Sprintf("%*d ", render.ColNum, num))
-	return numStr + indicator +
-		chStyle.Render(chName) + sep +
-		tagsStyle.Render(tagsStr) + sep +
-		subsStyle.Render(subs) + sep +
-		titleStyle.Render(vidTitle) + sep +
-		durStyle.Render(dur) + sep +
-		viewsStyle.Render(views) + sep +
-		dateStyle.Render(date)
+	return []table.Column{
+		{Title: "#", Width: render.ColNum},
+		{Title: " ", Width: colIndicator},
+		{Title: "Tag", Width: labelW},
+	}
 }
 
-func (t Channels) renderTagList(height int) string {
-	items := t.allTags()
-	labelW := t.width - render.ColNum - 3
-
-	colHdr := strings.Repeat(" ", render.ColNum) + " " + "  " +
-		styles.ColHeader.Width(labelW).Render("Tag")
-
-	start, end := nav.Window(t.tagVS, len(items), height-1)
-	rows := []string{colHdr}
-	for i := start; i < end; i++ {
-		tag := items[i]
-		count := len(t.channelsInTag(tag))
-		label := fmt.Sprintf("%s (%d)", tagDisplayName(tag), count)
-		selected := i == t.tagCursor
-
-		numStyle := styles.RowNum
-		rowStyle := styles.Normal.Width(labelW)
-		indicator := "  "
-
-		if selected {
-			indicator = styles.Selected.Render("▶ ")
-			numStyle = numStyle.Background(styles.ColorBgSelect)
-			rowStyle = styles.Selected.Width(labelW)
+func (t Channels) toChannelRows(sorted []domain.Channel) []table.Row {
+	rows := make([]table.Row, len(sorted))
+	for i, ch := range sorted {
+		latest := t.chLatest[ch.ID]
+		rows[i] = table.Row{
+			rowNum(i), "  ",
+			ch.DisplayName(),
+			strings.Join(ch.Tags, ", "),
+			render.Views(ch.Subscribers),
+			latest.Title,
+			latest.DurationStr(),
+			latest.ViewsStr(),
+			latest.DateStr(),
 		}
-
-		numStr := numStyle.Render(fmt.Sprintf("%*d ", render.ColNum, i+1))
-		rows = append(rows, numStr+indicator+rowStyle.Render(label))
 	}
-	return strings.Join(rows, "\n")
+	return rows
+}
+
+func (t Channels) toTagRows() []table.Row {
+	items := t.allTags()
+	rows := make([]table.Row, len(items))
+	for i, tag := range items {
+		count := len(t.channelsInTag(tag))
+		rows[i] = table.Row{rowNum(i), "  ", fmt.Sprintf("%s (%d)", tagDisplayName(tag), count)}
+	}
+	return rows
 }
 
 func (t Channels) appendEditInput(body string) string {
@@ -715,8 +729,6 @@ func (t Channels) appendEditInput(body string) string {
 	}
 	return body + "\n" + styles.Bold.Render(label) + t.editInput.View()
 }
-
-// ── background commands ───────────────────────────────────────────────────────
 
 func (t Channels) chsLoadCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -736,6 +748,20 @@ func (t Channels) chsLoadCmd() tea.Cmd {
 		subVideos, _ := t.backend.GetAllChannelVideos(ctx, ids)
 		feed.SortVideos(subVideos, feed.SortDate)
 		return chsLoadedMsg{chans: chans, latest: latest, subVideos: subVideos}
+	}
+}
+
+func (t Channels) chAuxLoadCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		positions, _ := t.backend.AllVideoPositions(ctx)
+		watched, _ := t.backend.WatchedVideoIDs(ctx)
+		localVids, _ := t.backend.LocalVideos(ctx)
+		localStatus := make(map[string]domain.VideoStatus, len(localVids))
+		for i := range localVids {
+			localStatus[localVids[i].ID] = localVids[i].Status
+		}
+		return chAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
 	}
 }
 
@@ -775,9 +801,8 @@ func (t Channels) chVideosFetchCmd() tea.Cmd {
 func (t Channels) chSetAliasCmd(channelID, alias, status string) tea.Cmd {
 	mode := t.editMode
 	return func() tea.Msg {
-		_ = mode // capture to avoid closure-related confusion
-		ctx := context.Background()
-		if err := t.backend.SetChannelAlias(ctx, channelID, alias); err != nil {
+		_ = mode
+		if err := t.backend.SetChannelAlias(context.Background(), channelID, alias); err != nil {
 			return tuipkg.StatusMsg{Text: "alias: " + err.Error(), IsErr: true}
 		}
 		return tuipkg.StatusMsg{Text: status}
@@ -792,8 +817,6 @@ func (t Channels) chSetTagsCmd(channelID string, tags []string) tea.Cmd {
 		return tuipkg.StatusMsg{Text: "Tags updated"}
 	}
 }
-
-// ── pure helpers ──────────────────────────────────────────────────────────────
 
 func tagDisplayName(tag string) string { return tag }
 

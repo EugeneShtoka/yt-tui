@@ -8,21 +8,17 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/nav"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── tab-private messages ──────────────────────────────────────────────────────
-
 type dlItemsMsg struct{ items []api.DownloadItem }
 type dlEventsReadyMsg struct{ ch <-chan api.Event }
-
-// ── styles ────────────────────────────────────────────────────────────────────
 
 var (
 	dlStylePending  = lipgloss.NewStyle().Faint(true)
@@ -33,10 +29,8 @@ var (
 	dlStyleEmpty    = lipgloss.NewStyle().Faint(true)
 )
 
-// ── Downloading ───────────────────────────────────────────────────────────────
+const colDlStatus = 52
 
-// Downloading is the Downloading tab: a live view of the download queue driven
-// by the backend Events channel.
 type Downloading struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
@@ -44,10 +38,10 @@ type Downloading struct {
 
 	width, height int
 
-	items   []api.DownloadItem
-	cursor  int
-	vs      int
-	events  <-chan api.Event
+	items  []api.DownloadItem
+	events <-chan api.Event
+	table  table.Model
+	numBuf string
 
 	spinner spinner.Model
 	loading bool
@@ -60,17 +54,14 @@ func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Down
 		circular: circular,
 		spinner:  spinner.New(),
 		loading:  true,
+		table:    newTable(),
 	}
 }
-
-// ── tui.Tab interface ─────────────────────────────────────────────────────────
 
 func (t Downloading) ID() tuipkg.TabID          { return tuipkg.TabDownloading }
 func (t Downloading) Title() string             { return "Downloading" }
 func (t Downloading) ShortHelp() []key.Binding { return nil }
-func (t Downloading) InterceptsInput() bool { return false }
-
-// ── tea.Model ─────────────────────────────────────────────────────────────────
+func (t Downloading) InterceptsInput() bool     { return false }
 
 func (t Downloading) Init() tea.Cmd {
 	return tea.Batch(t.fetchItemsCmd(), t.subscribeEventsCmd(), t.spinner.Tick)
@@ -81,6 +72,9 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
+		t.table.SetColumns(t.dlColumns())
+		t.table.SetHeight(t.height - 2)
+		t.table.SetRows(t.toDownloadRows())
 		return t, nil
 
 	case tuipkg.DownloadItemsChangedMsg:
@@ -95,13 +89,8 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dlItemsMsg:
 		t.loading = false
-		prev := t.cursor
 		t.items = m.items
-		n := len(t.items)
-		if prev >= n && n > 0 {
-			t.cursor = n - 1
-		}
-		t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, 0, t.pageHeight(), false)
+		t.table.SetRows(t.toDownloadRows())
 		return t, nil
 
 	case spinner.TickMsg:
@@ -120,8 +109,6 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (t Downloading) View() string {
 	header := styles.SectionTitle.Render("Downloading")
-	headerH := lipgloss.Height(header)
-
 	if t.loading {
 		return lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…")
 	}
@@ -129,44 +116,48 @@ func (t Downloading) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header,
 			styles.Dim.PaddingLeft(1).Render("No active downloads. Press "+t.keys.Download.Help().Key+" on any video to start."))
 	}
-
-	titleW := t.width - render.ColNum - 1 - render.ColChannel - render.ColDuration - 42 - 6
-	if titleW < 20 {
-		titleW = 20
+	parts := []string{header, t.table.View()}
+	if t.numBuf != "" {
+		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	colHeader := strings.Repeat(" ", render.ColNum) + " " + "  " +
-		styles.Dim.Width(titleW).Render("Title") + " " +
-		styles.Dim.Width(render.ColChannel).Render("Channel") + " " +
-		styles.Dim.Width(render.ColDuration).Render("Duration") + " " +
-		styles.Dim.Render("Status")
-
-	start, end := nav.Window(t.vs, len(t.items), t.height-headerH-1)
-	var rows []string
-	rows = append(rows, colHeader)
-	for i := start; i < end; i++ {
-		rows = append(rows, t.renderRow(t.items[i], i == t.cursor, i+1, titleW))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-// ── key handling ──────────────────────────────────────────────────────────────
-
 func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if checkGotoNum(&t.numBuf, msg) {
+		return t, nil
+	}
+	numBuf := t.numBuf
+	t.numBuf = ""
+
 	keys := t.keys
 	n := len(t.items)
-	pageH := t.pageHeight()
 
 	switch {
-	case key.Matches(msg, keys.Up):
-		t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, -1, pageH, t.circular)
-	case key.Matches(msg, keys.Down):
-		t.cursor, t.vs = nav.Move(t.cursor, t.vs, n, +1, pageH, t.circular)
-	case key.Matches(msg, keys.PageUp):
-		t.cursor, t.vs = nav.Page(t.cursor, t.vs, n, -1, pageH, t.circular)
-	case key.Matches(msg, keys.PageDown):
-		t.cursor, t.vs = nav.Page(t.cursor, t.vs, n, +1, pageH, t.circular)
+	case key.Matches(msg, keys.GotoLine):
+		if numBuf != "" {
+			applyGoto(numBuf, &t.table)
+		} else {
+			t.table.GotoBottom()
+		}
 	case key.Matches(msg, keys.GotoBottom):
-		t.cursor, t.vs = nav.Jump(n-1, n, pageH)
+		t.table.GotoBottom()
+	case key.Matches(msg, keys.Up):
+		if t.circular && n > 0 && t.table.Cursor() == 0 {
+			t.table.GotoBottom()
+		} else {
+			t.table.MoveUp(1)
+		}
+	case key.Matches(msg, keys.Down):
+		if t.circular && n > 0 && t.table.Cursor() == n-1 {
+			t.table.GotoTop()
+		} else {
+			t.table.MoveDown(1)
+		}
+	case key.Matches(msg, keys.PageUp):
+		t.table.MoveUp(t.table.Height())
+	case key.Matches(msg, keys.PageDown):
+		t.table.MoveDown(t.table.Height())
 
 	case key.Matches(msg, keys.Delete):
 		if item, ok := t.current(); ok {
@@ -176,7 +167,6 @@ func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return tuipkg.DownloadItemsChangedMsg{}
 			}
 		}
-
 	case key.Matches(msg, keys.Play):
 		if item, ok := t.current(); ok && item.Status == api.DownloadComplete {
 			return t, func() tea.Msg {
@@ -187,7 +177,6 @@ func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return tuipkg.LaunchLocalVideoMsg{Video: lv}
 			}
 		}
-
 	case key.Matches(msg, keys.CopyURL):
 		if item, ok := t.current(); ok {
 			url := item.URL
@@ -195,40 +184,6 @@ func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return t, nil
-}
-
-// ── rendering ─────────────────────────────────────────────────────────────────
-
-func (t Downloading) renderRow(item api.DownloadItem, selected bool, num, titleW int) string {
-	numStyle := styles.RowNum
-	nameStyle := styles.Normal.Width(titleW)
-	indicator := "  "
-	if selected {
-		indicator = styles.Selected.Render("▶ ")
-		numStyle = numStyle.Background(styles.ColorBgSelect)
-		nameStyle = styles.Selected.Width(titleW)
-	}
-
-	titleSuffix := ""
-	if item.AudioOnly {
-		titleSuffix = " [audio]"
-	}
-	title := render.Truncate(item.Title+titleSuffix, titleW)
-	channel := render.Truncate(item.Channel, render.ColChannel-2)
-	dur := item.Duration
-
-	statusPart := t.renderStatus(item)
-
-	numStr := numStyle.Render(fmt.Sprintf("%*d", render.ColNum, num))
-	sep := " "
-	if selected {
-		sep = lipgloss.NewStyle().Background(styles.ColorBgSelect).Render(" ")
-	}
-
-	return numStr + sep + indicator + nameStyle.Render(title) + " " +
-		styles.Dim.Width(render.ColChannel).Render(channel) + " " +
-		styles.Dim.Width(render.ColDuration).Render(dur) + " " +
-		statusPart
 }
 
 func (t Downloading) renderStatus(item api.DownloadItem) string {
@@ -258,12 +213,9 @@ func dlProgressBar(pct float64, width int) string {
 	if filled > width {
 		filled = width
 	}
-	bar := dlStyleFill.Render(strings.Repeat("█", filled))
-	bar += dlStyleEmpty.Render(strings.Repeat("░", width-filled))
-	return "[" + bar + "]"
+	return "[" + dlStyleFill.Render(strings.Repeat("█", filled)) +
+		dlStyleEmpty.Render(strings.Repeat("░", width-filled)) + "]"
 }
-
-// ── background commands ───────────────────────────────────────────────────────
 
 func (t Downloading) fetchItemsCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -299,19 +251,38 @@ func (t Downloading) waitEventCmd() tea.Cmd {
 	}
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 func (t Downloading) current() (api.DownloadItem, bool) {
-	if t.cursor >= 0 && t.cursor < len(t.items) {
-		return t.items[t.cursor], true
+	c := t.table.Cursor()
+	if c >= 0 && c < len(t.items) {
+		return t.items[c], true
 	}
 	return api.DownloadItem{}, false
 }
 
-func (t Downloading) pageHeight() int {
-	h := t.height - 3
-	if h < 1 {
-		h = 1
+func (t Downloading) dlColumns() []table.Column {
+	titleW := t.width - render.ColNum - colIndicator - render.ColChannel - render.ColDuration - colDlStatus
+	if titleW < 20 {
+		titleW = 20
 	}
-	return h
+	return []table.Column{
+		{Title: "#", Width: render.ColNum},
+		{Title: " ", Width: colIndicator},
+		{Title: "Title", Width: titleW},
+		{Title: "Channel", Width: render.ColChannel},
+		{Title: "Duration", Width: render.ColDuration},
+		{Title: "Status", Width: colDlStatus},
+	}
+}
+
+func (t Downloading) toDownloadRows() []table.Row {
+	rows := make([]table.Row, len(t.items))
+	for i := range t.items {
+		item := &t.items[i]
+		title := item.Title
+		if item.AudioOnly {
+			title += " [audio]"
+		}
+		rows[i] = table.Row{rowNum(i), "  ", title, item.Channel, item.Duration, t.renderStatus(*item)}
+	}
+	return rows
 }
