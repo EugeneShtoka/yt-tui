@@ -70,7 +70,7 @@ func Play(filePath string, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	if err := b.Launch(filePath, 0); err != nil {
+	if err := b.Launch(filePath, "", 0); err != nil {
 		return fmt.Errorf("Play: %w", err)
 	}
 	return nil

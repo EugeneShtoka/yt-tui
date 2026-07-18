@@ -99,6 +99,14 @@ type UnsubscribeMsg struct{ Channel domain.Channel }
 // Root dispatches this when NavigateMsg.Query is non-empty.
 type SearchActivateMsg struct{ Query string }
 
+// SearchFocusInputMsg tells the Search tab to focus its text input.
+// Root dispatches this when navigating to Search with no pre-filled query.
+type SearchFocusInputMsg struct{}
+
+// HistoryChangedMsg tells the History tab to reload its entries.
+// Emitted after a search or any event that adds a history record.
+type HistoryChangedMsg struct{}
+
 // EnqueueSucceededMsg is an internal root→root message produced after a successful
 // backend.Enqueue call, carrying enough info to build the status text and notify
 // the Downloading tab.
@@ -110,3 +118,7 @@ type EnqueueSucceededMsg struct {
 // DownloadItemsChangedMsg tells the Downloading tab to refresh its queue snapshot.
 // Root dispatches this after a successful Enqueue call.
 type DownloadItemsChangedMsg struct{}
+
+// RefreshPositionsMsg tells all tabs to reload playback positions and watched
+// status from the DB. Root dispatches this when the player exits.
+type RefreshPositionsMsg struct{}

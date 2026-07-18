@@ -1,0 +1,410 @@
+syntax = "proto3";
+
+package backend.v1;
+
+option go_package = "github.com/EugeneShtoka/yt-tui/internal/api/backend/v1;backendv1";
+
+import "backend/v1/types.proto";
+
+// ── FeedService ───────────────────────────────────────────────────────────────
+// Recommended feed, feed cache, and per-video hide/watch state.
+
+message RecommendedRequest {}
+message RecommendedResponse { repeated Video videos = 1; }
+
+message HideVideoRequest { string video_id = 1; }
+message HideVideoResponse {}
+
+message HiddenVideoIDsRequest {}
+message HiddenVideoIDsResponse { map<string, bool> ids = 1; }
+
+message WatchedVideoIDsRequest {}
+message WatchedVideoIDsResponse { map<string, bool> ids = 1; }
+
+message GetFeedCacheRequest { string feed = 1; }
+message GetFeedCacheResponse { repeated Video videos = 1; }
+
+message SaveFeedCacheRequest { string feed = 1; repeated Video videos = 2; }
+message SaveFeedCacheResponse {}
+
+message PurgeFeedCacheRequest { string feed = 1; }
+message PurgeFeedCacheResponse {}
+
+message ClearRecommendedRequest {}
+message ClearRecommendedResponse {}
+
+service FeedService {
+  rpc Recommended(RecommendedRequest) returns (RecommendedResponse);
+  rpc HideVideo(HideVideoRequest) returns (HideVideoResponse);
+  rpc HiddenVideoIDs(HiddenVideoIDsRequest) returns (HiddenVideoIDsResponse);
+  rpc WatchedVideoIDs(WatchedVideoIDsRequest) returns (WatchedVideoIDsResponse);
+  rpc GetFeedCache(GetFeedCacheRequest) returns (GetFeedCacheResponse);
+  rpc SaveFeedCache(SaveFeedCacheRequest) returns (SaveFeedCacheResponse);
+  rpc PurgeFeedCache(PurgeFeedCacheRequest) returns (PurgeFeedCacheResponse);
+  rpc ClearRecommended(ClearRecommendedRequest) returns (ClearRecommendedResponse);
+}
+
+// ── ChannelService ────────────────────────────────────────────────────────────
+// Subscriptions, channel video lists, search, and channel metadata edits.
+
+message SearchRequest { string query = 1; }
+message SearchResponse {
+  repeated Channel channels = 1;
+  repeated Video videos = 2;
+}
+
+message SubscribedChannelsRequest {}
+message SubscribedChannelsResponse { repeated Channel channels = 1; }
+
+message GetSubscribedChannelsRequest {}
+message GetSubscribedChannelsResponse { repeated Channel channels = 1; }
+
+message ChannelVideosRequest { string channel_url = 1; string channel_id = 2; }
+message ChannelVideosResponse { repeated Video videos = 1; }
+
+message ChannelLatestNRequest {
+  string channel_url = 1;
+  string channel_id = 2;
+  int32 n = 3;
+}
+message ChannelLatestNResponse { repeated Video videos = 1; }
+
+message SubscribeRequest { Channel channel = 1; }
+message SubscribeResponse {}
+
+message UnsubscribeRequest { Channel channel = 1; }
+message UnsubscribeResponse {}
+
+message AddSubscribedChannelRequest { Channel channel = 1; }
+message AddSubscribedChannelResponse {}
+
+message SaveSubscribedChannelsRequest { repeated Channel channels = 1; }
+message SaveSubscribedChannelsResponse {}
+
+message RemoveSubscribedChannelRequest { string channel_id = 1; }
+message RemoveSubscribedChannelResponse {}
+
+message DeleteChannelVideosRequest { string channel_id = 1; }
+message DeleteChannelVideosResponse {}
+
+message SetChannelAliasRequest { string channel_id = 1; string alias = 2; }
+message SetChannelAliasResponse {}
+
+message SetChannelTagsRequest { string channel_id = 1; repeated string tags = 2; }
+message SetChannelTagsResponse {}
+
+message GetChannelVideosRequest { string channel_id = 1; }
+message GetChannelVideosResponse { repeated Video videos = 1; }
+
+message GetAllChannelVideosRequest { repeated string channel_ids = 1; }
+message GetAllChannelVideosResponse { repeated Video videos = 1; }
+
+message GetChannelLatestAllRequest {}
+message GetChannelLatestAllResponse { map<string, Video> latest = 1; }
+
+message SaveChannelVideosRequest { string channel_id = 1; repeated Video videos = 2; }
+message SaveChannelVideosResponse {}
+
+message ChannelHideStatsRequest { string channel_id = 1; }
+message ChannelHideStatsResponse { int32 hidden = 1; int32 played = 2; }
+
+service ChannelService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc SubscribedChannels(SubscribedChannelsRequest) returns (SubscribedChannelsResponse);
+  rpc GetSubscribedChannels(GetSubscribedChannelsRequest) returns (GetSubscribedChannelsResponse);
+  rpc ChannelVideos(ChannelVideosRequest) returns (ChannelVideosResponse);
+  rpc ChannelLatestN(ChannelLatestNRequest) returns (ChannelLatestNResponse);
+  rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
+  rpc Unsubscribe(UnsubscribeRequest) returns (UnsubscribeResponse);
+  rpc AddSubscribedChannel(AddSubscribedChannelRequest) returns (AddSubscribedChannelResponse);
+  rpc SaveSubscribedChannels(SaveSubscribedChannelsRequest) returns (SaveSubscribedChannelsResponse);
+  rpc RemoveSubscribedChannel(RemoveSubscribedChannelRequest) returns (RemoveSubscribedChannelResponse);
+  rpc DeleteChannelVideos(DeleteChannelVideosRequest) returns (DeleteChannelVideosResponse);
+  rpc SetChannelAlias(SetChannelAliasRequest) returns (SetChannelAliasResponse);
+  rpc SetChannelTags(SetChannelTagsRequest) returns (SetChannelTagsResponse);
+  rpc GetChannelVideos(GetChannelVideosRequest) returns (GetChannelVideosResponse);
+  rpc GetAllChannelVideos(GetAllChannelVideosRequest) returns (GetAllChannelVideosResponse);
+  rpc GetChannelLatestAll(GetChannelLatestAllRequest) returns (GetChannelLatestAllResponse);
+  rpc SaveChannelVideos(SaveChannelVideosRequest) returns (SaveChannelVideosResponse);
+  rpc ChannelHideStats(ChannelHideStatsRequest) returns (ChannelHideStatsResponse);
+}
+
+// ── VideoService ──────────────────────────────────────────────────────────────
+// Video details fetching/caching, positions, and low-level video mutations.
+
+message VideoDetailsRequest { string video_url = 1; }
+message VideoDetailsResponse { VideoDetails details = 1; }
+
+message GetVideoDetailsCacheRequest { string video_id = 1; }
+message GetVideoDetailsCacheResponse { CachedDetails details = 1; bool found = 2; }
+
+message SaveVideoDetailsCacheRequest {
+  string video_id = 1;
+  string description = 2;
+  string thumbnail_url = 3;
+  int64 subscribers = 4;
+}
+message SaveVideoDetailsCacheResponse {}
+
+message ClearVideoDetailsCacheRequest {}
+message ClearVideoDetailsCacheResponse {}
+
+message SaveVideoChaptersRequest { string video_id = 1; repeated Chapter chapters = 2; }
+message SaveVideoChaptersResponse {}
+
+message SaveVideoSBSegmentsRequest { string video_id = 1; repeated SBSegment segments = 2; }
+message SaveVideoSBSegmentsResponse {}
+
+message SaveVideoLinksRequest { string video_id = 1; repeated Link links = 2; }
+message SaveVideoLinksResponse {}
+
+message UpsertVideoRequest {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  string channel_id = 4;
+  int32 duration = 5;
+  int64 view_count = 6;
+  string upload_date = 7;
+  string url = 8;
+}
+message UpsertVideoResponse {}
+
+message SetVideoStatusRequest { string id = 1; string status = 2; }
+message SetVideoStatusResponse {}
+
+message VideoPositionRequest { string video_id = 1; }
+message VideoPositionResponse { int64 position_ms = 1; bool found = 2; }
+
+message AllVideoPositionsRequest {}
+message AllVideoPositionsResponse { map<string, int64> positions = 1; }
+
+message SaveVideoPositionRequest { string video_id = 1; int64 position_ms = 2; }
+message SaveVideoPositionResponse {}
+
+message DeleteVideoPositionRequest { string video_id = 1; }
+message DeleteVideoPositionResponse {}
+
+message UpdateLastPositionRequest { string id = 1; int64 position_ms = 2; }
+message UpdateLastPositionResponse {}
+
+message ReportPositionRequest { string video_id = 1; int64 position_ms = 2; }
+message ReportPositionResponse {}
+
+service VideoService {
+  rpc VideoDetails(VideoDetailsRequest) returns (VideoDetailsResponse);
+  rpc GetVideoDetailsCache(GetVideoDetailsCacheRequest) returns (GetVideoDetailsCacheResponse);
+  rpc SaveVideoDetailsCache(SaveVideoDetailsCacheRequest) returns (SaveVideoDetailsCacheResponse);
+  rpc ClearVideoDetailsCache(ClearVideoDetailsCacheRequest) returns (ClearVideoDetailsCacheResponse);
+  rpc SaveVideoChapters(SaveVideoChaptersRequest) returns (SaveVideoChaptersResponse);
+  rpc SaveVideoSBSegments(SaveVideoSBSegmentsRequest) returns (SaveVideoSBSegmentsResponse);
+  rpc SaveVideoLinks(SaveVideoLinksRequest) returns (SaveVideoLinksResponse);
+  rpc UpsertVideo(UpsertVideoRequest) returns (UpsertVideoResponse);
+  rpc SetVideoStatus(SetVideoStatusRequest) returns (SetVideoStatusResponse);
+  rpc VideoPosition(VideoPositionRequest) returns (VideoPositionResponse);
+  rpc AllVideoPositions(AllVideoPositionsRequest) returns (AllVideoPositionsResponse);
+  rpc SaveVideoPosition(SaveVideoPositionRequest) returns (SaveVideoPositionResponse);
+  rpc DeleteVideoPosition(DeleteVideoPositionRequest) returns (DeleteVideoPositionResponse);
+  rpc UpdateLastPosition(UpdateLastPositionRequest) returns (UpdateLastPositionResponse);
+  rpc ReportPosition(ReportPositionRequest) returns (ReportPositionResponse);
+}
+
+// ── LibraryService ────────────────────────────────────────────────────────────
+// Local downloaded video management.
+
+message LocalVideosRequest {}
+message LocalVideosResponse { repeated LocalVideo videos = 1; }
+
+message AddLocalVideoRequest { LocalVideo video = 1; }
+message AddLocalVideoResponse {}
+
+message DeleteLocalVideoRequest { string id = 1; }
+message DeleteLocalVideoResponse {}
+
+message HasLocalVideoRequest { string video_id = 1; }
+message HasLocalVideoResponse { LocalVideo video = 1; bool found = 2; }
+
+service LibraryService {
+  rpc LocalVideos(LocalVideosRequest) returns (LocalVideosResponse);
+  rpc AddLocalVideo(AddLocalVideoRequest) returns (AddLocalVideoResponse);
+  rpc DeleteLocalVideo(DeleteLocalVideoRequest) returns (DeleteLocalVideoResponse);
+  rpc HasLocalVideo(HasLocalVideoRequest) returns (HasLocalVideoResponse);
+}
+
+// ── PlaylistService ───────────────────────────────────────────────────────────
+// Local playlists, watch-later queue, and YouTube-API playlist operations.
+
+message LocalPlaylistsRequest {}
+message LocalPlaylistsResponse { repeated Playlist playlists = 1; }
+
+message LocalPlaylistVideosRequest { int64 playlist_id = 1; }
+message LocalPlaylistVideosResponse { repeated Video videos = 1; }
+
+message PlaylistVideoIDsRequest { int64 playlist_id = 1; }
+message PlaylistVideoIDsResponse { repeated string ids = 1; }
+
+message CreatePlaylistRequest { string name = 1; }
+message CreatePlaylistResponse { int64 id = 1; }
+
+message DeletePlaylistRequest { int64 id = 1; }
+message DeletePlaylistResponse {}
+
+message AddToPlaylistRequest { int64 playlist_id = 1; string video_id = 2; }
+message AddToPlaylistResponse {}
+
+message RemoveFromPlaylistRequest { int64 playlist_id = 1; string video_id = 2; }
+message RemoveFromPlaylistResponse {}
+
+message WatchLaterRequest {}
+message WatchLaterResponse { repeated WatchLaterEntry entries = 1; }
+
+message AddWatchLaterRequest {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  string url = 4;
+}
+message AddWatchLaterResponse {}
+
+message RemoveWatchLaterRequest { string id = 1; }
+message RemoveWatchLaterResponse {}
+
+// YTPlaylists / YTPlaylistVideos — live YouTube API fetch.
+message YTPlaylistsRequest {}
+message YTPlaylistsResponse { repeated YTPlaylist playlists = 1; }
+
+message YTPlaylistVideosRequest { string playlist_id = 1; }
+message YTPlaylistVideosResponse { repeated Video videos = 1; }
+
+// GetYTPlaylists / GetYTPlaylistVideos — read from local DB cache.
+message GetYTPlaylistsRequest {}
+message GetYTPlaylistsResponse { repeated YTPlaylist playlists = 1; }
+
+message GetYTPlaylistVideosRequest { string playlist_id = 1; }
+message GetYTPlaylistVideosResponse { repeated Video videos = 1; }
+
+message SaveYTPlaylistsRequest { repeated YTPlaylist playlists = 1; }
+message SaveYTPlaylistsResponse {}
+
+message SaveYTPlaylistVideosRequest { string playlist_id = 1; repeated Video videos = 2; }
+message SaveYTPlaylistVideosResponse {}
+
+message InitYTClientRequest {}
+message InitYTClientResponse {}
+
+message CreateYTPlaylistRequest { string name = 1; }
+message CreateYTPlaylistResponse { string id = 1; }
+
+message DeleteYTPlaylistRequest { string playlist_id = 1; }
+message DeleteYTPlaylistResponse {}
+
+message AddToYTPlaylistRequest { string playlist_id = 1; string video_id = 2; }
+message AddToYTPlaylistResponse {}
+
+message RemoveFromYTPlaylistRequest { string playlist_id = 1; string video_id = 2; }
+message RemoveFromYTPlaylistResponse {}
+
+service PlaylistService {
+  rpc LocalPlaylists(LocalPlaylistsRequest) returns (LocalPlaylistsResponse);
+  rpc LocalPlaylistVideos(LocalPlaylistVideosRequest) returns (LocalPlaylistVideosResponse);
+  rpc PlaylistVideoIDs(PlaylistVideoIDsRequest) returns (PlaylistVideoIDsResponse);
+  rpc CreatePlaylist(CreatePlaylistRequest) returns (CreatePlaylistResponse);
+  rpc DeletePlaylist(DeletePlaylistRequest) returns (DeletePlaylistResponse);
+  rpc AddToPlaylist(AddToPlaylistRequest) returns (AddToPlaylistResponse);
+  rpc RemoveFromPlaylist(RemoveFromPlaylistRequest) returns (RemoveFromPlaylistResponse);
+  rpc WatchLater(WatchLaterRequest) returns (WatchLaterResponse);
+  rpc AddWatchLater(AddWatchLaterRequest) returns (AddWatchLaterResponse);
+  rpc RemoveWatchLater(RemoveWatchLaterRequest) returns (RemoveWatchLaterResponse);
+  // Live YouTube API fetches:
+  rpc YTPlaylists(YTPlaylistsRequest) returns (YTPlaylistsResponse);
+  rpc YTPlaylistVideos(YTPlaylistVideosRequest) returns (YTPlaylistVideosResponse);
+  // Local DB cache reads:
+  rpc GetYTPlaylists(GetYTPlaylistsRequest) returns (GetYTPlaylistsResponse);
+  rpc GetYTPlaylistVideos(GetYTPlaylistVideosRequest) returns (GetYTPlaylistVideosResponse);
+  rpc SaveYTPlaylists(SaveYTPlaylistsRequest) returns (SaveYTPlaylistsResponse);
+  rpc SaveYTPlaylistVideos(SaveYTPlaylistVideosRequest) returns (SaveYTPlaylistVideosResponse);
+  // YouTube API mutations (require browser-cookie auth on daemon):
+  rpc InitYTClient(InitYTClientRequest) returns (InitYTClientResponse);
+  rpc CreateYTPlaylist(CreateYTPlaylistRequest) returns (CreateYTPlaylistResponse);
+  rpc DeleteYTPlaylist(DeleteYTPlaylistRequest) returns (DeleteYTPlaylistResponse);
+  rpc AddToYTPlaylist(AddToYTPlaylistRequest) returns (AddToYTPlaylistResponse);
+  rpc RemoveFromYTPlaylist(RemoveFromYTPlaylistRequest) returns (RemoveFromYTPlaylistResponse);
+}
+
+// ── HistoryService ────────────────────────────────────────────────────────────
+// Playback history, activity log, and search query history.
+
+message HistoryRequest { int32 limit = 1; }
+message HistoryResponse { repeated HistoryEntry entries = 1; }
+
+message HistoryVideosRequest { int32 limit = 1; }
+message HistoryVideosResponse { repeated HistoryEntry entries = 1; }
+
+message VideoHistoryRequest { string video_id = 1; }
+message VideoHistoryResponse { repeated HistoryEntry entries = 1; }
+
+message AddHistoryRequest {
+  string video_id = 1;
+  string event_type = 2;
+  string details = 3;
+}
+message AddHistoryResponse {}
+
+message DeleteVideoHistoryRequest { string video_id = 1; }
+message DeleteVideoHistoryResponse {}
+
+message DeleteSearchHistoryRequest { string query = 1; }
+message DeleteSearchHistoryResponse {}
+
+message ClearHistoryRequest {}
+message ClearHistoryResponse {}
+
+message ActivityLogRequest { int32 limit = 1; }
+message ActivityLogResponse { repeated ActivityEntry entries = 1; }
+
+message LogActivityRequest { ActivityEntry entry = 1; }
+message LogActivityResponse {}
+
+message SearchQueriesRequest {}
+message SearchQueriesResponse { repeated string queries = 1; }
+
+service HistoryService {
+  // History returns all event types; HistoryVideos returns only video-play events.
+  rpc History(HistoryRequest) returns (HistoryResponse);
+  rpc HistoryVideos(HistoryVideosRequest) returns (HistoryVideosResponse);
+  rpc VideoHistory(VideoHistoryRequest) returns (VideoHistoryResponse);
+  rpc AddHistory(AddHistoryRequest) returns (AddHistoryResponse);
+  rpc DeleteVideoHistory(DeleteVideoHistoryRequest) returns (DeleteVideoHistoryResponse);
+  rpc DeleteSearchHistory(DeleteSearchHistoryRequest) returns (DeleteSearchHistoryResponse);
+  rpc ClearHistory(ClearHistoryRequest) returns (ClearHistoryResponse);
+  rpc ActivityLog(ActivityLogRequest) returns (ActivityLogResponse);
+  rpc LogActivity(LogActivityRequest) returns (LogActivityResponse);
+  rpc SearchQueries(SearchQueriesRequest) returns (SearchQueriesResponse);
+}
+
+// ── DownloadService ───────────────────────────────────────────────────────────
+// Download queue management and server-streaming event feed.
+
+message EnqueueRequest { Video video = 1; bool audio_only = 2; }
+message EnqueueResponse {}
+
+message CancelDownloadRequest { string video_id = 1; }
+message CancelDownloadResponse {}
+
+message DownloadItemsRequest {}
+message DownloadItemsResponse { repeated DownloadItem items = 1; }
+
+message ClearDownloadsRequest {}
+message ClearDownloadsResponse { repeated string file_paths = 1; }
+
+message EventsRequest {}
+message EventsResponse { Event event = 1; }
+
+service DownloadService {
+  rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
+  rpc CancelDownload(CancelDownloadRequest) returns (CancelDownloadResponse);
+  rpc DownloadItems(DownloadItemsRequest) returns (DownloadItemsResponse);
+  rpc ClearDownloads(ClearDownloadsRequest) returns (ClearDownloadsResponse);
+  // Events is a server-streaming RPC — the daemon pushes events to the TUI.
+  rpc Events(EventsRequest) returns (stream EventsResponse);
+}

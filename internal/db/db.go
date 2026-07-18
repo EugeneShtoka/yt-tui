@@ -148,6 +148,16 @@ var versionedMigrations = []struct {
 			return nil
 		},
 	},
+	{
+		version: 5,
+		run: func(db *sql.DB) error {
+			ctx := context.Background()
+			if _, err := db.ExecContext(ctx, `UPDATE history SET event_type = 'streamVideo' WHERE event_type = 'stream'`); err != nil {
+				return fmt.Errorf("migration v5: %w", err)
+			}
+			return nil
+		},
+	},
 }
 
 func (d *DB) runVersionedMigrations() error {

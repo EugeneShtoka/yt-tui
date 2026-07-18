@@ -1,7 +1,19 @@
-.PHONY: build test lint vuln check
+.PHONY: build run run-daemon build-tui build-daemon test lint vuln check
 
 build:
 	go build ./...
+
+build-tui:
+	go build -o yt-tui ./cmd/yt-tui/
+
+build-daemon:
+	go build -o yt-tuid ./cmd/yt-tuid/
+
+run:
+	go run ./cmd/yt-tui/
+
+run-daemon:
+	go run ./cmd/yt-tuid/
 
 test:
 	go test -race ./...

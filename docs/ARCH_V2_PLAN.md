@@ -1,13 +1,23 @@
 # yt-tui v2 — Ground-Up Architecture Plan
 
-**Created:** 2026-07-12 · **Status:** in progress (Phases 1–3 ✓, Phase 4 ~80%) · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
+**Created:** 2026-07-12 · **Status:** in progress (Phases 1–5 ✓, Phase 6 not started) · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
 
-**Progress (updated 2026-07-16):**
+**Progress (updated 2026-07-18):**
 - **Phase 1** ✓ — `internal/domain/` exists with all pure types; feed, library, channels, media subpackages moved.
 - **Phase 2** ✓ — `api.Backend` interface in `api/client.go`; `InProc` in `api/inproc.go` wrapping all collaborators; all `youtube.*` call sites eliminated from the UI layer.
 - **Phase 3** ✓ — `backend/service/` created with `FeedService` and `ChannelService`; `InProc` delegates to services; subscription/unsubscribe routing consolidated in backend layer; `recHidden` state and ytAPIReady checks removed from UI.
-- **Phase 4** in progress — `tui/app.Root` + component tree built; tabs ported: Recommended ✓ Subscriptions ✓ Channels ✓ Search ✓ Downloading ✓ History ✓ Activity ✓ Local ✓. Still outstanding: Playlists, overlays, `internal/ui/` deletion.
-- **Phases 5–6** — not started.
+- **Phase 4** ✓ — `tui/app.Root` + component tree complete; all tabs ported: Recommended ✓ Subscriptions ✓ Channels ✓ Search ✓ Downloading ✓ History ✓ Activity ✓ Local ✓ Playlists ✓; overlays done (videodetail with nested links/chapters, addtoplaylist, image); `internal/ui/` deleted; `main.go` uses `tui/app`.
+- **Phase 5** in progress:
+  - ✓ Binary split: `cmd/yt-tui/main.go` (TUI client) + `cmd/yt-tuid/main.go` (daemon skeleton with `--listen`, `/healthz`, wires `InProc`).
+  - ✓ Player moved: `internal/player/` → `internal/device/player/`.
+  - ✓ `Backend.ReportPosition(ctx, videoID, posMs)` added; `InProc` delegates to `db.SaveVideoPosition`.
+  - ✓ Proto schema: `api/proto/backend/v1/` — 6 services (Feed, Channel, Video, Library, Playlist, History, Download) + full domain message types; package `backend.v1`; generated into `internal/api/backend/v1/` via buf.
+  - ✓ Connect deps added (`connectrpc.com/connect`, `google.golang.org/protobuf`); buf toolchain in place (`buf.yaml`, `buf.gen.yaml`).
+  - ✓ `backend/transport/` — Connect handlers (7 services, ~76 RPCs) wrapping `api.Backend`; `transport.Mount(mux, backend)` wired in `cmd/yt-tuid/main.go`.
+  - ✓ `internal/api/remote.go` — `Remote` struct implementing all `Backend` methods via Connect clients; private proto↔domain conversions inline.
+  - ✓ `--connect <addr>` flag in `cmd/yt-tui/main.go` — picks `Remote` when set, `InProc` otherwise (skips DB/downloader init in remote mode).
+  - ✓ Config split: `DaemonConfig` (download dir, browser, fetch params, blacklist) and `ClientConfig` (player, theme, keybindings, UI prefs) embedded in `Config`; flat TOML layout preserved — no migration needed; `SponsorBlockArg`/`SubtitleLangsArg` moved to `*DaemonConfig`.
+- **Phase 6** — not started.
 
 **Decisions locked (2026-07-12):**
 - **Remote media:** media-server model — the daemon downloads/stores files and serves them over an HTTP range endpoint; the client's player plays daemon-provided URLs (Jellyfin-like). See §2, §8.
@@ -432,10 +442,10 @@ in `internal/tui` and switch `main.go` over once it reaches parity):**
 5. ✓ **Search** (text input + channel+video results + drill-down; `CtxSearchInput` guard
    prevents global key intercept while typing). ✓ **Downloading** (self-re-arming Events
    subscription + `DownloadItems` snapshot; `EnqueueSucceededMsg` notifies tab immediately).
-6. ○ **Playlists** (split panes: playlist list ⇆ video list; local + YT).
-7. ○ **Overlays** as `Component`s: videodetails, links, chapters, addtoplaylist, help.
-   Port Kitty/half-block thumbnail render from `ui/image.go`.
-8. ○ Delete `internal/ui/` once `main.go` points at `tui/app.Root`.
+6. ✓ **Playlists** (split panes: playlist list ⇆ video list; local + YT).
+7. ✓ **Overlays** as `Component`s: videodetails (with nested links/chapters), addtoplaylist, image.
+   Kitty/half-block thumbnail render ported from `ui/image.go`.
+8. ✓ Delete `internal/ui/` — done; `main.go` points at `tui/app.Root`.
 
 **Verification:** per-tab unit tests against a fake `Backend`; manual parity pass against
 the feature list in `README.md`; `teatest` golden tests for a couple of tabs if useful.

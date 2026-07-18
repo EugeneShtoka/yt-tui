@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package backend.v1;
+
+option go_package = "github.com/EugeneShtoka/yt-tui/internal/api/backend/v1;backendv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ── Core media types ──────────────────────────────────────────────────────────
+
+message Video {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  string channel_id = 4;
+  int32 duration = 5; // seconds
+  int64 view_count = 6;
+  string upload_date = 7; // YYYYMMDD
+  string url = 8;
+}
+
+message Channel {
+  string id = 1;
+  string name = 2;
+  string alias = 3;
+  repeated string tags = 4;
+  string url = 5;
+  int64 subscribers = 6;
+  bool is_local = 7;
+}
+
+message RawChapter {
+  string title = 1;
+  double start_time = 2;
+  double end_time = 3;
+}
+
+message VideoDetails {
+  Video video = 1;
+  string description = 2;
+  string thumbnail_url = 3;
+  int64 subscribers = 4;
+  repeated RawChapter chapters = 5;
+}
+
+message Link {
+  string label = 1;
+  string url = 2;
+}
+
+message Chapter {
+  string title = 1;
+  double original_start = 2;
+  double original_end = 3;
+  double adjusted_start = 4;
+  double adjusted_end = 5;
+}
+
+message SBSegment {
+  double start = 1;
+  double end = 2;
+}
+
+// CachedDetails carries nullable repeated fields via explicit *_parsed booleans:
+// false = never fetched (nil in Go); true = fetched, list may be empty.
+message CachedDetails {
+  string description = 1;
+  string thumbnail_url = 2;
+  int64 subscribers = 3;
+  repeated Link links = 4;
+  bool links_parsed = 5;
+  repeated Chapter chapters = 6;
+  bool chapters_parsed = 7;
+  repeated SBSegment sb_segments = 8;
+  bool sb_segments_parsed = 9;
+}
+
+// ── Library types ─────────────────────────────────────────────────────────────
+
+message LocalVideo {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  int32 duration = 4;
+  int64 view_count = 5;
+  string upload_date = 6;
+  string file_path = 7;
+  string download_type = 8; // "video" | "audio"
+  google.protobuf.Timestamp downloaded_at = 9;
+  string status = 10; // "new" | "started" | "watched"
+  google.protobuf.Timestamp last_played = 11;
+  int64 last_position_ms = 12;
+}
+
+// ── Playlist types ────────────────────────────────────────────────────────────
+
+message YTPlaylist {
+  string id = 1;
+  string title = 2;
+}
+
+message Playlist {
+  int64 id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message WatchLaterEntry {
+  string video_id = 1;
+  string title = 2;
+  string channel = 3;
+  string url = 4;
+  google.protobuf.Timestamp added_at = 5;
+}
+
+// ── History types ─────────────────────────────────────────────────────────────
+
+message HistoryEntry {
+  int64 id = 1;
+  string video_id = 2;
+  string title = 3;
+  string channel = 4;
+  string channel_id = 5;
+  int32 duration = 6;
+  int64 view_count = 7;
+  string upload_date = 8;
+  string event_type = 9;
+  string details = 10;
+  google.protobuf.Timestamp timestamp = 11;
+}
+
+message ActivityEntry {
+  int64 id = 1;
+  string type = 2;
+  bool is_local = 3;
+  string channel_id = 4;
+  string channel_name = 5;
+  string playlist_id = 6;
+  int64 playlist_local_id = 7;
+  string playlist_name = 8;
+  string video_id = 9;
+  string video_title = 10;
+  google.protobuf.Timestamp timestamp = 11;
+}
+
+// ── Download types ────────────────────────────────────────────────────────────
+
+message DownloadItem {
+  string video_id = 1;
+  string title = 2;
+  string channel = 3;
+  string duration = 4;
+  string url = 5;
+  bool audio_only = 6;
+  string status = 7; // "pending" | "active" | "complete" | "failed"
+  double progress = 8;
+  string speed = 9;
+  string eta = 10;
+  string file_path = 11;
+  string error = 12;
+}
+
+message Event {
+  string kind = 1; // "download_progress" | "download_done" | "download_error"
+  string video_id = 2;
+  string detail = 3;
+}

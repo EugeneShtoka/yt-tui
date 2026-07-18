@@ -40,6 +40,7 @@ type TabKeys struct {
 	Downloading   string `toml:"downloading"`
 	Local         string `toml:"local"`
 	History       string `toml:"history"`
+	Activity      string `toml:"activity"`
 }
 
 type KeyBindings struct {
@@ -149,6 +150,7 @@ func defaultKeyBindings() KeyBindings {
 			Downloading:   "d",
 			Local:         "l",
 			History:       "h",
+			Activity:      "a",
 		},
 	}
 }
@@ -182,18 +184,16 @@ type BlacklistedChannel struct {
 	Name string `toml:"name"`         // human-readable label; fallback match when ID absent
 }
 
-type Config struct {
+// DaemonConfig holds settings owned by the headless yt-tuid daemon: download
+// location, browser cookie source, yt-dlp fetch parameters, and feed filters.
+// These fields are irrelevant when the TUI connects to a remote daemon.
+type DaemonConfig struct {
 	DownloadDir                string               `toml:"download_dir"`
 	Browser                    string               `toml:"browser"`
-	Player                     string               `toml:"player"`
-	PlayerBackend              string               `toml:"player_backend"`
 	MaxDownloads               int                  `toml:"max_concurrent_downloads"`
 	SponsorBlock               bool                 `toml:"sponsorblock"`
 	SponsorBlockCats           []string             `toml:"sponsorblock_categories"`
 	AudioFormat                string               `toml:"audio_format"`
-	Theme                      string               `toml:"theme,omitempty"`
-	Tabs                       []string             `toml:"tabs"`
-	HintMode                   string               `toml:"hint_mode"` // "full" | "minimal" | "none"
 	RecommendedMaxAgeDays      int                  `toml:"recommended_max_age_days"`
 	RecommendedMinDurationSecs int                  `toml:"recommended_min_duration_secs"`
 	RecommendedMinViews        int                  `toml:"recommended_min_views"`
@@ -202,21 +202,40 @@ type Config struct {
 	ChannelLatestCount         int                  `toml:"channel_latest_count"`
 	ChannelStrikes             int                  `toml:"channel_strikes"`
 	StripEmojis                bool                 `toml:"strip_emojis"`
-	CloseOnLinkOpen            bool                 `toml:"close_on_link_open"`
-	CircularNav                bool                 `toml:"circular_nav"`
 	Subtitles                  bool                 `toml:"subtitles"`
 	SubtitleLangs              []string             `toml:"subtitle_langs"`
-	Keybindings                KeyBindings          `toml:"keybindings"`
 	BlacklistedChannels        []BlacklistedChannel `toml:"blacklisted_channels"`
-	DataDir                    string               `toml:"-"`
-	ConfigFile                 string               `toml:"-"`
+}
 
-	// mu guards the mutable config fields (currently BlacklistedChannels) and
-	// serializes file writes so a save can never observe a half-mutated slice.
+// ClientConfig holds settings used only by the yt-tui TUI client: local player
+// binary, visual theme, tab layout, UI preferences, and key bindings.
+// These fields are irrelevant on a headless daemon host.
+type ClientConfig struct {
+	Player          string      `toml:"player"`
+	PlayerBackend   string      `toml:"player_backend"`
+	Theme           string      `toml:"theme,omitempty"`
+	Tabs            []string    `toml:"tabs"`
+	HintMode        string      `toml:"hint_mode"` // "full" | "minimal" | "none"
+	CloseOnLinkOpen bool        `toml:"close_on_link_open"`
+	CircularNav     bool        `toml:"circular_nav"`
+	Keybindings     KeyBindings `toml:"keybindings"`
+}
+
+// Config is the unified configuration used in single-binary (InProc) mode.
+// It embeds DaemonConfig and ClientConfig so the existing flat config.toml
+// layout is preserved — no migration required for existing installations.
+// When the TUI runs with --connect, only ClientConfig fields are relevant;
+// when yt-tuid runs headlessly, only DaemonConfig fields are relevant.
+type Config struct {
+	DaemonConfig
+	ClientConfig
+	DataDir    string `toml:"-"`
+	ConfigFile string `toml:"-"`
+
+	// mu guards mutable config fields and serializes file writes.
 	// Unexported fields are ignored by the TOML encoder.
 	mu sync.Mutex
-	// saveReq is a 1-deep channel that coalesces async save requests; a single
-	// background worker (started in Load) drains it. Nil until Load runs.
+	// saveReq coalesces async save requests into a single background write.
 	saveReq chan struct{}
 }
 
@@ -227,26 +246,30 @@ var DefaultTabs = []string{
 
 func defaultConfig() *Config {
 	return &Config{
-		DownloadDir:           filepath.Join(os.Getenv("HOME"), "Videos", "yt-tui"),
-		Browser:               "vivaldi+gnomekeyring",
-		Player:                "mpv",
-		PlayerBackend:         "mpris",
-		MaxDownloads:          3,
-		SponsorBlock:          true,
-		SponsorBlockCats:      []string{"sponsor", "selfpromo", "interaction"},
-		AudioFormat:           "mp3",
-		Tabs:                  DefaultTabs,
-		HintMode:              "full",
-		RecommendedMaxAgeDays: 7,
-		RecommendedFetchCount: 150,
-		RecommendedMaxPages:   3,
-		ChannelLatestCount:    3,
-		ChannelStrikes:        2,
-		StripEmojis:           true,
-		CloseOnLinkOpen:       true,
-		Subtitles:             true,
-		SubtitleLangs:         []string{"en.*"},
-		Keybindings:           defaultKeyBindings(),
+		DaemonConfig: DaemonConfig{
+			DownloadDir:           filepath.Join(os.Getenv("HOME"), "Videos", "yt-tui"),
+			Browser:               "vivaldi+gnomekeyring",
+			MaxDownloads:          3,
+			SponsorBlock:          true,
+			SponsorBlockCats:      []string{"sponsor", "selfpromo", "interaction"},
+			AudioFormat:           "mp3",
+			RecommendedMaxAgeDays: 7,
+			RecommendedFetchCount: 150,
+			RecommendedMaxPages:   3,
+			ChannelLatestCount:    3,
+			ChannelStrikes:        2,
+			StripEmojis:           true,
+			Subtitles:             true,
+			SubtitleLangs:         []string{"en.*"},
+		},
+		ClientConfig: ClientConfig{
+			Player:          "mpv",
+			PlayerBackend:   "mpris",
+			Tabs:            DefaultTabs,
+			HintMode:        "full",
+			CloseOnLinkOpen: true,
+			Keybindings:     defaultKeyBindings(),
+		},
 	}
 }
 
@@ -370,14 +393,14 @@ func (c *Config) save(path string) error {
 	return nil
 }
 
-func (c *Config) SubtitleLangsArg() string {
+func (c *DaemonConfig) SubtitleLangsArg() string {
 	if len(c.SubtitleLangs) == 0 {
 		return ""
 	}
 	return strings.Join(c.SubtitleLangs, ",")
 }
 
-func (c *Config) SponsorBlockArg() string {
+func (c *DaemonConfig) SponsorBlockArg() string {
 	if !c.SponsorBlock || len(c.SponsorBlockCats) == 0 {
 		return ""
 	}

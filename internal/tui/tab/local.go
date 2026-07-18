@@ -74,11 +74,11 @@ func (t Local) View() string {
 	headerH := lipgloss.Height(header)
 
 	if !t.loaded {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.Render("Loading…"))
+		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…"))
 	}
 	if len(t.videos) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styles.Dim.Render("No local videos. Download some with d."))
+			styles.Dim.PaddingLeft(1).Render("No local videos. Download some with d."))
 	}
 
 	titleW := width - render.ColNum - 1 - 2 - render.ColChannel - 1 - render.ColDuration - 1 - render.ColViews - 1 - render.ColDate
@@ -215,7 +215,7 @@ func (t Local) localLoadCmd(status string) tea.Cmd {
 }
 
 func (t Local) localPageHeight() int {
-	h := t.height - 2
+	h := t.height - 3 // section title (2 lines incl. MarginBottom) + col header
 	if h < 1 {
 		h = 1
 	}

@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
+	"github.com/EugeneShtoka/yt-tui/internal/device/player"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
@@ -19,11 +21,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// playerStartedMsg is a root-internal signal emitted by playCmd after the
+// player process has been launched. Root handles it by showing status and
+// scheduling playerWaitCmd to track process exit.
+type playerStartedMsg struct {
+	videoID string
+	text    string
+}
+
 // Root is the top-level BubbleTea model.
 // It owns focus, size, global key routing, and the tab/overlay stack.
 type Root struct {
 	backend api.Backend
 	cfg     *config.Config
+	player  player.Backend
 	keys    keymap.KeyMap
 	cmds    command.Registry
 
@@ -36,10 +47,14 @@ type Root struct {
 	activeIdx int
 
 	overlays []ovpkg.Overlay
+
+	tabChordActive bool
+	tabChordKeys   map[string]tuipkg.TabID
 }
 
 // New constructs the Root with the current tab set.
-func New(backend api.Backend, cfg *config.Config) Root {
+// pl may be nil if no player binary was found; play actions will show an error.
+func New(backend api.Backend, cfg *config.Config, pl player.Backend) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
 	tabs := []tuipkg.Tab{
@@ -49,9 +64,9 @@ func New(backend api.Backend, cfg *config.Config) Root {
 		tab.NewPlaylists(backend, keys, cfg.CircularNav),
 		tab.NewSearch(backend, keys, cfg.CircularNav),
 		tab.NewDownloading(backend, keys, cfg.CircularNav),
+		tab.NewLocal(backend, keys, cfg.CircularNav),
 		tab.NewHistory(backend, keys, cfg.CircularNav),
 		tab.NewActivity(backend, keys, cfg.CircularNav),
-		tab.NewLocal(backend, keys, cfg.CircularNav),
 	}
 
 	titles := make([]string, len(tabs))
@@ -64,14 +79,29 @@ func New(backend api.Backend, cfg *config.Config) Root {
 
 	right := keys.Help.Help().Key + ": help  " + keys.Quit.Help().Key + ": quit"
 
+	tk := cfg.Keybindings.TabKeys
+	tabChordKeys := map[string]tuipkg.TabID{
+		tk.Recommended:   tuipkg.TabRecommended,
+		tk.Subscriptions: tuipkg.TabSubscriptions,
+		tk.Channels:      tuipkg.TabChannels,
+		tk.Playlists:     tuipkg.TabPlaylists,
+		tk.Search:        tuipkg.TabSearch,
+		tk.Downloading:   tuipkg.TabDownloading,
+		tk.Local:         tuipkg.TabLocal,
+		tk.History:       tuipkg.TabHistory,
+		tk.Activity:      tuipkg.TabActivity,
+	}
+
 	return Root{
-		backend:   backend,
-		cfg:       cfg,
-		keys:      keys,
-		cmds:      cmds,
-		tabBar:    component.NewTabBar(titles),
-		statusBar: component.NewStatusBar(right),
-		tabs:      tabs,
+		backend:      backend,
+		cfg:          cfg,
+		player:       pl,
+		keys:         keys,
+		cmds:         cmds,
+		tabBar:       component.NewTabBar(titles),
+		statusBar:    component.NewStatusBar(right),
+		tabs:         tabs,
+		tabChordKeys: tabChordKeys,
 	}
 }
 
@@ -101,16 +131,28 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handlePopOverlay()
 
 	case tuipkg.PlayVideoMsg:
-		// TODO: wire player
-		return r, func() tea.Msg {
-			return tuipkg.StatusMsg{Text: "playback not yet wired in v2", IsErr: true}
-		}
+		v, audio := m.Video, m.AudioOnly
+		return r, r.playCmd(v.ID, v.URL, v.Title, audio, "stream")
 
 	case tuipkg.LaunchLocalVideoMsg:
-		// TODO: wire player
-		return r, func() tea.Msg {
-			return tuipkg.StatusMsg{Text: "local playback not yet wired in v2", IsErr: true}
+		lv := m.Video
+		return r, r.playCmd(lv.ID, lv.FilePath, lv.Title, false, "play")
+
+	case playerStartedMsg:
+		return r, tea.Batch(
+			func() tea.Msg { return tuipkg.StatusMsg{Text: m.text} },
+			func() tea.Msg { return tuipkg.HistoryChangedMsg{} },
+			r.playerWaitCmd(m.videoID),
+		)
+
+	case tuipkg.RefreshPositionsMsg:
+		var bcmds []tea.Cmd
+		for i, t := range r.tabs {
+			updated, cmd := t.Update(msg)
+			r.tabs[i] = updated.(tuipkg.Tab)
+			bcmds = append(bcmds, cmd)
 		}
+		return r, tea.Batch(bcmds...)
 
 	case tuipkg.EnqueueMsg:
 		v, audio := m.Video, m.AudioOnly
@@ -167,15 +209,25 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, cmd
 
 	default:
-		// Route to both the top overlay and the active tab so each can handle
-		// its own private response messages (e.g. vdDetailsMsg → VideoDetail,
-		// DownloadItemsChangedMsg → Downloading tab).
-		var c1, c2 tea.Cmd
+		// Broadcast to all tabs so that background responses (e.g. subLoadedMsg,
+		// chsLoadedMsg) reach their owner tab regardless of which tab is active.
+		// Also update the top overlay so it can handle its own private messages.
+		var c1 tea.Cmd
 		if len(r.overlays) > 0 {
 			r, c1 = r.updateTopOverlay(msg)
 		}
-		r, c2 = r.updateActiveTab(msg)
-		return r, tea.Batch(c1, c2)
+		var bcmds []tea.Cmd
+		if c1 != nil {
+			bcmds = append(bcmds, c1)
+		}
+		for i, t := range r.tabs {
+			updated, cmd := t.Update(msg)
+			r.tabs[i] = updated.(tuipkg.Tab)
+			if cmd != nil {
+				bcmds = append(bcmds, cmd)
+			}
+		}
+		return r, tea.Batch(bcmds...)
 	}
 }
 
@@ -260,6 +312,14 @@ func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
 		return r.updateActiveTab(msg)
 	}
 
+	if r.tabChordActive {
+		r.tabChordActive = false
+		if tabID, ok := r.tabChordKeys[msg.String()]; ok {
+			return r.handleNavigate(tuipkg.NavigateMsg{Tab: tabID})
+		}
+		return r, nil // unrecognized chord key — discard
+	}
+
 	switch {
 	case key.Matches(msg, r.keys.Quit):
 		return r, tea.Quit
@@ -267,6 +327,9 @@ func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
 		return r.cycleTab(+1)
 	case key.Matches(msg, r.keys.ShiftTab):
 		return r.cycleTab(-1)
+	case key.Matches(msg, r.keys.TabChord):
+		r.tabChordActive = true
+		return r, nil
 	}
 
 	return r.updateActiveTab(msg)
@@ -280,9 +343,12 @@ func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {
 			break
 		}
 	}
-	if m.Query != "" && m.Tab == tuipkg.TabSearch {
-		q := m.Query
-		return r, func() tea.Msg { return tuipkg.SearchActivateMsg{Query: q} }
+	if m.Tab == tuipkg.TabSearch {
+		if m.Query != "" {
+			q := m.Query
+			return r, func() tea.Msg { return tuipkg.SearchActivateMsg{Query: q} }
+		}
+		return r, func() tea.Msg { return tuipkg.SearchFocusInputMsg{} }
 	}
 	return r, nil
 }
@@ -326,7 +392,67 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 	n := len(r.tabs)
 	r.activeIdx = ((r.activeIdx + dir) % n + n) % n
 	r.tabBar = r.tabBar.WithActive(r.activeIdx)
+	if r.activeTab().ID() == tuipkg.TabSearch {
+		return r, func() tea.Msg { return tuipkg.SearchFocusInputMsg{} }
+	}
 	return r, nil
+}
+
+func (r Root) playCmd(id, source, title string, audioOnly bool, histEvent string) tea.Cmd {
+	return func() tea.Msg {
+		if r.player == nil {
+			return tuipkg.StatusMsg{Text: "no video player found — install mpv or vlc", IsErr: true}
+		}
+		posMs, _ := r.backend.VideoPosition(context.Background(), id)
+		pos := time.Duration(posMs) * time.Millisecond
+		var launchErr error
+		if audioOnly {
+			launchErr = r.player.LaunchAudio(source, title, pos)
+		} else {
+			launchErr = r.player.Launch(source, title, pos)
+		}
+		if launchErr != nil {
+			return tuipkg.StatusMsg{Text: "player: " + launchErr.Error(), IsErr: true}
+		}
+		suffix := "Video"
+		if audioOnly {
+			suffix = "Audio"
+		}
+		_ = r.backend.AddHistory(context.Background(), id, histEvent+suffix, "")
+		// Periodic saves — final save is handled by playerWaitCmd after exit.
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			exitCh := make(chan struct{})
+			go func() { _ = r.player.Wait(); close(exitCh) }()
+			savePos := func() {
+				if p, _ := r.player.Position(); p > 0 {
+					_ = r.backend.SaveVideoPosition(context.Background(), id, p.Milliseconds())
+				}
+			}
+			for {
+				select {
+				case <-exitCh:
+					return
+				case <-ticker.C:
+					savePos()
+				}
+			}
+		}()
+		return playerStartedMsg{videoID: id, text: "Playing: " + render.Truncate(title, 60)}
+	}
+}
+
+// playerWaitCmd blocks until the player process exits, saves the final position,
+// then triggers a UI refresh so tabs show the updated playback progress.
+func (r Root) playerWaitCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		_ = r.player.Wait()
+		if p, _ := r.player.Position(); p > 0 {
+			_ = r.backend.SaveVideoPosition(context.Background(), id, p.Milliseconds())
+		}
+		return tuipkg.RefreshPositionsMsg{}
+	}
 }
 
 func (r Root) overlayWidthReduction() int {

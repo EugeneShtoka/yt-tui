@@ -21,11 +21,10 @@ func Duration(secs int) string {
 	}
 	h := secs / 3600
 	m := (secs % 3600) / 60
-	s := secs % 60
 	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+		return fmt.Sprintf("%d:%02d", h, m)
 	}
-	return fmt.Sprintf("%d:%02d", m, s)
+	return fmt.Sprintf("%d", m)
 }
 
 func DurationWithPos(posMs int64, totalSecs int) string {
@@ -51,6 +50,24 @@ func Date(yyyymmdd string) string {
 		return yyyymmdd
 	}
 	return yyyymmdd[6:] + "/" + yyyymmdd[4:6] + "/" + yyyymmdd[:4]
+}
+
+func FormatEvent(s string) string {
+	switch s {
+	case "streamVideo":
+		return "Stream video"
+	case "streamAudio":
+		return "Stream audio"
+	case "playVideo":
+		return "Play video"
+	case "playAudio":
+		return "Play audio"
+	case "download video":
+		return "Download video"
+	case "download audio":
+		return "Download audio"
+	}
+	return s
 }
 
 func Truncate(s string, n int) string {

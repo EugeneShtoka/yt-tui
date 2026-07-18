@@ -17,6 +17,9 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
+// pageSize is the number of items fetched per yt-dlp call for paginated requests.
+const pageSize = 200
+
 // Client wraps config for plain (non-tea) YouTube fetch operations.
 type Client struct {
 	cfg *config.Config
@@ -104,6 +107,8 @@ func retryDelay(attempt int) time.Duration {
 	return time.Duration(1<<uint(attempt)) * 5 * time.Second
 }
 
+// buildArgs builds yt-dlp arguments with an optional upper limit (0 = no limit).
+// Used for requests that intentionally cap results (recommended feed, search, channel-latest).
 func buildArgs(cfg *config.Config, url string, limit int) []string {
 	args := []string{
 		"--flat-playlist",
@@ -123,6 +128,28 @@ func buildArgs(cfg *config.Config, url string, limit int) []string {
 	return args
 }
 
+// buildArgsPage builds yt-dlp arguments for one page of a paginated fetch.
+// start is 1-indexed; each page covers [start, start+pageSize-1].
+func buildArgsPage(cfg *config.Config, u string, start int) []string {
+	end := start + pageSize - 1
+	args := []string{
+		"--flat-playlist",
+		"--dump-json",
+		"--no-warnings",
+		"--quiet",
+		"--extractor-args", "youtubetab:approximate_date",
+		"--sleep-requests", "1",
+	}
+	if cfg.Browser != "" {
+		args = append(args, "--cookies-from-browser", cfg.Browser)
+	}
+	args = append(args,
+		"--playlist-start", fmt.Sprintf("%d", start),
+		"--playlist-end", fmt.Sprintf("%d", end),
+		u)
+	return args
+}
+
 // newLineScanner returns a bufio.Scanner sized for yt-dlp's long JSON lines.
 func newLineScanner(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
@@ -130,12 +157,12 @@ func newLineScanner(r io.Reader) *bufio.Scanner {
 	return scanner
 }
 
-// parseVideoLines scans yt-dlp --dump-json output, keeping only real videos:
-// entries with an ID + title, not a channel/playlist tab, and with a nonzero
-// view count. It is the pure core of tryParseVideos — testable against fixtures
-// with no process spawn.
-func parseVideoLines(r io.Reader) ([]domain.Video, error) {
+// parseVideoLines scans yt-dlp --dump-json output, keeping only real videos.
+// Returns (videos, rawCount, err) where rawCount is the number of valid entries
+// seen before the ViewCount==0 (member-only) filter, used for pagination decisions.
+func parseVideoLines(r io.Reader) ([]domain.Video, int, error) {
 	var videos []domain.Video
+	raw := 0
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -152,20 +179,23 @@ func parseVideoLines(r io.Reader) ([]domain.Video, error) {
 		if e.IEKey == "YoutubeTab" || e.Type == "playlist" {
 			continue
 		}
+		raw++ // count before member-only filter
 		if e.ViewCount == 0 {
 			continue
 		}
 		videos = append(videos, e.toVideo())
 	}
 	if err := scanner.Err(); err != nil {
-		return videos, fmt.Errorf("parseVideoLines: %w", err)
+		return videos, raw, fmt.Errorf("parseVideoLines: %w", err)
 	}
-	return videos, nil
+	return videos, raw, nil
 }
 
-// parseChannelLines scans yt-dlp output for channel entries (any entry with an ID).
-func parseChannelLines(r io.Reader) ([]domain.Channel, error) {
+// parseChannelLines scans yt-dlp output for channel entries.
+// Returns (channels, rawCount, err) for pagination decisions.
+func parseChannelLines(r io.Reader) ([]domain.Channel, int, error) {
 	var channels []domain.Channel
+	raw := 0
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -179,16 +209,16 @@ func parseChannelLines(r io.Reader) ([]domain.Channel, error) {
 		if e.ID == "" {
 			continue
 		}
+		raw++
 		channels = append(channels, e.toChannel())
 	}
 	if err := scanner.Err(); err != nil {
-		return channels, fmt.Errorf("parseChannelLines: %w", err)
+		return channels, raw, fmt.Errorf("parseChannelLines: %w", err)
 	}
-	return channels, nil
+	return channels, raw, nil
 }
 
-// parseMixedLines scans yt-dlp output that interleaves channels and videos
-// (used by search), routing each entry by its IEKey/type.
+// parseMixedLines scans yt-dlp output that interleaves channels and videos (search).
 func parseMixedLines(r io.Reader) (channels []domain.Channel, videos []domain.Video, err error) {
 	scanner := newLineScanner(r)
 	for scanner.Scan() {
@@ -214,23 +244,56 @@ func parseMixedLines(r io.Reader) (channels []domain.Channel, videos []domain.Vi
 	return channels, videos, nil
 }
 
-func tryParseVideos(args []string) ([]domain.Video, string, error) {
+// parsePlaylistLines scans yt-dlp output for playlist entries.
+// Returns (playlists, rawCount, err) for pagination decisions.
+func parsePlaylistLines(r io.Reader) ([]domain.YTPlaylist, int, error) {
+	var playlists []domain.YTPlaylist
+	raw := 0
+	scanner := newLineScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var e ytdlpEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.ID == "" {
+			continue
+		}
+		if e.Type == "playlist" || e.IEKey == "YoutubeTab" {
+			raw++
+			title := e.Title
+			if title == "" {
+				title = e.ID
+			}
+			playlists = append(playlists, domain.YTPlaylist{ID: e.ID, Title: title})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return playlists, raw, fmt.Errorf("parsePlaylistLines: %w", err)
+	}
+	return playlists, raw, nil
+}
+
+func tryParseVideos(args []string) ([]domain.Video, int, string, error) {
 	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, "", fmt.Errorf("tryParseVideos stdout: %w", err)
+		return nil, 0, "", fmt.Errorf("tryParseVideos stdout: %w", err)
 	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	if err := cmd.Start(); err != nil {
-		return nil, "", fmt.Errorf("tryParseVideos start: %w", err)
+		return nil, 0, "", fmt.Errorf("tryParseVideos start: %w", err)
 	}
-	videos, scanErr := parseVideoLines(stdout)
+	videos, raw, scanErr := parseVideoLines(stdout)
 	_ = cmd.Wait()
-	return videos, errBuf.String(), scanErr
+	return videos, raw, errBuf.String(), scanErr
 }
 
-func runAndParseVideos(args []string) ([]domain.Video, error) {
+func runAndParseVideos(args []string) ([]domain.Video, int, error) {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -238,31 +301,34 @@ func runAndParseVideos(args []string) ([]domain.Video, error) {
 			debug.Log("video fetch rate-limited, retry %d/%d after %v", attempt, maxRetries, d)
 			time.Sleep(d)
 		}
-		videos, stderrStr, err := tryParseVideos(args)
+		videos, raw, stderrStr, err := tryParseVideos(args)
 		if stderrStr != "" {
 			debug.Log("yt-dlp stderr: %s", strings.TrimSpace(stderrStr))
 		}
 		if !isRateLimited(stderrStr) || attempt >= maxRetries {
-			return videos, err
+			return videos, raw, err
 		}
 	}
-	return nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
+	return nil, 0, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-func tryParseChannels(args []string) ([]domain.Channel, string, error) {
+func tryParseChannels(args []string) ([]domain.Channel, int, string, error) {
 	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("tryParseChannels stdout: %w", err)
+	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
-	out, err := cmd.Output()
-	stderrStr := errBuf.String()
-	if err != nil {
-		return nil, stderrStr, fmt.Errorf("yt-dlp: %w", err)
+	if err := cmd.Start(); err != nil {
+		return nil, 0, "", fmt.Errorf("tryParseChannels start: %w", err)
 	}
-	channels, _ := parseChannelLines(bytes.NewReader(out))
-	return channels, stderrStr, nil
+	channels, raw, scanErr := parseChannelLines(stdout)
+	_ = cmd.Wait()
+	return channels, raw, errBuf.String(), scanErr
 }
 
-func runAndParseChannels(args []string) ([]domain.Channel, error) {
+func runAndParseChannels(args []string) ([]domain.Channel, int, error) {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -270,92 +336,50 @@ func runAndParseChannels(args []string) ([]domain.Channel, error) {
 			debug.Log("channel fetch rate-limited, retry %d/%d after %v", attempt, maxRetries, d)
 			time.Sleep(d)
 		}
-		channels, stderrStr, err := tryParseChannels(args)
+		channels, raw, stderrStr, err := tryParseChannels(args)
 		if stderrStr != "" {
 			debug.Log("yt-dlp stderr: %s", strings.TrimSpace(stderrStr))
 		}
 		if !isRateLimited(stderrStr) || attempt >= maxRetries {
-			return channels, err
+			return channels, raw, err
 		}
 	}
-	return nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
+	return nil, 0, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-func applyStripEmojisVideos(vv []domain.Video) []domain.Video {
-	for i := range vv {
-		vv[i].Title = StripEmojis(vv[i].Title)
+func tryParsePlaylists(args []string) ([]domain.YTPlaylist, int, string, error) {
+	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("tryParsePlaylists stdout: %w", err)
 	}
-	return vv
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Start(); err != nil {
+		return nil, 0, "", fmt.Errorf("tryParsePlaylists start: %w", err)
+	}
+	playlists, raw, scanErr := parsePlaylistLines(stdout)
+	_ = cmd.Wait()
+	return playlists, raw, errBuf.String(), scanErr
 }
 
-func applyStripEmojisChannels(cc []domain.Channel) []domain.Channel {
-	for i := range cc {
-		cc[i].Name = StripEmojis(cc[i].Name)
+func runAndParsePlaylists(args []string) ([]domain.YTPlaylist, int, error) {
+	const maxRetries = 3
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			d := retryDelay(attempt - 1)
+			debug.Log("playlist fetch rate-limited, retry %d/%d after %v", attempt, maxRetries, d)
+			time.Sleep(d)
+		}
+		playlists, raw, stderrStr, err := tryParsePlaylists(args)
+		if stderrStr != "" {
+			debug.Log("yt-dlp stderr: %s", strings.TrimSpace(stderrStr))
+		}
+		if !isRateLimited(stderrStr) || attempt >= maxRetries {
+			return playlists, raw, err
+		}
 	}
-	return cc
-}
-
-// Recommended fetches the recommended feed videos.
-func (c *Client) Recommended() ([]domain.Video, error) {
-	limit := c.cfg.RecommendedFetchCount
-	if limit <= 0 {
-		limit = 150
-	}
-	args := buildArgs(c.cfg, "https://www.youtube.com/feed/recommended", limit)
-	videos, err := runAndParseVideos(args)
-	if c.cfg.StripEmojis {
-		videos = applyStripEmojisVideos(videos)
-	}
-	return videos, err
-}
-
-// SubscribedChannels fetches the list of subscribed channels.
-func (c *Client) SubscribedChannels() ([]domain.Channel, error) {
-	args := buildArgs(c.cfg, "https://www.youtube.com/feed/channels", 0)
-	channels, err := runAndParseChannels(args)
-	if c.cfg.StripEmojis {
-		channels = applyStripEmojisChannels(channels)
-	}
-	return channels, err
-}
-
-// ChannelVideos fetches all videos for a channel.
-func (c *Client) ChannelVideos(channelURL, channelID string) ([]domain.Video, error) {
-	vidURL := channelURL
-	if vidURL == "" {
-		vidURL = "https://www.youtube.com/channel/" + channelID
-	}
-	if !strings.HasSuffix(vidURL, "/videos") {
-		vidURL += "/videos"
-	}
-	args := buildArgs(c.cfg, vidURL, 0)
-	videos, err := runAndParseVideos(args)
-	if c.cfg.StripEmojis {
-		videos = applyStripEmojisVideos(videos)
-	}
-	return videos, err
-}
-
-// ChannelLatest fetches the cfg.ChannelLatestCount most recent videos for a channel.
-func (c *Client) ChannelLatest(channelURL, channelID string) ([]domain.Video, error) {
-	return c.ChannelLatestN(channelURL, channelID, c.cfg.ChannelLatestCount)
-}
-
-// ChannelLatestN fetches at most n recent videos for a channel.
-func (c *Client) ChannelLatestN(channelURL, channelID string, n int) ([]domain.Video, error) {
-	vidURL := channelURL
-	if vidURL == "" {
-		vidURL = "https://www.youtube.com/channel/" + channelID
-	}
-	if !strings.HasSuffix(vidURL, "/videos") {
-		vidURL += "/videos"
-	}
-	args := buildArgs(c.cfg, vidURL, n)
-	videos, err := runAndParseVideos(args)
-	if c.cfg.StripEmojis {
-		videos = applyStripEmojisVideos(videos)
-	}
-	return videos, err
+	return nil, 0, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
 func tryParseMixed(args []string) (channels []domain.Channel, videos []domain.Video, stderrStr string, err error) {
@@ -393,9 +417,106 @@ func runAndParseMixed(args []string) (channels []domain.Channel, videos []domain
 	return nil, nil, fmt.Errorf("yt-dlp: max retries exceeded (rate limited)")
 }
 
-// Search searches YouTube for the given query, returning channels and videos.
+func applyStripEmojisVideos(vv []domain.Video) []domain.Video {
+	for i := range vv {
+		vv[i].Title = StripEmojis(vv[i].Title)
+	}
+	return vv
+}
+
+func applyStripEmojisChannels(cc []domain.Channel) []domain.Channel {
+	for i := range cc {
+		cc[i].Name = StripEmojis(cc[i].Name)
+	}
+	return cc
+}
+
+// Recommended fetches the recommended feed videos (intentionally capped by config).
+func (c *Client) Recommended() ([]domain.Video, error) {
+	limit := c.cfg.RecommendedFetchCount
+	if limit <= 0 {
+		limit = 150
+	}
+	args := buildArgs(c.cfg, "https://www.youtube.com/feed/recommended", limit)
+	videos, _, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
+	}
+	return videos, err
+}
+
+// SubscribedChannels fetches all subscribed channels, paginated.
+func (c *Client) SubscribedChannels() ([]domain.Channel, error) {
+	u := "https://www.youtube.com/feed/channels"
+	var all []domain.Channel
+	for start := 1; ; start += pageSize {
+		args := buildArgsPage(c.cfg, u, start)
+		page, raw, err := runAndParseChannels(args)
+		if err != nil {
+			return all, err
+		}
+		if c.cfg.StripEmojis {
+			page = applyStripEmojisChannels(page)
+		}
+		all = append(all, page...)
+		if raw < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// ChannelVideos fetches all videos for a channel, paginated.
+func (c *Client) ChannelVideos(channelURL, channelID string) ([]domain.Video, error) {
+	vidURL := channelURL
+	if vidURL == "" {
+		vidURL = "https://www.youtube.com/channel/" + channelID
+	}
+	if !strings.HasSuffix(vidURL, "/videos") {
+		vidURL += "/videos"
+	}
+	var all []domain.Video
+	for start := 1; ; start += pageSize {
+		args := buildArgsPage(c.cfg, vidURL, start)
+		page, raw, err := runAndParseVideos(args)
+		if err != nil {
+			return all, err
+		}
+		if c.cfg.StripEmojis {
+			page = applyStripEmojisVideos(page)
+		}
+		all = append(all, page...)
+		if raw < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// ChannelLatest fetches the cfg.ChannelLatestCount most recent videos for a channel.
+func (c *Client) ChannelLatest(channelURL, channelID string) ([]domain.Video, error) {
+	return c.ChannelLatestN(channelURL, channelID, c.cfg.ChannelLatestCount)
+}
+
+// ChannelLatestN fetches at most n recent videos for a channel (intentionally capped).
+func (c *Client) ChannelLatestN(channelURL, channelID string, n int) ([]domain.Video, error) {
+	vidURL := channelURL
+	if vidURL == "" {
+		vidURL = "https://www.youtube.com/channel/" + channelID
+	}
+	if !strings.HasSuffix(vidURL, "/videos") {
+		vidURL += "/videos"
+	}
+	args := buildArgs(c.cfg, vidURL, n)
+	videos, _, err := runAndParseVideos(args)
+	if c.cfg.StripEmojis {
+		videos = applyStripEmojisVideos(videos)
+	}
+	return videos, err
+}
+
+// Search searches YouTube for the given query (intentionally capped results).
 func (c *Client) Search(query string) (channels []domain.Channel, videos []domain.Video, err error) {
-	// Run channel search concurrently with video search.
 	type chResult struct {
 		channels []domain.Channel
 		err      error
@@ -425,21 +546,43 @@ func (c *Client) Search(query string) (channels []domain.Channel, videos []domai
 	return cr.channels, videos, err
 }
 
-// YTPlaylists fetches the list of YouTube playlists.
+// YTPlaylists fetches all user playlists, paginated.
 func (c *Client) YTPlaylists() ([]domain.YTPlaylist, error) {
-	args := buildArgs(c.cfg, "https://www.youtube.com/feed/playlists", 0)
-	return runAndParsePlaylists(args)
+	u := "https://www.youtube.com/feed/playlists"
+	var all []domain.YTPlaylist
+	for start := 1; ; start += pageSize {
+		args := buildArgsPage(c.cfg, u, start)
+		page, raw, err := runAndParsePlaylists(args)
+		if err != nil {
+			return all, err
+		}
+		all = append(all, page...)
+		if raw < pageSize {
+			break
+		}
+	}
+	return all, nil
 }
 
-// PlaylistVideos fetches videos for a YouTube playlist.
+// PlaylistVideos fetches all videos for a YouTube playlist, paginated.
 func (c *Client) PlaylistVideos(playlistID string) ([]domain.Video, error) {
 	u := "https://www.youtube.com/playlist?list=" + playlistID
-	args := buildArgs(c.cfg, u, 0)
-	videos, err := runAndParseVideos(args)
-	if c.cfg.StripEmojis {
-		videos = applyStripEmojisVideos(videos)
+	var all []domain.Video
+	for start := 1; ; start += pageSize {
+		args := buildArgsPage(c.cfg, u, start)
+		page, raw, err := runAndParseVideos(args)
+		if err != nil {
+			return all, err
+		}
+		if c.cfg.StripEmojis {
+			page = applyStripEmojisVideos(page)
+		}
+		all = append(all, page...)
+		if raw < pageSize {
+			break
+		}
 	}
-	return videos, err
+	return all, nil
 }
 
 type ytdlpDetailChapter struct {
@@ -508,33 +651,4 @@ func (c *Client) VideoDetails(videoURL string) (domain.VideoDetails, error) {
 		Subscribers:  e.ChannelFollowerCount,
 		Chapters:     chapters,
 	}, nil
-}
-
-func runAndParsePlaylists(args []string) ([]domain.YTPlaylist, error) {
-	cmd := exec.CommandContext(context.Background(), "yt-dlp", args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("yt-dlp: %w", err)
-	}
-	var playlists []domain.YTPlaylist
-	for _, line := range strings.Split(string(out), "\n") {
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var e ytdlpEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
-		}
-		if e.ID == "" {
-			continue
-		}
-		if e.Type == "playlist" || e.IEKey == "YoutubeTab" {
-			title := e.Title
-			if title == "" {
-				title = e.ID
-			}
-			playlists = append(playlists, domain.YTPlaylist{ID: e.ID, Title: title})
-		}
-	}
-	return playlists, nil
 }

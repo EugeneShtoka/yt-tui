@@ -123,10 +123,10 @@ func (t Downloading) View() string {
 	headerH := lipgloss.Height(header)
 
 	if t.loading {
-		return lipgloss.JoinVertical(lipgloss.Left, header, t.spinner.View()+" Loading…")
+		return lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…")
 	}
 	if len(t.items) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header, "",
+		return lipgloss.JoinVertical(lipgloss.Left, header,
 			styles.Dim.PaddingLeft(1).Render("No active downloads. Press "+t.keys.Download.Help().Key+" on any video to start."))
 	}
 
@@ -146,7 +146,7 @@ func (t Downloading) View() string {
 	for i := start; i < end; i++ {
 		rows = append(rows, t.renderRow(t.items[i], i == t.cursor, i+1, titleW))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", strings.Join(rows, "\n"))
+	return lipgloss.JoinVertical(lipgloss.Left, header, strings.Join(rows, "\n"))
 }
 
 // ── key handling ──────────────────────────────────────────────────────────────

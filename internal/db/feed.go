@@ -234,7 +234,7 @@ func (d *DB) pruneRecommendedFeed(maxDays int) error {
 		return fmt.Errorf("pruneRecommendedFeed delete details: %w", err)
 	}
 	if _, err := d.sql.ExecContext(ctx, `
-		DELETE FROM feed_cache WHERE video_id IN (
+		DELETE FROM feed_cache WHERE feed='recommended' AND video_id IN (
 			SELECT id FROM videos WHERE upload_date != '' AND upload_date < ?
 		)
 	`, cutoff); err != nil {

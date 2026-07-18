@@ -93,6 +93,10 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recFetchedMsg:
 		t.cursor = t.feed.Merge(m.videos, t.cursor, 0)
 		t.feed.FinishFetch()
+		return t, t.recSaveCacheCmd()
+
+	case tuipkg.RefreshPositionsMsg:
+		return t, t.recLoadAuxCmd()
 
 	case recAuxLoadedMsg:
 		t.positions = m.positions
@@ -248,6 +252,14 @@ func (t Recommended) recLoadAuxCmd() tea.Cmd {
 	}
 }
 
+func (t Recommended) recSaveCacheCmd() tea.Cmd {
+	videos := t.feed.Videos()
+	return func() tea.Msg {
+		_ = t.backend.SaveFeedCache(context.Background(), "recommended", videos)
+		return nil
+	}
+}
+
 func (t Recommended) recHideVideoCmd(v domain.Video) tea.Cmd {
 	return func() tea.Msg {
 		_ = t.backend.HideRecVideo(context.Background(), v.ID)
@@ -256,7 +268,7 @@ func (t Recommended) recHideVideoCmd(v domain.Video) tea.Cmd {
 }
 
 func (t Recommended) recPageHeight() int {
-	h := t.height - 2 // section header + col header
+	h := t.height - 3 // section title (2 lines incl. MarginBottom) + col header
 	if h < 1 {
 		h = 1
 	}

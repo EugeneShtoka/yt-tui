@@ -23,11 +23,7 @@ type histDetailLoadedMsg struct {
 	videoID string
 	entries []domain.HistoryEntry
 }
-type histDeletedMsg struct {
-	title    string
-	query    string
-	isSearch bool
-}
+type histDeletedMsg struct{ title string }
 
 // History is the History tab: a scrollable list of recently watched videos and searches.
 type History struct {
@@ -59,6 +55,8 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
+	case tuipkg.HistoryChangedMsg:
+		return t, t.loadCmd()
 	case histLoadedMsg:
 		t.entries = m.entries
 		t.loaded = true
@@ -68,13 +66,7 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.detailVideoID = m.videoID
 		t.detail = m.entries
 	case histDeletedMsg:
-		var text string
-		if m.isSearch {
-			text = "Removed search: " + render.Truncate(m.query, 50)
-		} else {
-			text = "Deleted: " + render.Truncate(m.title, 50)
-		}
-		return t, func() tea.Msg { return tuipkg.StatusMsg{Text: text} }
+		return t, func() tea.Msg { return tuipkg.StatusMsg{Text: "Deleted: " + render.Truncate(m.title, 50)} }
 	case tea.KeyMsg:
 		return t.handleKey(m)
 	}
@@ -128,13 +120,7 @@ func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 		if t.cursor < n {
-			e := t.entries[t.cursor]
-			if e.EventType == "search" {
-				return t, func() tea.Msg {
-					return tuipkg.NavigateMsg{Tab: tuipkg.TabSearch, Query: e.Details}
-				}
-			}
-			return t, t.histLoadDetailCmd(e.VideoID)
+			return t, t.histLoadDetailCmd(t.entries[t.cursor].VideoID)
 		}
 	case key.Matches(msg, keys.Delete):
 		if t.cursor < n {
@@ -147,12 +133,12 @@ func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.HideChannel):
 		if t.cursor < n {
-			e := t.entries[t.cursor]
-			if e.EventType != "search" {
-				ch := domain.Channel{ID: e.ChannelID, Name: e.Channel}
-				return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
-			}
+			ch := domain.Channel{ID: t.entries[t.cursor].ChannelID, Name: t.entries[t.cursor].Channel}
+			return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
 		}
+	case key.Matches(msg, keys.Refresh):
+		t.loaded = false
+		return t, t.loadCmd()
 	}
 	return t, nil
 }
@@ -180,10 +166,6 @@ func (t History) histLoadDetailCmd(videoID string) tea.Cmd {
 func (t History) histDeleteCmd(e domain.HistoryEntry) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		if e.EventType == "search" {
-			_ = t.backend.DeleteSearchHistory(ctx, e.Details)
-			return histDeletedMsg{query: e.Details, isSearch: true}
-		}
 		if lv, ok := t.backend.HasLocalVideo(ctx, e.VideoID); ok {
 			_ = os.Remove(lv.FilePath)
 			_ = t.backend.DeleteLocalVideo(ctx, lv.ID)
@@ -195,7 +177,7 @@ func (t History) histDeleteCmd(e domain.HistoryEntry) tea.Cmd {
 }
 
 func (t History) histPageHeight() int {
-	h := t.height - 2
+	h := t.height - 3 // section title (2 lines incl. MarginBottom) + col header
 	if h < 1 {
 		h = 1
 	}
@@ -251,18 +233,6 @@ func (t History) renderList() string {
 		}
 		numStr := numStyle.Render(fmt.Sprintf("%*d", render.ColNum, i+1))
 
-		if e.EventType == "search" {
-			queryW := width - render.ColNum - 1 - 2 - colStatus - 1
-			queryStyle := styles.Channel.Width(queryW)
-			if i == t.cursor {
-				queryStyle = styles.Selected.Width(queryW)
-			}
-			rows = append(rows,
-				numStr+sep+indicator+statusStyle.Render("search")+sep+
-					queryStyle.Render(render.Truncate(e.Details, queryW)))
-			continue
-		}
-
 		titleStyle := styles.Normal.Width(titleW)
 		chStyle := styles.Channel.Width(render.ColChannel)
 		durStyle := styles.Duration.Width(render.ColDuration)
@@ -278,7 +248,7 @@ func (t History) renderList() string {
 		}
 
 		rows = append(rows,
-			numStr+sep+indicator+statusStyle.Render(e.EventType)+sep+
+			numStr+sep+indicator+statusStyle.Render(render.FormatEvent(e.EventType))+sep+
 				titleStyle.Render(render.Truncate(e.Title, titleW))+sep+
 				chStyle.Render(render.Truncate(e.Channel, render.ColChannel-2))+sep+
 				durStyle.Render(render.Duration(e.Duration))+sep+
@@ -308,7 +278,7 @@ func (t History) renderDetail() string {
 		}
 		e := &t.detail[i]
 		rows = append(rows, "  "+
-			styles.Warning.Width(colEvW).Render(e.EventType)+" "+
+			styles.Warning.Width(colEvW).Render(render.FormatEvent(e.EventType))+" "+
 			styles.Channel.Width(colTsW).Render(e.Timestamp.Format("2006-01-02 15:04:05"))+" "+
 			styles.Dim.Render(e.Details))
 	}

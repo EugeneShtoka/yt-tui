@@ -117,8 +117,8 @@ func (p *InProc) AllVideoPositions(_ context.Context) (map[string]int64, error) 
 	return p.db.AllVideoPositions()
 }
 
-func (p *InProc) SearchQueries(_ context.Context, limit int) ([]string, error) {
-	return p.db.SearchQueries(limit)
+func (p *InProc) SearchQueries(_ context.Context) ([]string, error) {
+	return p.db.SearchQueries()
 }
 
 func (p *InProc) GetVideoDetailsCache(_ context.Context, videoID string) (domain.CachedDetails, bool, error) {
@@ -327,6 +327,12 @@ func (p *InProc) Subscribe(_ context.Context, ch domain.Channel) error {
 
 func (p *InProc) Unsubscribe(_ context.Context, ch domain.Channel) error {
 	return p.ch.Unsubscribe(ch)
+}
+
+// ── Playback position ─────────────────────────────────────────────────────────
+
+func (p *InProc) ReportPosition(_ context.Context, videoID string, posMs int64) error {
+	return p.db.SaveVideoPosition(videoID, posMs)
 }
 
 // ── Download queue ────────────────────────────────────────────────────────────

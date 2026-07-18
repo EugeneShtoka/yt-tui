@@ -51,12 +51,12 @@ func renderVideoList(
 	listH := height - headerH
 
 	if loading && !refreshing {
-		body := spinnerView + " Loading…"
+		body := " " + spinnerView + " Loading…"
 		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 	}
 	if len(videos) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styles.Dim.Render("No videos. Press r to refresh."))
+			styles.Dim.PaddingLeft(1).Render("No videos. Press r to refresh."))
 	}
 
 	body := renderVideoRows(ctx, videos, cursor, vs, listH)

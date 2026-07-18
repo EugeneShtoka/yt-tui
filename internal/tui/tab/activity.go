@@ -66,10 +66,10 @@ func (t Activity) View() string {
 	headerH := lipgloss.Height(header)
 
 	if !t.loaded {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.Render("Loading…"))
+		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…"))
 	}
 	if len(t.entries) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.Render("No activity yet."))
+		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("No activity yet."))
 	}
 
 	const colType = 16
@@ -165,7 +165,7 @@ func (t Activity) actNavigateCmd(e domain.ActivityEntry) tea.Cmd {
 }
 
 func (t Activity) actPageHeight() int {
-	h := t.height - 1
+	h := t.height - 2 // section title (1 line + MarginBottom=1)
 	if h < 1 {
 		h = 1
 	}

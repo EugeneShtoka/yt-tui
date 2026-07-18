@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -21,6 +22,7 @@ type mprisBackend struct {
 	active  bool
 
 	stopCh chan struct{}
+	doneCh chan struct{} // closed when player process exits
 	once   sync.Once
 }
 
@@ -43,8 +45,15 @@ func newMPRISBackend(driver Driver) (*mprisBackend, error) {
 func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	b.Close()
 
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		return fmt.Errorf("exec: open devnull: %w", err)
+	}
+	defer null.Close()
 	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Stdout = null
+	cmd.Stderr = null
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("exec: %w", err)
 	}
@@ -53,20 +62,27 @@ func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	b.lastPos = startAt
 	b.active = true
 	b.stopCh = make(chan struct{})
+	b.doneCh = make(chan struct{})
 	b.once = sync.Once{}
 	stop := b.stopCh
+	done := b.doneCh
 	b.mu.Unlock()
 
 	go b.poll(stop)
+	go func() {
+		_ = cmd.Wait()
+		b.Close()
+		close(done)
+	}()
 	return nil
 }
 
-func (b *mprisBackend) Launch(source string, startAt time.Duration) error {
-	return b.exec(b.driver.Args(source, startAt), startAt)
+func (b *mprisBackend) Launch(source, title string, startAt time.Duration) error {
+	return b.exec(b.driver.Args(source, title, startAt), startAt)
 }
 
-func (b *mprisBackend) LaunchAudio(source string, startAt time.Duration) error {
-	return b.exec(b.driver.AudioArgs(source, startAt), startAt)
+func (b *mprisBackend) LaunchAudio(source, title string, startAt time.Duration) error {
+	return b.exec(b.driver.AudioArgs(source, title, startAt), startAt)
 }
 
 func (b *mprisBackend) poll(stopCh chan struct{}) {
@@ -110,6 +126,17 @@ func (b *mprisBackend) Position() (time.Duration, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.lastPos, b.active
+}
+
+func (b *mprisBackend) Wait() error {
+	b.mu.Lock()
+	ch := b.doneCh
+	b.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	<-ch
+	return nil
 }
 
 func (b *mprisBackend) Close() {

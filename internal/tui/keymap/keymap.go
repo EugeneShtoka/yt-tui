@@ -44,6 +44,7 @@ type KeyMap struct {
 	VideoInfo     key.Binding
 	OpenLinks     key.Binding
 	OpenChapters  key.Binding
+	TabChord      key.Binding
 }
 
 // Build constructs a KeyMap from the user's key binding configuration.
@@ -95,5 +96,6 @@ func Build(kb config.KeyBindings) KeyMap {
 		VideoInfo:     b(kb.VideoInfo, "video info"),
 		OpenLinks:     b(kb.OpenLinks, "open links"),
 		OpenChapters:  b(kb.OpenChapters, "chapters"),
+		TabChord:      b(kb.TabChord, "go to tab"),
 	}
 }

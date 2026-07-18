@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
@@ -31,16 +30,15 @@ func (d *DB) AddHistory(videoID, eventType, details string) error {
 	return nil
 }
 
-// SearchQueries returns recent unique search queries, newest first.
-func (d *DB) SearchQueries(limit int) ([]string, error) {
+// SearchQueries returns all unique search queries, newest first.
+func (d *DB) SearchQueries() ([]string, error) {
 	ctx := context.Background()
 	rows, err := d.sql.QueryContext(ctx, `
 		SELECT details FROM history
 		WHERE event_type = 'search' AND details != ''
 		GROUP BY details
 		ORDER BY MAX(timestamp) DESC
-		LIMIT ?
-	`, limit)
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("SearchQueries query: %w", err)
 	}
@@ -59,35 +57,29 @@ func (d *DB) SearchQueries(limit int) ([]string, error) {
 	return result, nil
 }
 
-// HistoryVideos returns one entry per video (most recent event) plus one entry per
-// unique search query, all ordered by recency.
+// HistoryVideos returns the most recent play/stream/download event per video,
+// ordered by recency. Search and delete events are excluded.
 func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 	ctx := context.Background()
 	rows, err := d.sql.QueryContext(ctx, `
-		SELECT * FROM (
-			SELECT h.id, h.video_id, COALESCE(v.title, h.video_id) AS title,
-			       COALESCE(v.channel, '') AS channel, COALESCE(v.channel_id, '') AS channel_id,
-			       COALESCE(v.duration, 0) AS duration,
-			       COALESCE(v.view_count, 0) AS view_count, COALESCE(v.upload_date, '') AS upload_date,
-			       h.event_type, COALESCE(h.details,'') AS details, h.timestamp
-			FROM history h
-			LEFT JOIN videos v ON v.id = h.video_id
-			WHERE h.video_id IS NOT NULL
-			AND h.id = (
-			    SELECT h2.id FROM history h2
-			    WHERE h2.video_id = h.video_id
-			    ORDER BY h2.timestamp DESC, h2.id DESC
-			    LIMIT 1
-			)
-			GROUP BY h.video_id
-
-			UNION ALL
-
-			SELECT MAX(h.id), '', h.details, '', '', 0, 0, '', h.event_type, h.details, MAX(h.timestamp)
-			FROM history h
-			WHERE h.event_type = 'search' AND h.details != ''
-			GROUP BY h.details
-		) ORDER BY timestamp DESC LIMIT ?
+		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id) AS title,
+		       COALESCE(v.channel, '') AS channel, COALESCE(v.channel_id, '') AS channel_id,
+		       COALESCE(v.duration, 0) AS duration,
+		       COALESCE(v.view_count, 0) AS view_count, COALESCE(v.upload_date, '') AS upload_date,
+		       h.event_type, COALESCE(h.details,'') AS details, h.timestamp
+		FROM history h
+		LEFT JOIN videos v ON v.id = h.video_id
+		WHERE h.video_id IS NOT NULL
+		AND h.event_type NOT IN ('search', 'delete')
+		AND h.id = (
+		    SELECT h2.id FROM history h2
+		    WHERE h2.video_id = h.video_id
+		    AND h2.event_type NOT IN ('search', 'delete')
+		    ORDER BY h2.timestamp DESC, h2.id DESC
+		    LIMIT 1
+		)
+		ORDER BY h.timestamp DESC
+		LIMIT ?
 	`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("HistoryVideos query: %w", err)
@@ -96,20 +88,12 @@ func (d *DB) HistoryVideos(limit int) ([]domain.HistoryEntry, error) {
 	var result []domain.HistoryEntry
 	for rows.Next() {
 		var e domain.HistoryEntry
-		var tsStr string
 		if err := rows.Scan(
 			&e.ID, &e.VideoID, &e.Title,
 			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
-			&e.EventType, &e.Details, &tsStr,
+			&e.EventType, &e.Details, &e.Timestamp,
 		); err != nil {
 			return nil, fmt.Errorf("HistoryVideos scan: %w", err)
-		}
-		// UNION ALL causes the driver to return timestamps as strings.
-		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05Z"} {
-			if t, err := time.Parse(layout, tsStr); err == nil {
-				e.Timestamp = t
-				break
-			}
 		}
 		result = append(result, e)
 	}

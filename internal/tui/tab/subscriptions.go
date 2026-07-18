@@ -222,7 +222,7 @@ func (t Subscriptions) subAuxCmd() tea.Cmd {
 }
 
 func (t Subscriptions) subPageHeight() int {
-	h := t.height - 2
+	h := t.height - 3 // section title (2 lines incl. MarginBottom) + col header
 	if h < 1 {
 		h = 1
 	}

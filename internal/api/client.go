@@ -73,7 +73,7 @@ type Backend interface {
 	WatchedVideoIDs(ctx context.Context) (map[string]bool, error)
 	HiddenRecVideoIDs(ctx context.Context) (map[string]bool, error)
 	AllVideoPositions(ctx context.Context) (map[string]int64, error)
-	SearchQueries(ctx context.Context, limit int) ([]string, error)
+	SearchQueries(ctx context.Context) ([]string, error)
 	GetVideoDetailsCache(ctx context.Context, videoID string) (domain.CachedDetails, bool, error)
 	GetChannelVideos(ctx context.Context, channelID string) ([]domain.Video, error)
 	GetAllChannelVideos(ctx context.Context, channelIDs []string) ([]domain.Video, error)
@@ -125,6 +125,9 @@ type Backend interface {
 	ClearDownloads(ctx context.Context) ([]string, error)
 	PurgeFeedCacheMissingChannelID(ctx context.Context, feed string) error
 	SaveFeedCache(ctx context.Context, feed string, videos []domain.Video) error
+
+	// ── Playback position (client reports position back to daemon for resume tracking) ──
+	ReportPosition(ctx context.Context, videoID string, posMs int64) error
 
 	// ── Download queue ─────────────────────────────────────────────────────────
 	Enqueue(ctx context.Context, video domain.Video, audioOnly bool) error
