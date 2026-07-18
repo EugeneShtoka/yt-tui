@@ -1,3 +1,4 @@
+//nolint:gosec // G115: int→int32 proto field conversions are bounded in practice (durations, counts).
 package transport
 
 import (

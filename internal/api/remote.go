@@ -1,4 +1,4 @@
-//nolint:wrapcheck // Connect errors are already structured; pass through without re-wrapping.
+//nolint:wrapcheck,gosec // Connect errors are already structured; pass through without re-wrapping. gosec G115: proto int32 fields are bounded in practice (durations, counts).
 package api
 
 import (
@@ -631,7 +631,7 @@ func (r *Remote) Events(ctx context.Context) (<-chan Event, error) {
 	out := make(chan Event, 64)
 	go func() {
 		defer close(out)
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 		for stream.Receive() {
 			ev := stream.Msg().Event
 			if ev == nil {

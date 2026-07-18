@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/backend/media"
@@ -49,9 +51,9 @@ func run() error {
 		key = *tlsKey
 	}
 
-	database, err := db.New(cfg.DataDir, cfg.StripEmojis, cfg.RecommendedMaxAgeDays)
-	if err != nil {
-		return fmt.Errorf("db: %w", err)
+	database, dbErr := db.New(cfg.DataDir, cfg.StripEmojis, cfg.RecommendedMaxAgeDays)
+	if dbErr != nil {
+		return fmt.Errorf("db: %w", dbErr)
 	}
 	defer func() { _ = database.Close() }()
 
@@ -72,19 +74,22 @@ func run() error {
 	mux.Handle("/media/", media.Handler(backend, token))
 	transport.Mount(mux, backend, mediaBaseURL)
 
-	ln, err := net.Listen("tcp", *listenAddr)
-	if err != nil {
-		return fmt.Errorf("listen %s: %w", *listenAddr, err)
+	ln, lnErr := (&net.ListenConfig{}).Listen(context.Background(), "tcp", *listenAddr)
+	if lnErr != nil {
+		return fmt.Errorf("listen %s: %w", *listenAddr, lnErr)
 	}
 	fmt.Fprintf(os.Stderr, "yt-tuid listening on %s://%s\n", scheme, ln.Addr())
 
-	srv := &http.Server{Handler: bearerAuth(token, mux)}
+	srv := &http.Server{
+		Handler:           bearerAuth(token, mux),
+		ReadHeaderTimeout: 30 * time.Second,
+	}
 	if cert != "" && key != "" {
-		if err := srv.ServeTLS(ln, cert, key); err != nil {
+		if err = srv.ServeTLS(ln, cert, key); err != nil {
 			return fmt.Errorf("serve tls: %w", err)
 		}
 	} else {
-		if err := srv.Serve(ln); err != nil {
+		if err = srv.Serve(ln); err != nil {
 			return fmt.Errorf("serve: %w", err)
 		}
 	}

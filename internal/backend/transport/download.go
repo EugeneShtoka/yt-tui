@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
@@ -67,7 +68,7 @@ func (h *downloadHandler) Events(ctx context.Context, _ *connect.Request[v1.Even
 					Detail:  ev.Detail,
 				},
 			}); err != nil {
-				return err
+				return connect.NewError(connect.CodeInternal, fmt.Errorf("send event: %w", err))
 			}
 		}
 	}

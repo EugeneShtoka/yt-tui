@@ -67,6 +67,11 @@ linters:
         backend-no-infra:
           files:
             - "**/internal/backend/**"
+            # transport is the Connect adapter layer: it wraps api.Backend into
+            # gRPC/Connect handlers and must import both backend and api by design.
+            - "!**/internal/backend/transport/**"
+            # media serves downloaded files; imports api.Backend via LocalVideoStore.
+            - "!**/internal/backend/media/**"
           deny:
             - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
               desc: "backend must not import db directly; inject via interface"
