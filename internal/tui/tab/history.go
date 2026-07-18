@@ -288,8 +288,8 @@ func (t History) toHistRows() []table.Row {
 			styles.Warning.Render(render.FormatEvent(e.EventType)),
 			e.Title,
 			e.Channel,
-			render.Duration(e.Duration),
-			render.Views(e.ViewCount),
+			ralign(render.Duration(e.Duration), render.ColDuration-2),
+			ralign(render.Views(e.ViewCount), render.ColViews-2),
 			render.Date(e.UploadDate),
 		}
 	}

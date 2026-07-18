@@ -177,7 +177,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case srchChannelVideosMsg:
 		t.chLoading = false
 		t.chVideos = m.videos
-		t.drillTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+		t.drillTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 		t.drillTable.GotoTop()
 		return t, nil
 

@@ -220,7 +220,8 @@ type ClientConfig struct {
 	PlayerBackend   string      `toml:"player_backend"`
 	Theme           string      `toml:"theme,omitempty"`
 	Tabs            []string    `toml:"tabs"`
-	HintMode        string      `toml:"hint_mode"` // "full" | "minimal" | "none"
+	HintMode        string      `toml:"hint_mode"`        // "full" | "minimal" | "none"
+	DurationFormat  string      `toml:"duration_format"`  // see render.DurFmt constants
 	CloseOnLinkOpen bool        `toml:"close_on_link_open"`
 	CircularNav     bool        `toml:"circular_nav"`
 	Keybindings     KeyBindings `toml:"keybindings"`
@@ -272,6 +273,7 @@ func defaultConfig() *Config {
 			PlayerBackend:   "mpris",
 			Tabs:            DefaultTabs,
 			HintMode:        "full",
+			DurationFormat:  "hh:mm:ss",
 			CloseOnLinkOpen: true,
 			Keybindings:     defaultKeyBindings(),
 		},
@@ -302,6 +304,9 @@ func Load() (*Config, error) {
 		cfg.Keybindings.fillDefaults()
 		if cfg.HintMode == "" {
 			cfg.HintMode = "full"
+		}
+		if cfg.DurationFormat == "" {
+			cfg.DurationFormat = "hh:mm:ss"
 		}
 		if cfg.ChannelLatestCount <= 0 {
 			cfg.ChannelLatestCount = 3

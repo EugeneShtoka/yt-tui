@@ -40,7 +40,7 @@ const (
 
 const (
 	colChName = 22
-	colChSubs = 8
+	colChSubs = 12
 	colChTags = 14
 )
 
@@ -138,7 +138,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
 		t.chVidTable.SetColumns(computeVideoColumns(t.width, false))
 		t.chVidTable.SetHeight(t.height - 4)
-		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 		t.tagTable.SetColumns(t.chTagColumns())
 		t.tagTable.SetHeight(t.height - 2)
 		t.tagTable.SetRows(t.toTagRows())
@@ -164,7 +164,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.positions = m.positions
 		t.watched = m.watched
 		t.localStatus = m.localStatus
-		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, t.chAuxLoadCmd()
@@ -174,7 +174,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = true
-			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 			return t, t.chVideosFetchCmd()
 		}
 
@@ -183,7 +183,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = false
-			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false))
+			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 		}
 
 	case tea.KeyMsg:
@@ -457,7 +457,7 @@ func (t Channels) handleKeyTags(msg tea.KeyMsg, numBuf string) (tea.Model, tea.C
 			if t.tagTable.Cursor() < n {
 				t.tagSel = items[t.tagTable.Cursor()]
 				vids := t.tagVideos()
-				t.tagVidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, true))
+				t.tagVidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, true, t.width))
 				t.tagVidTable.GotoTop()
 				t.pane = 1
 			}

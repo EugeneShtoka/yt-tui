@@ -201,7 +201,7 @@ func (t Local) toLocalRows() []table.Row {
 		}
 		rows[i] = table.Row{
 			rowNum(i), ind, title, lv.Channel,
-			dur, render.Views(lv.ViewCount), render.Date(lv.UploadDate),
+			ralign(dur, render.ColDuration), ralign(render.Views(lv.ViewCount), render.ColViews), render.Date(lv.UploadDate),
 		}
 	}
 	return rows

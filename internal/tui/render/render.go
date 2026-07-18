@@ -7,24 +7,96 @@ import (
 )
 
 // Column widths shared across all video-list views.
+// ColDuration is a var because it changes with the active duration format.
 const (
-	ColNum      = 4
-	ColChannel  = 22
-	ColDuration = 13
-	ColViews    = 8
-	ColDate     = 11
+	ColNum     = 4
+	ColChannel = 30
+	ColViews   = 8
+	ColDate    = 11
 )
+
+var ColDuration = 17 // default for hh:mm:ss; recomputed by SetDurFmt
+
+// DurFmt controls how video durations are formatted in all table views.
+// Uppercase component letters = zero-padded; lowercase = no padding.
+// hh/HH = hours, mm/MM = component minutes, ss/SS = seconds, mmm/mMM/MMM = total minutes.
+// A lowercase hh prefix also suppresses the hours field when it is zero.
+type DurFmt string
+
+const (
+	DurFmtHHMMSS DurFmt = "HH:MM:SS" // 01:05:30  — always show hours, all padded
+	DurFmthhmmss DurFmt = "hh:mm:ss" // 1:05:30, or 5:30 when under 1 h
+	DurFmtHHMM   DurFmt = "HH:MM"    // 01:05     — always show hours, all padded
+	DurFmthHmm   DurFmt = "hH:mm"    // 0:45, 1:05 — always show hours, unpadded
+	DurFmthhmm   DurFmt = "hh:mm"    // 1:05, or just 5 when under 1 h
+	DurFmtMMMSS  DurFmt = "MMM:SS"   // 065:05    — total min padded to 3 digits
+	DurFmtmmmss  DurFmt = "mmm:ss"   // 65:5      — total min and sec, both unpadded
+	DurFmtMMM    DurFmt = "MMM"      // 065       — total min padded to 3 digits
+	DurFmtmMM    DurFmt = "mMM"      // 65        — total min padded to 2 digits
+	DurFmtmmm    DurFmt = "mmm"      // 65        — total min, no padding
+)
+
+var activeDurFmt DurFmt = DurFmthhmmss
+
+// SetDurFmt sets the active duration format and recomputes ColDuration.
+// Call once at startup after loading config. Unrecognised values fall back to hh:mm.
+func SetDurFmt(f DurFmt) {
+	switch f {
+	case DurFmtHHMMSS, DurFmthhmmss, DurFmtHHMM, DurFmthHmm, DurFmthhmm,
+		DurFmtMMMSS, DurFmtmmmss, DurFmtMMM, DurFmtmMM, DurFmtmmm:
+		activeDurFmt = f
+	default:
+		activeDurFmt = DurFmthhmm
+	}
+	maxLen := len(formatDuration(99*3600+59*60+59, activeDurFmt))
+	ColDuration = maxLen*2 + 1
+}
 
 func Duration(secs int) string {
 	if secs <= 0 {
 		return ""
 	}
+	return formatDuration(secs, activeDurFmt)
+}
+
+func formatDuration(secs int, f DurFmt) string {
 	h := secs / 3600
 	m := (secs % 3600) / 60
-	if h > 0 {
+	s := secs % 60
+	totalM := secs / 60
+	switch f {
+	case DurFmtHHMMSS:
+		return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+	case DurFmthhmmss:
+		if h > 0 {
+			return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+		}
+		return fmt.Sprintf("%d:%02d", m, s)
+	case DurFmtHHMM:
+		return fmt.Sprintf("%02d:%02d", h, m)
+	case DurFmthHmm:
 		return fmt.Sprintf("%d:%02d", h, m)
+	case DurFmthhmm:
+		if h > 0 {
+			return fmt.Sprintf("%d:%02d", h, m)
+		}
+		return fmt.Sprintf("%d", m)
+	case DurFmtMMMSS:
+		return fmt.Sprintf("%03d:%02d", totalM, s)
+	case DurFmtmmmss:
+		return fmt.Sprintf("%d:%d", totalM, s)
+	case DurFmtMMM:
+		return fmt.Sprintf("%03d", totalM)
+	case DurFmtmMM:
+		return fmt.Sprintf("%02d", totalM)
+	case DurFmtmmm:
+		return fmt.Sprintf("%d", totalM)
+	default:
+		if h > 0 {
+			return fmt.Sprintf("%d:%02d", h, m)
+		}
+		return fmt.Sprintf("%d", m)
 	}
-	return fmt.Sprintf("%d", m)
 }
 
 func DurationWithPos(posMs int64, totalSecs int) string {

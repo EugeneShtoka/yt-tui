@@ -165,7 +165,7 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vids := m.videos
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[m.playlistID] = vids
-		t.vidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, false))
+		t.vidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, false, t.width))
 
 	case plAuxLoadedMsg:
 		t.positions = m.positions
@@ -548,7 +548,7 @@ func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playli
 		}
 	}
 	t.vidCache[plKey] = updated
-	t.vidTable.SetRows(toVideoRows(updated, t.positions, t.watched, t.localStatus, false))
+	t.vidTable.SetRows(toVideoRows(updated, t.positions, t.watched, t.localStatus, false, t.width))
 
 	vidID := vid.ID
 	if localID := plLocalID(plKey); localID != 0 {

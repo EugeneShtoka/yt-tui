@@ -58,7 +58,7 @@ func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Reco
 
 func (t Recommended) ID() tuipkg.TabID          { return tuipkg.TabRecommended }
 func (t Recommended) Title() string             { return "Recommended" }
-func (t Recommended) ShortHelp() []key.Binding { return nil }
+func (t Recommended) ShortHelp() []key.Binding  { return nil }
 func (t Recommended) InterceptsInput() bool     { return false }
 
 func (t Recommended) Init() tea.Cmd {
@@ -73,7 +73,7 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.width, t.height = m.Width, m.Height
 		t.table.SetColumns(computeVideoColumns(t.width, true))
 		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -84,14 +84,14 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case recCacheMsg:
 		t.feed = feed.NewStarting(m.videos)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 		t.table.GotoTop()
 		return t, t.recFetchCmd()
 
 	case recFetchedMsg:
 		cursor := t.feed.Merge(m.videos, t.table.Cursor(), 0)
 		t.feed.FinishFetch()
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 		t.table.SetCursor(cursor)
 		return t, t.recSaveCacheCmd()
 
@@ -102,11 +102,11 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.positions = m.positions
 		t.watched = m.watched
 		t.localStatus = m.localStatus
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
 	case recHiddenMsg:
 		t.feed.RemoveVideo(m.videoID)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
 	case tea.KeyMsg:
 		return t.recHandleKey(m)

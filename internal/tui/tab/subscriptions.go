@@ -67,7 +67,7 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.width, t.height = m.Width, m.Height
 		t.table.SetColumns(computeVideoColumns(t.width, true))
 		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -78,14 +78,14 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case subLoadedMsg:
 		t.feed = feed.New(m.videos)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 		t.table.GotoTop()
 
 	case subAuxLoadedMsg:
 		t.positions = m.positions
 		t.watched = m.watched
 		t.localStatus = m.localStatus
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, t.subAuxCmd()
@@ -160,7 +160,7 @@ func (t Subscriptions) subHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := t.feed.At(t.table.Cursor()); ok {
 			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
 			t.feed.RemoveChannel(ch)
-			t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true))
+			t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 		}
 	case key.Matches(msg, keys.Play):

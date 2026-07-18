@@ -282,7 +282,7 @@ func (t Downloading) toDownloadRows() []table.Row {
 		if item.AudioOnly {
 			title += " [audio]"
 		}
-		rows[i] = table.Row{rowNum(i), "  ", title, item.Channel, item.Duration, t.renderStatus(*item)}
+		rows[i] = table.Row{rowNum(i), "  ", title, item.Channel, ralign(item.Duration, render.ColDuration), t.renderStatus(*item)}
 	}
 	return rows
 }

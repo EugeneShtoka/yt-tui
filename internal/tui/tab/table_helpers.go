@@ -9,9 +9,11 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
-const colIndicator = 2
+const colIndicator = 3
 
 func tableStyles() table.Styles {
 	s := table.DefaultStyles()
@@ -69,40 +71,84 @@ func computeSearchResultColumns(width int) []table.Column {
 // ── row helpers ────────────────────────────────────────────────────────────────
 
 func rowNum(i int) string {
-	return styles.RowNum.Render(fmt.Sprintf("%4d", i+1))
+	return fmt.Sprintf("%4d", i+1)
+}
+
+func ralign(s string, width int) string {
+	return fmt.Sprintf("%*s", width, s)
 }
 
 func videoIndicator(v domain.Video, positions map[string]int64, watched map[string]bool, localStatus map[string]domain.VideoStatus) string {
 	if _, hasPos := positions[v.ID]; hasPos {
-		return styles.Dim.Render("○ ")
+		return " ○ "
 	}
 	if watched[v.ID] {
-		return styles.Dim.Render("○ ")
+		return " ○ "
 	}
 	if st, ok := localStatus[v.ID]; ok {
 		switch st {
 		case domain.StatusNew:
-			return styles.Success.Render("● ")
+			return " ● "
 		case domain.StatusStarted, domain.StatusWatched:
-			return styles.Dim.Render("○ ")
+			return " ○ "
 		}
 	}
-	return "  "
+	return "   "
 }
 
-func toVideoRows(videos []domain.Video, positions map[string]int64, watched map[string]bool, localStatus map[string]domain.VideoStatus, showChannel bool) []table.Row {
+func videoTitleStyle(v *domain.Video, positions map[string]int64, watched map[string]bool, localStatus map[string]domain.VideoStatus) lipgloss.Style {
+	if st, ok := localStatus[v.ID]; ok {
+		switch st {
+		case domain.StatusNew:
+			return styles.Bold
+		case domain.StatusStarted, domain.StatusWatched:
+			return styles.Dim
+		}
+	}
+	if _, hasPos := positions[v.ID]; hasPos {
+		return styles.Dim
+	}
+	if watched[v.ID] {
+		return styles.Dim
+	}
+	return styles.Normal
+}
+
+func styledTitle(title string, style lipgloss.Style, safeWidth int) string {
+	return style.Render(render.Truncate(title, safeWidth))
+}
+
+func titleSafeWidth(titleW int, style lipgloss.Style) int {
+	overhead := runewidth.StringWidth(style.Render(""))
+	w := titleW - overhead
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func toVideoRows(videos []domain.Video, positions map[string]int64, watched map[string]bool, localStatus map[string]domain.VideoStatus, showChannel bool, width int) []table.Row {
+	titleW := width - render.ColNum - colIndicator - render.ColDuration - render.ColViews - render.ColDate
+	if showChannel {
+		titleW -= render.ColChannel
+	}
+	if titleW < 20 {
+		titleW = 20
+	}
 	rows := make([]table.Row, len(videos))
 	for i := range videos {
 		v := &videos[i]
-		dur := v.DurationStr()
+		dur := render.Duration(v.Duration)
 		if posMs := positions[v.ID]; posMs > 0 {
 			dur = render.DurationWithPos(posMs, v.Duration)
 		}
-		row := table.Row{rowNum(i), videoIndicator(*v, positions, watched, localStatus), v.Title}
+		style := videoTitleStyle(v, positions, watched, localStatus)
+		title := styledTitle(v.Title, style, titleSafeWidth(titleW, style))
+		row := table.Row{rowNum(i), videoIndicator(*v, positions, watched, localStatus), title}
 		if showChannel {
 			row = append(row, v.Channel)
 		}
-		rows[i] = append(row, dur, v.ViewsStr(), v.DateStr())
+		rows[i] = append(row, ralign(dur, render.ColDuration-2), ralign(v.ViewsStr(), render.ColViews-2)+" ", v.DateStr())
 	}
 	return rows
 }

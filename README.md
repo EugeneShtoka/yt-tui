@@ -59,6 +59,7 @@ audio_format = "mp3"
 subtitles = true
 subtitle_langs = ["en.*"]          # regex patterns, passed to yt-dlp --sub-langs
 hint_mode = "full"                 # "full" | "minimal" | "none"
+duration_format = "hh:mm:ss"      # see Duration Format below
 recommended_max_age_days = 7
 recommended_fetch_count = 150
 recommended_max_pages = 3
@@ -129,6 +130,23 @@ subscribers = "s"   # channel list only
 **`player_backend`** — `mpris` tracks playback position via D-Bus so the app can resume from where you left off; `simple` just spawns the player process.
 
 **`tabs`** — controls which tabs are shown and their order. Remove any name to hide that tab.
+
+**`duration_format`** — controls how video durations are displayed in all list views. Uppercase component letters are zero-padded; lowercase are not. A lowercase `hh` prefix suppresses the hours field when it is zero.
+
+| Format | Example (1h5m30s) | Example (45m30s) | Column width |
+|--------|-------------------|------------------|-------------|
+| `hh:mm` | `1:05` | `45` | 11 |
+| `hH:mm` | `1:05` | `0:45` | 11 |
+| `HH:MM` | `01:05` | `00:45` | 11 |
+| `hh:mm:ss` | `1:05:30` | `45:30` | 17 |
+| `HH:MM:SS` | `01:05:30` | `00:45:30` | 17 |
+| `mmm` | `65` | `45` | 9 |
+| `mMM` | `65` | `45` | 9 |
+| `MMM` | `065` | `045` | 9 |
+| `mmm:ss` | `65:30` | `45:30` | 15 |
+| `MMM:SS` | `065:30` | `045:30` | 15 |
+
+When a resume position is saved the column shows `pos/total` (e.g. `3:15/1:05`), so the column is sized at `max_len × 2 + 1`.
 
 **`hint_mode`** — controls the status bar hint density:
 
