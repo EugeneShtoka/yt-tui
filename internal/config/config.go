@@ -188,6 +188,9 @@ type BlacklistedChannel struct {
 // location, browser cookie source, yt-dlp fetch parameters, and feed filters.
 // These fields are irrelevant when the TUI connects to a remote daemon.
 type DaemonConfig struct {
+	Token                      string               `toml:"token,omitempty"`
+	TLSCert                    string               `toml:"tls_cert,omitempty"`
+	TLSKey                     string               `toml:"tls_key,omitempty"`
 	DownloadDir                string               `toml:"download_dir"`
 	Browser                    string               `toml:"browser"`
 	MaxDownloads               int                  `toml:"max_concurrent_downloads"`
@@ -211,6 +214,8 @@ type DaemonConfig struct {
 // binary, visual theme, tab layout, UI preferences, and key bindings.
 // These fields are irrelevant on a headless daemon host.
 type ClientConfig struct {
+	DaemonToken     string      `toml:"daemon_token,omitempty"`
+	TLSCACert       string      `toml:"tls_ca_cert,omitempty"`
 	Player          string      `toml:"player"`
 	PlayerBackend   string      `toml:"player_backend"`
 	Theme           string      `toml:"theme,omitempty"`

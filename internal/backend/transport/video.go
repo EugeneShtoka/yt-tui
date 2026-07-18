@@ -10,7 +10,10 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
-type videoHandler struct{ b api.Backend }
+type videoHandler struct {
+	b            api.Backend
+	mediaBaseURL string
+}
 
 var _ backendv1connect.VideoServiceHandler = (*videoHandler)(nil)
 
@@ -139,4 +142,12 @@ func (h *videoHandler) ReportPosition(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&v1.ReportPositionResponse{}), nil
+}
+
+func (h *videoHandler) ResolveSource(ctx context.Context, req *connect.Request[v1.ResolveSourceRequest]) (*connect.Response[v1.ResolveSourceResponse], error) {
+	if lv, ok := h.b.HasLocalVideo(ctx, req.Msg.VideoId); ok && lv.FilePath != "" {
+		uri := h.mediaBaseURL + "/media/" + req.Msg.VideoId
+		return connect.NewResponse(&v1.ResolveSourceResponse{Uri: uri}), nil
+	}
+	return connect.NewResponse(&v1.ResolveSourceResponse{Uri: req.Msg.FallbackUrl}), nil
 }

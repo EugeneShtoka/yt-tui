@@ -136,7 +136,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.LaunchLocalVideoMsg:
 		lv := m.Video
-		return r, r.playCmd(lv.ID, lv.FilePath, lv.Title, false, "play")
+		// For local videos, pass empty fallbackURL — InProc returns the file path,
+		// Remote returns the daemon's /media/{id} URL.
+		return r, r.playCmd(lv.ID, "", lv.Title, false, "play")
 
 	case playerStartedMsg:
 		return r, tea.Batch(
@@ -398,18 +400,22 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 	return r, nil
 }
 
-func (r Root) playCmd(id, source, title string, audioOnly bool, histEvent string) tea.Cmd {
+func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, histEvent string) tea.Cmd {
 	return func() tea.Msg {
 		if r.player == nil {
 			return tuipkg.StatusMsg{Text: "no video player found — install mpv or vlc", IsErr: true}
+		}
+		src, resolveErr := r.backend.ResolveSource(context.Background(), id, fallbackURL)
+		if resolveErr != nil {
+			return tuipkg.StatusMsg{Text: "resolve source: " + resolveErr.Error(), IsErr: true}
 		}
 		posMs, _ := r.backend.VideoPosition(context.Background(), id)
 		pos := time.Duration(posMs) * time.Millisecond
 		var launchErr error
 		if audioOnly {
-			launchErr = r.player.LaunchAudio(source, title, pos)
+			launchErr = r.player.LaunchAudio(src.URI, title, pos)
 		} else {
-			launchErr = r.player.Launch(source, title, pos)
+			launchErr = r.player.Launch(src.URI, title, pos)
 		}
 		if launchErr != nil {
 			return tuipkg.StatusMsg{Text: "player: " + launchErr.Error(), IsErr: true}

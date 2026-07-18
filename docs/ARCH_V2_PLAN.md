@@ -1,6 +1,6 @@
 # yt-tui v2 — Ground-Up Architecture Plan
 
-**Created:** 2026-07-12 · **Status:** in progress (Phases 1–5 ✓, Phase 6 not started) · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
+**Created:** 2026-07-12 · **Status:** in progress (Phases 1–6 ✓) · **Supersedes-scope:** greenfield successor to the P1–P5 in-place refactors (`docs/REFACTOR_PLAN.md`, `docs/ARCH_REVIEW_PLAN.md`).
 
 **Progress (updated 2026-07-18):**
 - **Phase 1** ✓ — `internal/domain/` exists with all pure types; feed, library, channels, media subpackages moved.
@@ -17,7 +17,7 @@
   - ✓ `internal/api/remote.go` — `Remote` struct implementing all `Backend` methods via Connect clients; private proto↔domain conversions inline.
   - ✓ `--connect <addr>` flag in `cmd/yt-tui/main.go` — picks `Remote` when set, `InProc` otherwise (skips DB/downloader init in remote mode).
   - ✓ Config split: `DaemonConfig` (download dir, browser, fetch params, blacklist) and `ClientConfig` (player, theme, keybindings, UI prefs) embedded in `Config`; flat TOML layout preserved — no migration needed; `SponsorBlockArg`/`SubtitleLangsArg` moved to `*DaemonConfig`.
-- **Phase 6** — not started.
+- **Phase 6** ✓ — `backend/media/Handler` (authenticated HTTP range server at `GET /media/{id}`); `Backend.ResolveSource` returns local path (InProc) or `/media/{id}` URL (Remote); bearer token + TLS in daemon (`--token`, `--tls-cert`, `--tls-key`); `authTransport` in Remote injects `Authorization: Bearer <token>`; `DaemonToken`/`TLSCACert` in `ClientConfig`; `Token`/`TLSCert`/`TLSKey` in `DaemonConfig`; `playCmd` calls `ResolveSource` — both local and stream play paths unified.
 
 **Decisions locked (2026-07-12):**
 - **Remote media:** media-server model — the daemon downloads/stores files and serves them over an HTTP range endpoint; the client's player plays daemon-provided URLs (Jellyfin-like). See §2, §8.
