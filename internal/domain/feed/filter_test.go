@@ -149,7 +149,7 @@ func TestMatchBlacklisted(t *testing.T) {
 
 func TestFilterBlacklisted(t *testing.T) {
 	// Use ID-populated entries so the name-enrichment (SaveAsync) branch is not hit.
-	cfg := &config.Config{BlacklistedChannels: []config.BlacklistedChannel{{ID: "chX"}}}
+	cfg := &config.Config{DaemonConfig: config.DaemonConfig{BlacklistedChannels: []config.BlacklistedChannel{{ID: "chX"}}}}
 	videos := []domain.Video{
 		{ID: "a", ChannelID: "chX"},
 		{ID: "b", ChannelID: "chY"},

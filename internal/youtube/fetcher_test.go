@@ -12,7 +12,7 @@ import (
 
 func TestParseVideoLinesKeepsValidVideo(t *testing.T) {
 	fixture := `{"id":"vid1","title":"Real Video","channel":"Chan","channel_id":"UC1","duration":123.9,"view_count":1000,"upload_date":"20240101","webpage_url":"https://youtu.be/vid1"}`
-	got, err := parseVideoLines(strings.NewReader(fixture))
+	got, _, err := parseVideoLines(strings.NewReader(fixture))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestParseVideoLinesFiltersBranches(t *testing.T) {
 		`{malformed json`, // unmarshal error
 		`{"id":"good","title":"Good","view_count":42}`, // the only keeper
 	}
-	got, err := parseVideoLines(strings.NewReader(strings.Join(lines, "\n")))
+	got, _, err := parseVideoLines(strings.NewReader(strings.Join(lines, "\n")))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestParseVideoLinesFiltersBranches(t *testing.T) {
 
 func TestParseVideoLinesDerivesURLWhenMissing(t *testing.T) {
 	fixture := `{"id":"abc","title":"T","view_count":1}`
-	got, _ := parseVideoLines(strings.NewReader(fixture))
+	got, _, _ := parseVideoLines(strings.NewReader(fixture))
 	if len(got) != 1 || got[0].URL != "https://www.youtube.com/watch?v=abc" {
 		t.Errorf("derived URL wrong: %+v", got)
 	}
@@ -67,7 +67,7 @@ func TestParseChannelLines(t *testing.T) {
 		`{"id":"","title":"no id"}`, // skipped
 		`garbage`,
 	}
-	got, err := parseChannelLines(strings.NewReader(strings.Join(lines, "\n")))
+	got, _, err := parseChannelLines(strings.NewReader(strings.Join(lines, "\n")))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestBuildArgs(t *testing.T) {
 		t.Errorf("limit=0 but --playlist-end present")
 	}
 
-	withBrowser := &config.Config{Browser: "firefox"}
+	withBrowser := &config.Config{DaemonConfig: config.DaemonConfig{Browser: "firefox"}}
 	args = buildArgs(withBrowser, "https://x", 50)
 	if !argPairPresent(args, "--cookies-from-browser", "firefox") {
 		t.Errorf("browser flag missing/wrong: %v", args)
