@@ -114,7 +114,6 @@ linters:
       # style tag produces too much churn; re-enable when the codebase stabilises.
       disabled-checks:
         - hugeParam          # bubbletea models are legitimately large value types
-        - paramTypeCombine   # minor style; not worth the churn
 
     misspell:
       locale: US
