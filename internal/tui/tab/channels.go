@@ -14,12 +14,12 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const (
@@ -89,8 +89,10 @@ type Channels struct {
 	activeChID    string
 	activeChURL   string
 
-	tagsMode bool
-	tagSel   string
+	tagsMode        bool
+	tagSel          string
+	sortChordActive bool
+	gotoTopActive   bool
 
 	editMode  int
 	editInput textinput.Model
@@ -120,7 +122,9 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 
 func (t Channels) ID() tuipkg.TabID          { return tuipkg.TabChannels }
 func (t Channels) Title() string             { return "Channels" }
-func (t Channels) ShortHelp() []key.Binding { return nil }
+func (t Channels) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.ToggleMode, t.keys.SortChord}
+}
 func (t Channels) InterceptsInput() bool     { return t.editInput.Focused() }
 
 func (t Channels) Init() tea.Cmd {
@@ -186,7 +190,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if t.editMode != chEditNone {
 			return t.handleEditInput(m)
 		}
@@ -195,7 +199,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Channels) View() string {
+func (t Channels) View() tea.View {
 	headerText := "Channels"
 	if t.loading {
 		headerText += "  " + styles.Dim.Render(t.spinner.View()+" loading…")
@@ -208,9 +212,9 @@ func (t Channels) View() string {
 	contentH := t.height - headerH
 
 	if t.tagsMode {
-		return t.viewTags(header, contentH)
+		return tea.NewView(t.viewTags(header, contentH))
 	}
-	return t.viewFlat(header, contentH)
+	return tea.NewView(t.viewFlat(header, contentH))
 }
 
 func (t Channels) viewFlat(header string, contentH int) string {
@@ -281,14 +285,52 @@ func (t Channels) viewTags(header string, contentH int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (t Channels) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Channels) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
+
+	if t.sortChordActive {
+		t.sortChordActive = false
+		sk := keys.Sort
+		switch {
+		case key.Matches(msg, sk.Date):
+			t.sortMode = chSortDate
+		case key.Matches(msg, sk.Views):
+			t.sortMode = chSortViews
+		case key.Matches(msg, sk.Name):
+			t.sortMode = chSortName
+		case key.Matches(msg, sk.Duration):
+			t.sortMode = chSortDuration
+		case key.Matches(msg, sk.Subscribers):
+			t.sortMode = chSortSubs
+		case key.Matches(msg, sk.Tags):
+			t.sortMode = chSortTags
+		}
+		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+		return t, nil
+	}
 
 	if key.Matches(msg, keys.ToggleMode) {
 		t.tagsMode = !t.tagsMode
 		t.pane = 0
 		t.tagTable.GotoTop()
 		t.numBuf = ""
+		return t, nil
+	}
+
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			switch {
+			case t.tagsMode && t.pane == 1:
+				t.tagVidTable.GotoTop()
+			case t.tagsMode:
+				t.tagTable.GotoTop()
+			case t.pane == 1:
+				t.chVidTable.GotoTop()
+			default:
+				t.chTable.GotoTop()
+			}
+		}
 		return t, nil
 	}
 
@@ -325,7 +367,7 @@ func (t Channels) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t.handleKeyFlat(msg, numBuf)
 }
 
-func (t Channels) handleKeyFlat(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
+func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if t.pane == 0 {
@@ -365,7 +407,7 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg, numBuf string) (tea.Model, tea.C
 		case key.Matches(msg, keys.RenameChannel):
 			if t.chTable.Cursor() < n {
 				ch := sorted[t.chTable.Cursor()]
-				t.editInput.SetValue(ch.Alias)
+				t.editInput.SetValue(ch.DisplayName())
 				t.editInput.Placeholder = "alias (empty to clear)…"
 				t.editInput.Focus()
 				t.editMode = chEditAlias
@@ -387,6 +429,8 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg, numBuf string) (tea.Model, tea.C
 				t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
 				return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 			}
+		case key.Matches(msg, keys.SortChord):
+			t.sortChordActive = true
 		}
 		_ = numBuf
 		return t, nil
@@ -434,7 +478,7 @@ func (t Channels) handleKeyFlat(msg tea.KeyMsg, numBuf string) (tea.Model, tea.C
 	return t, nil
 }
 
-func (t Channels) handleKeyTags(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
+func (t Channels) handleKeyTags(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if t.pane == 0 {
@@ -501,7 +545,7 @@ func (t Channels) handleKeyTags(msg tea.KeyMsg, numBuf string) (tea.Model, tea.C
 	return t, nil
 }
 
-func (t Channels) handleVideoAction(msg tea.KeyMsg, v domain.Video) (tea.Model, tea.Cmd) {
+func (t Channels) handleVideoAction(msg tea.KeyPressMsg, v domain.Video) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	switch {
 	case key.Matches(msg, keys.Play):
@@ -522,7 +566,7 @@ func (t Channels) handleVideoAction(msg tea.KeyMsg, v domain.Video) (tea.Model, 
 	return t, nil
 }
 
-func (t Channels) handleEditInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	switch {
 	case key.Matches(msg, keys.Escape):
@@ -670,7 +714,7 @@ func (t Channels) chChannelColumns() []table.Column {
 		titleW = 10
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Channel", Width: colChName},
 		{Title: "Tags", Width: colChTags},
@@ -688,7 +732,7 @@ func (t Channels) chTagColumns() []table.Column {
 		labelW = 10
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Tag", Width: labelW},
 	}

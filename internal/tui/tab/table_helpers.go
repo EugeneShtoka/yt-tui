@@ -3,13 +3,17 @@ package tab
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
 )
 
@@ -38,7 +42,7 @@ func computeVideoColumns(width int, showChannel bool) []table.Column {
 		titleW = 20
 	}
 	cols := []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Title", Width: titleW},
 	}
@@ -50,22 +54,6 @@ func computeVideoColumns(width int, showChannel bool) []table.Column {
 		table.Column{Title: "Views", Width: render.ColViews},
 		table.Column{Title: "Date", Width: render.ColDate},
 	)
-}
-
-func computeSearchResultColumns(width int) []table.Column {
-	titleW := width - render.ColNum - colIndicator - render.ColChannel - render.ColDuration - render.ColViews - render.ColDate
-	if titleW < 20 {
-		titleW = 20
-	}
-	return []table.Column{
-		{Title: "#", Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Title / Name", Width: titleW},
-		{Title: "Channel", Width: render.ColChannel},
-		{Title: "Duration", Width: render.ColDuration},
-		{Title: "Views", Width: render.ColViews},
-		{Title: "Date", Width: render.ColDate},
-	}
 }
 
 // ── row helpers ────────────────────────────────────────────────────────────────
@@ -115,11 +103,45 @@ func videoTitleStyle(v *domain.Video, positions map[string]int64, watched map[st
 }
 
 func styledTitle(title string, style lipgloss.Style, safeWidth int) string {
-	return style.Render(render.Truncate(title, safeWidth))
+	return swapReset(style.Render(render.Truncate(title, safeWidth)))
+}
+
+// swapReset replaces lipgloss's trailing full SGR reset with a partial reset
+// that clears bold/faint and foreground but preserves background. This prevents
+// the selected-row highlight from being cleared mid-row by inline cell styles.
+func swapReset(s string) string {
+	const partial = "\033[22;39m"
+	if strings.HasSuffix(s, "\033[0m") {
+		return s[:len(s)-4] + partial
+	}
+	if strings.HasSuffix(s, "\033[m") {
+		return s[:len(s)-3] + partial
+	}
+	return s
+}
+
+// dimSwapReset is like swapReset but uses \033[22m (resets bold/faint only,
+// leaves foreground and background intact). Sufficient for Dim-only cells since
+// Dim does not set a foreground colour. Saves 3 runewidth chars vs swapReset,
+// which is essential for narrow columns (views, date, duration).
+func dimSwapReset(s string) string {
+	const partial = "\033[22m"
+	if strings.HasSuffix(s, "\033[0m") {
+		return s[:len(s)-4] + partial
+	}
+	if strings.HasSuffix(s, "\033[m") {
+		return s[:len(s)-3] + partial
+	}
+	return s
 }
 
 func titleSafeWidth(titleW int, style lipgloss.Style) int {
-	overhead := runewidth.StringWidth(style.Render(""))
+	// bubbles/table calls runewidth.Truncate on each cell, which counts ANSI bytes
+	// as visible chars. Measure the overhead as runewidth − ansi.StringWidth so
+	// that pre-truncating content to (titleW − overhead) keeps the final cell at
+	// exactly titleW in runewidth without triggering bubbles/table's truncator.
+	styled := swapReset(style.Render("X"))
+	overhead := runewidth.StringWidth(styled) - ansi.StringWidth(styled)
 	w := titleW - overhead
 	if w < 1 {
 		w = 1
@@ -135,6 +157,14 @@ func toVideoRows(videos []domain.Video, positions map[string]int64, watched map[
 	if titleW < 20 {
 		titleW = 20
 	}
+
+	// ColChannel is not inflated like ColViews/ColDate/ColDuration, so we still
+	// need to pre-truncate the channel name to leave room for the ANSI overhead.
+	chSafeWidth := render.ColChannel - render.DimCellOverhead
+	if chSafeWidth < 1 {
+		chSafeWidth = 1
+	}
+
 	rows := make([]table.Row, len(videos))
 	for i := range videos {
 		v := &videos[i]
@@ -144,21 +174,66 @@ func toVideoRows(videos []domain.Video, positions map[string]int64, watched map[
 		}
 		style := videoTitleStyle(v, positions, watched, localStatus)
 		title := styledTitle(v.Title, style, titleSafeWidth(titleW, style))
+
+		// Mirror videoTitleStyle priority: localStatus wins over positions/watched.
+		faded := false
+		if st, ok := localStatus[v.ID]; ok {
+			faded = st == domain.StatusStarted || st == domain.StatusWatched
+		} else {
+			_, hasPos := positions[v.ID]
+			faded = hasPos || watched[v.ID]
+		}
+
+		// ColDuration/ColViews/ColDate are inflated by DimCellOverhead so that
+		// dim-styled cells (overhead + content) fit exactly within the column.
+		// All rows right-align into (col - DimCellOverhead); the table's lipgloss
+		// Width style pads non-dim rows with the remaining trailing spaces.
+		durCell := ralign(dur, render.ColDuration-render.DimCellOverhead)
+		viewsCell := ralign(v.ViewsStr(), render.ColViews-render.DimCellOverhead-1) + " "
+		dateCell := v.DateStr()
+
 		row := table.Row{rowNum(i), videoIndicator(*v, positions, watched, localStatus), title}
 		if showChannel {
-			row = append(row, v.Channel)
+			ch := v.Channel
+			if faded {
+				ch = dimSwapReset(styles.Dim.Render(render.Truncate(v.Channel, chSafeWidth)))
+			}
+			row = append(row, ch)
 		}
-		rows[i] = append(row, ralign(dur, render.ColDuration-2), ralign(v.ViewsStr(), render.ColViews-2)+" ", v.DateStr())
+		if faded {
+			durCell = dimSwapReset(styles.Dim.Render(durCell))
+			viewsCell = dimSwapReset(styles.Dim.Render(viewsCell))
+			dateCell = dimSwapReset(styles.Dim.Render(dateCell))
+		}
+		rows[i] = append(row, durCell, viewsCell, dateCell)
 	}
 	return rows
+}
+
+// ── goto-top chord helpers ────────────────────────────────────────────────────
+
+// handleGotoPrefix manages the 'gg' chord: first press arms the flag; second
+// press triggers GotoTop and returns true. Any other key clears the flag.
+// Returns (consumed, doGotoTop).
+func handleGotoPrefix(active *bool, keys keymap.KeyMap, msg tea.KeyPressMsg) (consumed, doGotoTop bool) {
+	if key.Matches(msg, keys.GotoPrefix) {
+		if *active {
+			*active = false
+			return true, true
+		}
+		*active = true
+		return true, false
+	}
+	*active = false
+	return false, false
 }
 
 // ── goto-line helpers ─────────────────────────────────────────────────────────
 
 // checkGotoNum accumulates digit keypresses into buf. Returns true if consumed.
-func checkGotoNum(buf *string, msg tea.KeyMsg) bool {
-	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-		if r := msg.Runes[0]; r >= '0' && r <= '9' {
+func checkGotoNum(buf *string, msg tea.KeyPressMsg) bool {
+	if len(msg.Text) == 1 {
+		if r := rune(msg.Text[0]); r >= '0' && r <= '9' {
 			*buf += string(r)
 			return true
 		}

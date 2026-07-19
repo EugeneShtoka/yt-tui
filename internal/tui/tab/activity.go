@@ -10,10 +10,10 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const actColType = 16
@@ -29,8 +29,9 @@ type Activity struct {
 
 	entries []domain.ActivityEntry
 	loaded  bool
-	table   table.Model
-	numBuf  string
+	table         table.Model
+	numBuf        string
+	gotoTopActive bool
 }
 
 func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activity {
@@ -39,7 +40,9 @@ func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activit
 
 func (t Activity) ID() tuipkg.TabID          { return tuipkg.TabActivity }
 func (t Activity) Title() string             { return "Activity" }
-func (t Activity) ShortHelp() []key.Binding { return nil }
+func (t Activity) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.DrillDown, t.keys.Refresh}
+}
 func (t Activity) InterceptsInput() bool     { return false }
 
 func (t Activity) Init() tea.Cmd { return t.actLoadCmd() }
@@ -56,28 +59,36 @@ func (t Activity) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.loaded = true
 		t.table.SetRows(t.toActivityRows())
 		t.table.SetCursor(0)
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return t.actHandleKey(m)
 	}
 	return t, nil
 }
 
-func (t Activity) View() string {
+func (t Activity) View() tea.View {
 	header := styles.SectionTitle.Render("Activity")
 	if !t.loaded {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…"))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…")))
 	}
 	if len(t.entries) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("No activity yet."))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("No activity yet.")))
 	}
 	parts := []string{header, t.table.View()}
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
-func (t Activity) actHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Activity) actHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			t.table.GotoTop()
+		}
+		return t, nil
+	}
+
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
 	}
@@ -154,7 +165,7 @@ func (t Activity) actColumns() []table.Column {
 		metaW = 20
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Type", Width: actColType},
 		{Title: "Detail", Width: metaW},

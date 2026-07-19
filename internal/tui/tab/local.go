@@ -6,14 +6,15 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type localLoadedMsg struct {
@@ -32,16 +33,22 @@ type Local struct {
 	loaded bool
 	table  table.Model
 	numBuf string
+
+	sortMode        int
+	sortChordActive bool
+	gotoTopActive   bool
 }
 
 func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
 	return Local{backend: backend, keys: keys, circular: circular, table: newTable()}
 }
 
-func (t Local) ID() tuipkg.TabID          { return tuipkg.TabLocal }
-func (t Local) Title() string             { return "Local" }
-func (t Local) ShortHelp() []key.Binding { return nil }
-func (t Local) InterceptsInput() bool     { return false }
+func (t Local) ID() tuipkg.TabID         { return tuipkg.TabLocal }
+func (t Local) Title() string            { return "Local" }
+func (t Local) InterceptsInput() bool    { return false }
+func (t Local) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.Delete, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
+}
 
 func (t Local) Init() tea.Cmd { return t.localLoadCmd("") }
 
@@ -54,34 +61,67 @@ func (t Local) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.table.SetRows(t.toLocalRows())
 	case localLoadedMsg:
 		t.videos = m.videos
+		feed.SortLocalVideos(t.videos, t.sortMode)
 		t.loaded = true
 		t.table.SetRows(t.toLocalRows())
 		if m.status != "" {
 			return t, func() tea.Msg { return tuipkg.StatusMsg{Text: m.status} }
 		}
-	case tea.KeyMsg:
+	case api.Event:
+		if m.Kind == api.EventDownloadDone {
+			return t, t.localLoadCmd("")
+		}
+	case tea.KeyPressMsg:
 		return t.localHandleKey(m)
 	}
 	return t, nil
 }
 
-func (t Local) View() string {
+func (t Local) View() tea.View {
 	header := styles.SectionTitle.Render("Local Library")
 	if !t.loaded {
-		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…"))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("Loading…")))
 	}
 	if len(t.videos) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styles.Dim.PaddingLeft(1).Render("No local videos. Download some with d."))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
+			styles.Dim.PaddingLeft(1).Render("No local videos. Download some with d.")))
 	}
 	parts := []string{header, t.table.View()}
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
-func (t Local) localHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Local) localHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if t.sortChordActive {
+		t.sortChordActive = false
+		sk := t.keys.Sort
+		switch {
+		case key.Matches(msg, sk.Date):
+			t.sortMode = feed.SortDate
+		case key.Matches(msg, sk.Views):
+			t.sortMode = feed.SortViews
+		case key.Matches(msg, sk.Name):
+			t.sortMode = feed.SortName
+		case key.Matches(msg, sk.Channel):
+			t.sortMode = feed.SortChannel
+		case key.Matches(msg, sk.Duration):
+			t.sortMode = feed.SortDuration
+		}
+		feed.SortLocalVideos(t.videos, t.sortMode)
+		t.table.SetRows(t.toLocalRows())
+		return t, nil
+	}
+
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			t.table.GotoTop()
+		}
+		return t, nil
+	}
+
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
 	}
@@ -132,6 +172,8 @@ func (t Local) localHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			url := "https://www.youtube.com/watch?v=" + lv.ID
 			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: url} }
 		}
+	case key.Matches(msg, keys.SortChord):
+		t.sortChordActive = true
 	}
 	return t, nil
 }
@@ -166,7 +208,7 @@ func (t Local) localColumns() []table.Column {
 		titleW = 20
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Title", Width: titleW},
 		{Title: "Channel", Width: render.ColChannel},
@@ -177,6 +219,10 @@ func (t Local) localColumns() []table.Column {
 }
 
 func (t Local) toLocalRows() []table.Row {
+	titleW := t.width - render.ColNum - colIndicator - render.ColChannel - render.ColDuration - render.ColViews - render.ColDate
+	if titleW < 20 {
+		titleW = 20
+	}
 	rows := make([]table.Row, len(t.videos))
 	for i := range t.videos {
 		lv := &t.videos[i]
@@ -188,20 +234,19 @@ func (t Local) toLocalRows() []table.Row {
 		if lv.DownloadType == "audio" {
 			title += " ♪"
 		}
+		title = render.Truncate(title, titleW)
 		var ind string
 		switch lv.Status {
 		case domain.StatusNew:
-			ind = styles.Success.Render("● ")
-		case domain.StatusStarted:
-			ind = styles.Dim.Render("○ ")
-		case domain.StatusWatched:
-			ind = styles.Dim.Render("○ ")
+			ind = " ● "
+		case domain.StatusStarted, domain.StatusWatched:
+			ind = " ○ "
 		default:
-			ind = "  "
+			ind = "   "
 		}
 		rows[i] = table.Row{
 			rowNum(i), ind, title, lv.Channel,
-			ralign(dur, render.ColDuration), ralign(render.Views(lv.ViewCount), render.ColViews), render.Date(lv.UploadDate),
+			ralign(dur, render.ColDuration), ralign(render.Views(lv.ViewCount), render.ColViews-1)+" ", render.Date(lv.UploadDate),
 		}
 	}
 	return rows

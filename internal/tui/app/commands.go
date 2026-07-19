@@ -6,7 +6,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // tabIDByName maps the lowercase command-bar name to a TabID.

@@ -1,13 +1,15 @@
 package styles
 
 import (
+	"image/color"
+
 	"github.com/EugeneShtoka/yt-tui/internal/theme"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 var (
-	ColorAccent   lipgloss.Color
-	ColorBgSelect lipgloss.Color
+	ColorAccent   color.Color
+	ColorBgSelect color.Color
 )
 
 var (

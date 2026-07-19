@@ -15,7 +15,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type Status string

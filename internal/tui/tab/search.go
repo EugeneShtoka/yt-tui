@@ -12,12 +12,12 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/nav"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type srchResultMsg struct {
@@ -58,8 +58,12 @@ type Search struct {
 	chLoading  bool
 	drillTable table.Model
 
-	resultsTable table.Model
-	numBuf       string
+	// split result panes
+	chTable       table.Model
+	vidTable      table.Model
+	onVideos      bool // false = channel pane focused, true = video pane focused
+	numBuf        string
+	gotoTopActive bool
 
 	spinner spinner.Model
 
@@ -70,30 +74,83 @@ type Search struct {
 	recentMode   bool
 }
 
+func computeSearchChannelColumns(width int) []table.Column {
+	nameW := width - render.ColNum - colIndicator
+	if nameW < 20 {
+		nameW = 20
+	}
+	return []table.Column{
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
+		{Title: " ", Width: colIndicator},
+		{Title: "Name", Width: nameW},
+	}
+}
+
+func computeSearchVideoColumns(width int) []table.Column {
+	return computeVideoColumns(width, true)
+}
+
 func NewSearch(backend api.Backend, keys keymap.KeyMap, circular bool) Search {
 	ti := textinput.New()
 	ti.Placeholder = "Search YouTube…"
 	ti.CharLimit = 200
 	ti.Focus()
 	return Search{
-		backend:      backend,
-		keys:         keys,
-		circular:     circular,
-		input:        ti,
-		spinner:      spinner.New(),
-		histIdx:      -1,
-		drillTable:   newTable(),
-		resultsTable: newTable(),
+		backend:    backend,
+		keys:       keys,
+		circular:   circular,
+		input:      ti,
+		spinner:    spinner.New(),
+		histIdx:    -1,
+		drillTable: newTable(),
+		chTable:    newTable(),
+		vidTable:   newTable(),
 	}
 }
 
 func (t Search) ID() tuipkg.TabID          { return tuipkg.TabSearch }
 func (t Search) Title() string             { return "Search" }
-func (t Search) ShortHelp() []key.Binding { return nil }
-func (t Search) InterceptsInput() bool    { return t.input.Focused() }
+func (t Search) ShortHelp() []key.Binding {
+	if t.input.Focused() {
+		return nil
+	}
+	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.CopyURL, t.keys.VideoInfo, t.keys.DrillDown}
+}
+func (t Search) InterceptsInput() bool { return t.input.Focused() }
 
 func (t Search) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, t.spinner.Tick, t.srchLoadRecentCmd(), t.srchAuxLoadCmd())
+}
+
+func (t *Search) applyResultHeights() {
+	nCh := len(t.channels)
+	nVid := len(t.videos)
+	// prompt(1) + "Results for"(2) = 3 used in viewResults before tables
+	// each pane: label(1) + table-header(1) = 2 overhead
+	avail := t.height - 3
+	if nCh > 0 && nVid > 0 {
+		avail -= 4 // two labels + two table headers
+		chH := nCh
+		if chH > avail/3 {
+			chH = avail / 3
+		}
+		if chH < 1 {
+			chH = 1
+		}
+		vidH := avail - chH
+		if vidH < 1 {
+			vidH = 1
+		}
+		t.chTable.SetHeight(chH)
+		t.vidTable.SetHeight(vidH)
+	} else {
+		avail -= 2 // one label + one table header
+		if avail < 1 {
+			avail = 1
+		}
+		t.chTable.SetHeight(avail)
+		t.vidTable.SetHeight(avail)
+	}
 }
 
 func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -101,14 +158,14 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.input.Width = m.Width - 12
+		t.input.SetWidth(m.Width - 12)
 		t.drillTable.SetColumns(computeVideoColumns(t.width, false))
-		// section(2) + prompt(1) + drill-sub-header(2)
 		t.drillTable.SetHeight(t.height - 5)
-		t.resultsTable.SetColumns(computeSearchResultColumns(t.width))
-		// section(2) + prompt(1) + results-header(2)
-		t.resultsTable.SetHeight(t.height - 5)
-		t.resultsTable.SetRows(t.toSearchResultRows())
+		t.chTable.SetColumns(computeSearchChannelColumns(t.width))
+		t.vidTable.SetColumns(computeSearchVideoColumns(t.width))
+		t.applyResultHeights()
+		t.chTable.SetRows(t.toSearchChannelRows())
+		t.vidTable.SetRows(toVideoRows(t.videos, t.positions, t.watched, t.localStatus, true, t.width))
 		return t, nil
 
 	case tuipkg.SearchFocusInputMsg:
@@ -131,8 +188,10 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.loading = true
 		t.channels = nil
 		t.videos = nil
-		t.resultsTable.SetRows(nil)
-		t.resultsTable.GotoTop()
+		t.chTable.SetRows(nil)
+		t.vidTable.SetRows(nil)
+		t.chTable.GotoTop()
+		t.vidTable.GotoTop()
 		t.recentMode = false
 		t.histIdx = -1
 		return t, tea.Batch(t.srchCmd(m.Query), t.spinner.Tick)
@@ -168,10 +227,15 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.lastQuery = m.query
 		t.channels = m.channels
 		t.videos = m.videos
-		t.resultsTable.SetRows(t.toSearchResultRows())
-		t.resultsTable.GotoTop()
+		t.applyResultHeights()
+		t.chTable.SetRows(t.toSearchChannelRows())
+		t.chTable.GotoTop()
+		t.vidTable.SetRows(toVideoRows(t.videos, t.positions, t.watched, t.localStatus, true, t.width))
+		t.vidTable.GotoTop()
 		t.drillCh = nil
 		t.chVideos = nil
+		// focus channels if any, else videos
+		t.onVideos = len(t.channels) == 0
 		return t, func() tea.Msg { return tuipkg.HistoryChangedMsg{} }
 
 	case srchChannelVideosMsg:
@@ -181,7 +245,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.drillTable.GotoTop()
 		return t, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if t.recentMode {
 			return t.srchHandleKeyRecentMode(m)
 		}
@@ -199,7 +263,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Search) View() string {
+func (t Search) View() tea.View {
 	header := styles.SectionTitle.Render("Search")
 	headerH := lipgloss.Height(header)
 	label := styles.Warning.Render("Search:")
@@ -212,11 +276,11 @@ func (t Search) View() string {
 	} else {
 		body = t.viewResults(prompt, remaining)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, body)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body))
 }
 
-func (t Search) srchHandleKeyInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (t Search) srchHandleKeyInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyUp:
 		n := len(t.recent)
 		if n > 0 && t.histIdx < n-1 {
@@ -255,8 +319,10 @@ func (t Search) srchHandleKeyInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.loading = true
 		t.channels = nil
 		t.videos = nil
-		t.resultsTable.SetRows(nil)
-		t.resultsTable.GotoTop()
+		t.chTable.SetRows(nil)
+		t.vidTable.SetRows(nil)
+		t.chTable.GotoTop()
+		t.vidTable.GotoTop()
 		return t, tea.Batch(t.srchCmd(query), t.spinner.Tick)
 
 	case tea.KeyEscape:
@@ -273,7 +339,7 @@ func (t Search) srchHandleKeyInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return t, nil
 
 	default:
-		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace || msg.Type == tea.KeyBackspace {
+		if len(msg.Text) > 0 || msg.Code == tea.KeySpace || msg.Code == tea.KeyBackspace {
 			t.histIdx = -1
 			t.recentCursor = -1
 		}
@@ -283,7 +349,7 @@ func (t Search) srchHandleKeyInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (t Search) srchHandleKeyRecentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Search) srchHandleKeyRecentMode(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := len(t.recent)
 	pageH := t.srchRecentPageHeight()
@@ -303,7 +369,7 @@ func (t Search) srchHandleKeyRecentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if t.recentCursor >= 0 && t.recentCursor < n {
 			return t.srchExecuteRecent(t.recent[t.recentCursor])
 		}
-	case msg.Type == tea.KeyEnter:
+	case msg.Code == tea.KeyEnter:
 		if t.recentCursor >= 0 && t.recentCursor < n {
 			return t.srchExecuteRecent(t.recent[t.recentCursor])
 		}
@@ -334,7 +400,7 @@ func (t Search) srchHandleKeyRecentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Search) srchHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Search) srchHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if key.Matches(msg, keys.Filter) {
@@ -346,8 +412,10 @@ func (t Search) srchHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.lastQuery = ""
 		t.channels = nil
 		t.videos = nil
-		t.resultsTable.SetRows(nil)
-		t.resultsTable.GotoTop()
+		t.chTable.SetRows(nil)
+		t.vidTable.SetRows(nil)
+		t.chTable.GotoTop()
+		t.vidTable.GotoTop()
 		t.drillCh = nil
 		t.chVideos = nil
 		t.histIdx = -1
@@ -362,46 +430,74 @@ func (t Search) srchHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return t.srchHandleKeyDrill(msg)
 	}
 
-	// digit accumulation for goto-line (only in results mode, input not focused)
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			if t.onVideos {
+				t.vidTable.GotoTop()
+			} else {
+				t.chTable.GotoTop()
+			}
+		}
+		return t, nil
+	}
+
+	// digit accumulation for goto-line
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
 	}
 	numBuf := t.numBuf
 	t.numBuf = ""
 
-	nCh := len(t.channels)
-	nVid := len(t.videos)
-	total := nCh + nVid
+	// toggle between channel and video panes
+	if key.Matches(msg, keys.ToggleMode) {
+		nCh := len(t.channels)
+		nVid := len(t.videos)
+		if nCh > 0 && nVid > 0 {
+			t.onVideos = !t.onVideos
+		}
+		return t, nil
+	}
+
+	if t.onVideos {
+		return t.srchHandleKeyVideos(msg, numBuf)
+	}
+	return t.srchHandleKeyChannels(msg, numBuf)
+}
+
+func (t Search) srchHandleKeyChannels(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
+	keys := t.keys
+	n := len(t.channels)
 
 	switch {
 	case key.Matches(msg, keys.GotoLine):
 		if numBuf != "" {
-			applyGoto(numBuf, &t.resultsTable)
+			applyGoto(numBuf, &t.chTable)
 		} else {
-			t.resultsTable.GotoBottom()
+			t.chTable.GotoBottom()
 		}
 	case key.Matches(msg, keys.GotoBottom):
-		t.resultsTable.GotoBottom()
+		t.chTable.GotoBottom()
 	case key.Matches(msg, keys.Up):
-		if t.circular && total > 0 && t.resultsTable.Cursor() == 0 {
-			t.resultsTable.GotoBottom()
+		if t.circular && n > 0 && t.chTable.Cursor() == 0 {
+			t.chTable.GotoBottom()
 		} else {
-			t.resultsTable.MoveUp(1)
+			t.chTable.MoveUp(1)
 		}
 	case key.Matches(msg, keys.Down):
-		if t.circular && total > 0 && t.resultsTable.Cursor() == total-1 {
-			t.resultsTable.GotoTop()
+		if t.circular && n > 0 && t.chTable.Cursor() == n-1 {
+			t.chTable.GotoTop()
 		} else {
-			t.resultsTable.MoveDown(1)
+			t.chTable.MoveDown(1)
 		}
 	case key.Matches(msg, keys.PageUp):
-		t.resultsTable.MoveUp(t.resultsTable.Height())
+		t.chTable.MoveUp(t.chTable.Height())
 	case key.Matches(msg, keys.PageDown):
-		t.resultsTable.MoveDown(t.resultsTable.Height())
+		t.chTable.MoveDown(t.chTable.Height())
 
-	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-		c := t.resultsTable.Cursor()
-		if c < nCh {
+	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right), msg.Code == tea.KeyEnter:
+		c := t.chTable.Cursor()
+		if c >= 0 && c < n {
 			ch := t.channels[c]
 			t.drillCh = &ch
 			t.chVideos = nil
@@ -409,10 +505,44 @@ func (t Search) srchHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			t.drillTable.GotoTop()
 			return t, tea.Batch(t.srchChannelVideosCmd(ch), t.spinner.Tick)
 		}
+	}
+	return t, nil
+}
+
+func (t Search) srchHandleKeyVideos(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
+	keys := t.keys
+	n := len(t.videos)
+
+	switch {
+	case key.Matches(msg, keys.GotoLine):
+		if numBuf != "" {
+			applyGoto(numBuf, &t.vidTable)
+		} else {
+			t.vidTable.GotoBottom()
+		}
+	case key.Matches(msg, keys.GotoBottom):
+		t.vidTable.GotoBottom()
+	case key.Matches(msg, keys.Up):
+		if t.circular && n > 0 && t.vidTable.Cursor() == 0 {
+			t.vidTable.GotoBottom()
+		} else {
+			t.vidTable.MoveUp(1)
+		}
+	case key.Matches(msg, keys.Down):
+		if t.circular && n > 0 && t.vidTable.Cursor() == n-1 {
+			t.vidTable.GotoTop()
+		} else {
+			t.vidTable.MoveDown(1)
+		}
+	case key.Matches(msg, keys.PageUp):
+		t.vidTable.MoveUp(t.vidTable.Height())
+	case key.Matches(msg, keys.PageDown):
+		t.vidTable.MoveDown(t.vidTable.Height())
+
+	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 		if v, ok := t.srchCurrentVideo(); ok {
 			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
 		}
-
 	case key.Matches(msg, keys.Play):
 		if v, ok := t.srchCurrentVideo(); ok {
 			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
@@ -445,7 +575,7 @@ func (t Search) srchHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Search) srchHandleKeyDrill(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Search) srchHandleKeyDrill(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := len(t.chVideos)
 
@@ -535,6 +665,7 @@ func (t Search) viewDrillDown(prompt string, remaining int) string {
 }
 
 func (t Search) viewResults(prompt string, remaining int) string {
+	_ = remaining
 	showRecent := (t.input.Focused() || t.recentMode) && t.lastQuery == "" && len(t.recent) > 0
 
 	if t.loading {
@@ -554,12 +685,29 @@ func (t Search) viewResults(prompt string, remaining int) string {
 		return lipgloss.JoinVertical(lipgloss.Left, prompt, styles.Dim.PaddingLeft(1).Render(hint))
 	}
 
-	header := styles.SectionTitle.Render("Results for: " + t.lastQuery)
-	parts := []string{prompt, header, t.resultsTable.View()}
+	resultsHeader := styles.SectionTitle.Render("Results for: " + t.lastQuery)
+	parts := []string{prompt, resultsHeader}
+
+	if len(t.channels) > 0 {
+		parts = append(parts, t.srchPaneLabel("Channels", !t.onVideos), t.chTable.View())
+	}
+	if len(t.videos) > 0 {
+		parts = append(parts, t.srchPaneLabel("Videos", t.onVideos), t.vidTable.View())
+	}
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (t Search) srchPaneLabel(name string, focused bool) string {
+	indicator := "  "
+	style := styles.Dim
+	if focused {
+		indicator = "▶ "
+		style = styles.Bold
+	}
+	return style.Render(indicator + name)
 }
 
 func (t Search) viewRecentSearches(height int) string {
@@ -602,28 +750,14 @@ func (t Search) viewRecentSearches(height int) string {
 	return strings.Join(rows, "\n")
 }
 
-func (t Search) toSearchResultRows() []table.Row {
-	nCh := len(t.channels)
-	rows := make([]table.Row, 0, nCh+len(t.videos))
+func (t Search) toSearchChannelRows() []table.Row {
+	rows := make([]table.Row, len(t.channels))
 	for i, ch := range t.channels {
-		rows = append(rows, table.Row{
+		rows[i] = table.Row{
 			rowNum(i),
-			styles.Warning.Render("ch"),
+			"   ",
 			ch.DisplayName(),
-			"", "", "", "",
-		})
-	}
-	for i := range t.videos {
-		v := &t.videos[i]
-		rows = append(rows, table.Row{
-			rowNum(nCh + i),
-			videoIndicator(*v, t.positions, t.watched, t.localStatus),
-			v.Title,
-			v.Channel,
-			v.DurationStr(),
-			v.ViewsStr(),
-			v.DateStr(),
-		})
+		}
 	}
 	return rows
 }
@@ -688,15 +822,17 @@ func (t Search) srchExecuteRecent(query string) (tea.Model, tea.Cmd) {
 	t.loading = true
 	t.channels = nil
 	t.videos = nil
-	t.resultsTable.SetRows(nil)
-	t.resultsTable.GotoTop()
+	t.chTable.SetRows(nil)
+	t.vidTable.SetRows(nil)
+	t.chTable.GotoTop()
+	t.vidTable.GotoTop()
 	t.input.SetValue(query)
 	t.input.Blur()
 	return t, tea.Batch(t.srchCmd(query), t.spinner.Tick)
 }
 
 func (t Search) srchCurrentVideo() (domain.Video, bool) {
-	idx := t.resultsTable.Cursor() - len(t.channels)
+	idx := t.vidTable.Cursor()
 	if idx >= 0 && idx < len(t.videos) {
 		return t.videos[idx], true
 	}

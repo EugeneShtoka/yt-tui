@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TabBar renders the row of tab labels at the top of the screen.
@@ -34,7 +34,7 @@ func (t TabBar) WithWidth(w int) TabBar {
 func (t TabBar) Init() tea.Cmd                       { return nil }
 func (t TabBar) Update(tea.Msg) (tea.Model, tea.Cmd) { return t, nil }
 
-func (t TabBar) View() string {
+func (t TabBar) Render() string {
 	var tabs []string
 	for i, title := range t.titles {
 		if i == t.active {
@@ -46,3 +46,5 @@ func (t TabBar) View() string {
 	bar := strings.Join(tabs, " ")
 	return styles.TabBar.Width(t.width).Render(bar)
 }
+
+func (t TabBar) View() tea.View { return tea.NewView(t.Render()) }

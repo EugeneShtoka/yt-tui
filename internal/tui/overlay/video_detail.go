@@ -15,10 +15,10 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/sys"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const panelW = 52
@@ -89,7 +89,7 @@ func (vd VideoDetail) WidthReduction() int   { return panelW }
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
 func (vd VideoDetail) Init() tea.Cmd { return nil }
-func (vd VideoDetail) View() string   { return "" } // rendering done via Render(behind,...)
+func (vd VideoDetail) View() tea.View { return tea.NewView("") } // rendering done via Render(behind,...)
 
 func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
@@ -138,7 +138,7 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return vd.handleKey(m)
 	}
 	return vd, nil
@@ -175,7 +175,7 @@ func (vd VideoDetail) Render(behind string, width, height int) (string, string) 
 
 // ── key handling ──────────────────────────────────────────────────────────────
 
-func (vd VideoDetail) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (vd VideoDetail) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch vd.subState {
 	case vdLinks:
 		return vd.handleLinksKey(msg)
@@ -185,7 +185,7 @@ func (vd VideoDetail) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return vd.handlePanelKey(msg)
 }
 
-func (vd VideoDetail) handlePanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (vd VideoDetail) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := vd.keys
 	switch {
 	case key.Matches(msg, keys.Escape), key.Matches(msg, keys.Left), key.Matches(msg, keys.Quit):
@@ -232,7 +232,7 @@ func (vd VideoDetail) handlePanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return vd, nil
 }
 
-func (vd VideoDetail) handleLinksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (vd VideoDetail) handleLinksKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := vd.keys
 	links := *vd.links
 	n := len(links)
@@ -265,7 +265,7 @@ func (vd VideoDetail) handleLinksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return vd, nil
 }
 
-func (vd VideoDetail) handleChaptersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (vd VideoDetail) handleChaptersKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := vd.keys
 	chapters := *vd.chapters
 	n := len(chapters)
@@ -305,7 +305,7 @@ func (vd VideoDetail) handleChaptersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // moveSelector handles Up/Down/GotoBottom for overlay lists.
-func (vd VideoDetail) moveSelector(sel, n int, msg tea.KeyMsg) (newSel int, consumed bool) {
+func (vd VideoDetail) moveSelector(sel, n int, msg tea.KeyPressMsg) (newSel int, consumed bool) {
 	keys := vd.keys
 	switch {
 	case key.Matches(msg, keys.Up):

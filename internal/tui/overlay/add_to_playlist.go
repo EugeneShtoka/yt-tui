@@ -11,10 +11,10 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ── private messages ──────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ func (atp AddToPlaylist) WidthReduction() int   { return 0 }
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
 func (atp AddToPlaylist) Init() tea.Cmd  { return nil }
-func (atp AddToPlaylist) View() string   { return "" } // rendering done via Render(behind,...)
+func (atp AddToPlaylist) View() tea.View { return tea.NewView("") } // rendering done via Render(behind,...)
 
 func (atp AddToPlaylist) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
@@ -112,7 +112,7 @@ func (atp AddToPlaylist) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			func() tea.Msg { return tuipkg.StatusMsg{Text: "Created '" + m.name + "' and added video"} },
 		)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return atp.handleKey(m)
 	}
 	return atp, nil
@@ -182,14 +182,14 @@ func (atp AddToPlaylist) Render(behind string, width, _ int) (string, string) {
 
 // ── key handling ──────────────────────────────────────────────────────────────
 
-func (atp AddToPlaylist) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (atp AddToPlaylist) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if atp.createMode {
 		return atp.handleCreateKey(msg)
 	}
 	return atp.handleListKey(msg)
 }
 
-func (atp AddToPlaylist) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (atp AddToPlaylist) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := atp.keys
 	n := atp.listCount()
 
@@ -259,7 +259,7 @@ func (atp AddToPlaylist) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return atp, nil
 }
 
-func (atp AddToPlaylist) handleCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (atp AddToPlaylist) handleCreateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := atp.keys
 	switch {
 	case key.Matches(msg, keys.Escape):
@@ -282,7 +282,7 @@ func (atp AddToPlaylist) handleCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return atp, nil
 }
 
-func (atp AddToPlaylist) moveSelector(sel, n int, msg tea.KeyMsg) (int, bool) {
+func (atp AddToPlaylist) moveSelector(sel, n int, msg tea.KeyPressMsg) (int, bool) {
 	keys := atp.keys
 	switch {
 	case key.Matches(msg, keys.Up):

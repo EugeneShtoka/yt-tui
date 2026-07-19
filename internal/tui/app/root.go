@@ -16,9 +16,9 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/tab"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // playerStartedMsg is a root-internal signal emitted by playCmd after the
@@ -121,7 +121,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		return r.handleResize(m.Width, m.Height)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return r.handleKey(m)
 
 	case tuipkg.OpenOverlayMsg:
@@ -233,12 +233,12 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (r Root) View() string {
-	tabBar := r.tabBar.View()
-	status := r.statusBar.View()
+func (r Root) View() tea.View {
+	tabBar := r.tabBar.Render()
+	status := r.statusBar.Render()
 	contentH := r.height - lipgloss.Height(tabBar) - lipgloss.Height(status)
 
-	content := r.activeTab().View()
+	content := r.activeTab().View().Content
 
 	var kittySeq string
 	for _, o := range r.overlays {
@@ -253,7 +253,10 @@ func (r Root) View() string {
 		content += strings.Repeat("\n", contentH-actual)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status) + kittySeq
+	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status) + kittySeq)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 // ── message handlers ──────────────────────────────────────────────────────────
@@ -263,8 +266,8 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 	r.tabBar = r.tabBar.WithWidth(w)
 	r.statusBar = r.statusBar.WithWidth(w)
 
-	tabBarH := lipgloss.Height(r.tabBar.View())
-	statusH := lipgloss.Height(r.statusBar.View())
+	tabBarH := lipgloss.Height(r.tabBar.Render())
+	statusH := lipgloss.Height(r.statusBar.Render())
 	contentH := h - tabBarH - statusH
 	contentW := w - r.overlayWidthReduction()
 
@@ -306,7 +309,7 @@ func (r Root) handlePopOverlay() (Root, tea.Cmd) {
 	return r, nil
 }
 
-func (r Root) handleKey(msg tea.KeyMsg) (Root, tea.Cmd) {
+func (r Root) handleKey(msg tea.KeyPressMsg) (Root, tea.Cmd) {
 	if len(r.overlays) > 0 {
 		return r.updateTopOverlay(msg)
 	}
@@ -345,6 +348,7 @@ func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {
 			break
 		}
 	}
+	r.statusBar = r.statusBar.WithHints(r.tabHints())
 	if m.Tab == tuipkg.TabSearch {
 		if m.Query != "" {
 			q := m.Query
@@ -380,7 +384,20 @@ func (r Root) activeTab() tuipkg.Tab { return r.tabs[r.activeIdx] }
 func (r Root) updateActiveTab(msg tea.Msg) (Root, tea.Cmd) {
 	updated, cmd := r.tabs[r.activeIdx].Update(msg)
 	r.tabs[r.activeIdx] = updated.(tuipkg.Tab)
+	r.statusBar = r.statusBar.WithHints(r.tabHints())
 	return r, cmd
+}
+
+func (r Root) tabHints() string {
+	hints := r.activeTab().ShortHelp()
+	parts := make([]string, 0, len(hints))
+	for _, b := range hints {
+		h := b.Help()
+		if h.Key != "" && h.Desc != "" {
+			parts = append(parts, h.Key+": "+h.Desc)
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (r Root) updateTopOverlay(msg tea.Msg) (Root, tea.Cmd) {
@@ -394,6 +411,7 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 	n := len(r.tabs)
 	r.activeIdx = ((r.activeIdx + dir) % n + n) % n
 	r.tabBar = r.tabBar.WithActive(r.activeIdx)
+	r.statusBar = r.statusBar.WithHints(r.tabHints())
 	if r.activeTab().ID() == tuipkg.TabSearch {
 		return r, func() tea.Msg { return tuipkg.SearchFocusInputMsg{} }
 	}

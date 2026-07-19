@@ -1,6 +1,6 @@
 package command
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 // Scope controls whether a command is available globally or only in the active view.
 type Scope int

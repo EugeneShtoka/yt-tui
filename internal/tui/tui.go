@@ -2,8 +2,8 @@ package tui
 
 import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TabID is a typed identifier for each tab, used in navigation messages.

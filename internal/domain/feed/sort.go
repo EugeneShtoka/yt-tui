@@ -68,3 +68,10 @@ func SortLocalVideos(videos []domain.LocalVideo, mode int) {
 		return sortKey{v.ViewCount, v.UploadDate, v.Title, v.Channel, v.Duration}
 	})
 }
+
+// SortHistoryEntries sorts history entries in place by the given mode.
+func SortHistoryEntries(entries []domain.HistoryEntry, mode int) {
+	sortByMode(entries, mode, func(e domain.HistoryEntry) sortKey {
+		return sortKey{e.ViewCount, e.UploadDate, e.Title, e.Channel, e.Duration}
+	})
+}

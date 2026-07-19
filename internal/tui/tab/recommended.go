@@ -9,11 +9,11 @@ import (
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ── tab-private messages ──────────────────────────────────────────────────────
@@ -41,6 +41,10 @@ type Recommended struct {
 	table   table.Model
 	numBuf  string
 
+	sortMode        int
+	sortChordActive bool
+	gotoTopActive   bool
+
 	positions   map[string]int64
 	watched     map[string]bool
 	localStatus map[string]domain.VideoStatus
@@ -56,10 +60,12 @@ func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Reco
 	}
 }
 
-func (t Recommended) ID() tuipkg.TabID          { return tuipkg.TabRecommended }
-func (t Recommended) Title() string             { return "Recommended" }
-func (t Recommended) ShortHelp() []key.Binding  { return nil }
-func (t Recommended) InterceptsInput() bool     { return false }
+func (t Recommended) ID() tuipkg.TabID         { return tuipkg.TabRecommended }
+func (t Recommended) Title() string            { return "Recommended" }
+func (t Recommended) InterceptsInput() bool    { return false }
+func (t Recommended) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.HideVideo, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
+}
 
 func (t Recommended) Init() tea.Cmd {
 	t.feed.StartRefresh()
@@ -84,6 +90,7 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case recCacheMsg:
 		t.feed = feed.NewStarting(m.videos)
+		t.feed.Sort(t.sortMode)
 		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 		t.table.GotoTop()
 		return t, t.recFetchCmd()
@@ -91,6 +98,7 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recFetchedMsg:
 		cursor := t.feed.Merge(m.videos, t.table.Cursor(), 0)
 		t.feed.FinishFetch()
+		t.feed.Sort(t.sortMode)
 		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 		t.table.SetCursor(cursor)
 		return t, t.recSaveCacheCmd()
@@ -108,33 +116,61 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.feed.RemoveVideo(m.videoID)
 		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return t.recHandleKey(m)
 	}
 	return t, nil
 }
 
-func (t Recommended) View() string {
+func (t Recommended) View() tea.View {
 	headerText := "Recommended for you"
 	if t.feed.Refreshing() && t.spinner.View() != "" {
 		headerText += "  " + styles.Dim.Render(t.spinner.View()+" refreshing…")
 	}
 	header := styles.SectionTitle.Render(headerText)
 	if t.feed.Loading() && !t.feed.Refreshing() {
-		return lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…")
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…"))
 	}
 	if t.feed.Len() == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styles.Dim.PaddingLeft(1).Render("No videos. Press r to refresh."))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
+			styles.Dim.PaddingLeft(1).Render("No videos. Press r to refresh.")))
 	}
 	parts := []string{header, t.table.View()}
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
-func (t Recommended) recHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Recommended) recHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if t.sortChordActive {
+		t.sortChordActive = false
+		keys := t.keys.Sort
+		switch {
+		case key.Matches(msg, keys.Date):
+			t.sortMode = feed.SortDate
+		case key.Matches(msg, keys.Views):
+			t.sortMode = feed.SortViews
+		case key.Matches(msg, keys.Name):
+			t.sortMode = feed.SortName
+		case key.Matches(msg, keys.Channel):
+			t.sortMode = feed.SortChannel
+		case key.Matches(msg, keys.Duration):
+			t.sortMode = feed.SortDuration
+		}
+		t.feed.Sort(t.sortMode)
+		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
+		return t, nil
+	}
+
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			t.table.GotoTop()
+		}
+		return t, nil
+	}
+
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
 	}
@@ -216,6 +252,8 @@ func (t Recommended) recHandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if v, ok := t.feed.At(t.table.Cursor()); ok {
 			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 		}
+	case key.Matches(msg, keys.SortChord):
+		t.sortChordActive = true
 	}
 	return t, nil
 }

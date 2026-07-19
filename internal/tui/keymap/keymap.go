@@ -4,8 +4,19 @@ import (
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
-	"github.com/charmbracelet/bubbles/key"
+	"charm.land/bubbles/v2/key"
 )
+
+// SortKeyMap holds the second-key bindings for the sort chord (s → <key>).
+type SortKeyMap struct {
+	Date        key.Binding
+	Views       key.Binding
+	Name        key.Binding
+	Channel     key.Binding
+	Duration    key.Binding
+	Subscribers key.Binding
+	Tags        key.Binding
+}
 
 // KeyMap holds all configurable key bindings for the TUI.
 type KeyMap struct {
@@ -41,10 +52,13 @@ type KeyMap struct {
 	Filter        key.Binding
 	GotoBottom    key.Binding
 	GotoLine      key.Binding
+	GotoPrefix    key.Binding
 	VideoInfo     key.Binding
 	OpenLinks     key.Binding
 	OpenChapters  key.Binding
 	TabChord      key.Binding
+	SortChord     key.Binding
+	Sort          SortKeyMap
 }
 
 // Build constructs a KeyMap from the user's key binding configuration.
@@ -93,9 +107,20 @@ func Build(kb config.KeyBindings) KeyMap {
 		Filter:        b(kb.Filter, "filter"),
 		GotoBottom:    b(kb.GotoBottom, "go to bottom"),
 		GotoLine:      b(kb.GotoLine, "go to line"),
+		GotoPrefix:    b(kb.GotoPrefix, "go to top"),
 		VideoInfo:     b(kb.VideoInfo, "video info"),
 		OpenLinks:     b(kb.OpenLinks, "open links"),
 		OpenChapters:  b(kb.OpenChapters, "chapters"),
 		TabChord:      b(kb.TabChord, "go to tab"),
+		SortChord:     b(kb.SortChord, "sort…"),
+		Sort: SortKeyMap{
+			Date:        key.NewBinding(key.WithKeys(kb.SortKeys.Date), key.WithHelp(kb.SortKeys.Date, "date")),
+			Views:       key.NewBinding(key.WithKeys(kb.SortKeys.Views), key.WithHelp(kb.SortKeys.Views, "views")),
+			Name:        key.NewBinding(key.WithKeys(kb.SortKeys.Name), key.WithHelp(kb.SortKeys.Name, "name")),
+			Channel:     key.NewBinding(key.WithKeys(kb.SortKeys.Channel), key.WithHelp(kb.SortKeys.Channel, "channel")),
+			Duration:    key.NewBinding(key.WithKeys(kb.SortKeys.Duration), key.WithHelp(kb.SortKeys.Duration, "duration")),
+			Subscribers: key.NewBinding(key.WithKeys(kb.SortKeys.Subscribers), key.WithHelp(kb.SortKeys.Subscribers, "subscribers")),
+			Tags:        key.NewBinding(key.WithKeys(kb.SortKeys.Tags), key.WithHelp(kb.SortKeys.Tags, "tags")),
+		},
 	}
 }

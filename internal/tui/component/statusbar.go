@@ -6,8 +6,8 @@ import (
 
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // StatusBar renders the single-line status row at the bottom of the screen.
@@ -16,6 +16,7 @@ type StatusBar struct {
 	isErr    bool
 	statusAt time.Time
 	right    string // static right-side help text, e.g. "?: help  q: quit"
+	hints    string // tab-contextual shortcut hints shown on the left when idle
 	width    int
 }
 
@@ -30,6 +31,12 @@ func (s StatusBar) WithWidth(w int) StatusBar {
 	return s
 }
 
+// WithHints returns a copy with updated tab-contextual shortcut hints.
+func (s StatusBar) WithHints(hints string) StatusBar {
+	s.hints = hints
+	return s
+}
+
 func (s StatusBar) Init() tea.Cmd { return nil }
 
 func (s StatusBar) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -41,7 +48,7 @@ func (s StatusBar) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-func (s StatusBar) View() string {
+func (s StatusBar) Render() string {
 	right := styles.Help.Render(s.right)
 
 	var left string
@@ -51,6 +58,8 @@ func (s StatusBar) View() string {
 		} else {
 			left = styles.Success.Render("✓ " + s.text)
 		}
+	} else if s.hints != "" {
+		left = styles.Help.Render(s.hints)
 	}
 
 	space := s.width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -59,3 +68,5 @@ func (s StatusBar) View() string {
 	}
 	return left + strings.Repeat(" ", space) + right
 }
+
+func (s StatusBar) View() tea.View { return tea.NewView(s.Render()) }

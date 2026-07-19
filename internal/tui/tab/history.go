@@ -7,14 +7,15 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const histColStatus = 14
@@ -41,6 +42,10 @@ type History struct {
 	table       table.Model
 	detailTable table.Model
 	numBuf      string
+
+	sortMode        int
+	sortChordActive bool
+	gotoTopActive   bool
 }
 
 func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
@@ -53,10 +58,12 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 	}
 }
 
-func (t History) ID() tuipkg.TabID          { return tuipkg.TabHistory }
-func (t History) Title() string             { return "History" }
-func (t History) ShortHelp() []key.Binding { return nil }
-func (t History) InterceptsInput() bool     { return false }
+func (t History) ID() tuipkg.TabID         { return tuipkg.TabHistory }
+func (t History) Title() string            { return "History" }
+func (t History) InterceptsInput() bool    { return false }
+func (t History) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.Play, t.keys.DrillDown, t.keys.Delete, t.keys.CopyURL, t.keys.SortChord}
+}
 
 func (t History) Init() tea.Cmd { return t.loadCmd() }
 
@@ -73,6 +80,7 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, t.loadCmd()
 	case histLoadedMsg:
 		t.entries = m.entries
+		feed.SortHistoryEntries(t.entries, t.sortMode)
 		t.loaded = true
 		t.table.SetRows(t.toHistRows())
 		t.table.SetCursor(0)
@@ -84,21 +92,53 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.detailTable.GotoTop()
 	case histDeletedMsg:
 		return t, func() tea.Msg { return tuipkg.StatusMsg{Text: "Deleted: " + render.Truncate(m.title, 50)} }
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return t.handleKey(m)
 	}
 	return t, nil
 }
 
-func (t History) View() string {
+func (t History) View() tea.View {
 	if t.detailVideoID != "" {
-		return t.renderDetail()
+		return tea.NewView(t.renderDetail())
 	}
-	return t.renderList()
+	return tea.NewView(t.renderList())
 }
 
-func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
+
+	if t.sortChordActive && t.detailVideoID == "" {
+		t.sortChordActive = false
+		sk := t.keys.Sort
+		switch {
+		case key.Matches(msg, sk.Date):
+			t.sortMode = feed.SortDate
+		case key.Matches(msg, sk.Views):
+			t.sortMode = feed.SortViews
+		case key.Matches(msg, sk.Name):
+			t.sortMode = feed.SortName
+		case key.Matches(msg, sk.Channel):
+			t.sortMode = feed.SortChannel
+		case key.Matches(msg, sk.Duration):
+			t.sortMode = feed.SortDuration
+		}
+		feed.SortHistoryEntries(t.entries, t.sortMode)
+		t.table.SetRows(t.toHistRows())
+		return t, nil
+	}
+
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			if t.detailVideoID != "" {
+				t.detailTable.GotoTop()
+			} else {
+				t.table.GotoTop()
+			}
+		}
+		return t, nil
+	}
 
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
@@ -192,6 +232,8 @@ func (t History) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Refresh):
 		t.loaded = false
 		return t, t.loadCmd()
+	case key.Matches(msg, keys.SortChord):
+		t.sortChordActive = true
 	case key.Matches(msg, keys.Escape):
 		if numBuf != "" {
 			return t, nil
@@ -267,7 +309,7 @@ func (t History) histColumns() []table.Column {
 		titleW = 20
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Type", Width: histColStatus},
 		{Title: "Title", Width: titleW},
@@ -282,14 +324,21 @@ func (t History) toHistRows() []table.Row {
 	rows := make([]table.Row, len(t.entries))
 	for i := range t.entries {
 		e := &t.entries[i]
+		var ind string
+		switch e.EventType {
+		case "download video", "download audio":
+			ind = " ● "
+		default:
+			ind = " ○ "
+		}
 		rows[i] = table.Row{
 			rowNum(i),
-			"  ",
-			styles.Warning.Render(render.FormatEvent(e.EventType)),
+			ind,
+			swapReset(styles.Warning.Render(render.FormatEvent(e.EventType))),
 			e.Title,
 			e.Channel,
-			ralign(render.Duration(e.Duration), render.ColDuration-2),
-			ralign(render.Views(e.ViewCount), render.ColViews-2),
+			ralign(render.Duration(e.Duration), render.ColDuration),
+			ralign(render.Views(e.ViewCount), render.ColViews-1)+" ",
 			render.Date(e.UploadDate),
 		}
 	}

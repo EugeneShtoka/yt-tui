@@ -10,11 +10,11 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type dlItemsMsg struct{ items []api.DownloadItem }
@@ -43,8 +43,9 @@ type Downloading struct {
 	table  table.Model
 	numBuf string
 
-	spinner spinner.Model
-	loading bool
+	spinner       spinner.Model
+	loading       bool
+	gotoTopActive bool
 }
 
 func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Downloading {
@@ -60,7 +61,9 @@ func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Down
 
 func (t Downloading) ID() tuipkg.TabID          { return tuipkg.TabDownloading }
 func (t Downloading) Title() string             { return "Downloading" }
-func (t Downloading) ShortHelp() []key.Binding { return nil }
+func (t Downloading) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL}
+}
 func (t Downloading) InterceptsInput() bool     { return false }
 
 func (t Downloading) Init() tea.Cmd {
@@ -101,29 +104,37 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return t, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return t.handleKey(m)
 	}
 	return t, nil
 }
 
-func (t Downloading) View() string {
+func (t Downloading) View() tea.View {
 	header := styles.SectionTitle.Render("Downloading")
 	if t.loading {
-		return lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…")
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, " "+t.spinner.View()+" Loading…"))
 	}
 	if len(t.items) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			styles.Dim.PaddingLeft(1).Render("No active downloads. Press "+t.keys.Download.Help().Key+" on any video to start."))
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
+			styles.Dim.PaddingLeft(1).Render("No active downloads. Press "+t.keys.Download.Help().Key+" on any video to start.")))
 	}
 	parts := []string{header, t.table.View()}
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
-func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Downloading) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			t.table.GotoTop()
+		}
+		return t, nil
+	}
+
 	if checkGotoNum(&t.numBuf, msg) {
 		return t, nil
 	}
@@ -162,10 +173,13 @@ func (t Downloading) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Delete):
 		if item, ok := t.current(); ok {
 			id := item.VideoID
-			return t, func() tea.Msg {
-				_ = t.backend.CancelDownload(context.Background(), id)
-				return tuipkg.DownloadItemsChangedMsg{}
-			}
+			return t, tea.Batch(
+				func() tea.Msg {
+					_ = t.backend.CancelDownload(context.Background(), id)
+					return tuipkg.DownloadItemsChangedMsg{}
+				},
+				func() tea.Msg { return tuipkg.RefreshPositionsMsg{} },
+			)
 		}
 	case key.Matches(msg, keys.Play):
 		if item, ok := t.current(); ok && item.Status == api.DownloadComplete {
@@ -265,7 +279,7 @@ func (t Downloading) dlColumns() []table.Column {
 		titleW = 20
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
 		{Title: " ", Width: colIndicator},
 		{Title: "Title", Width: titleW},
 		{Title: "Channel", Width: render.ColChannel},

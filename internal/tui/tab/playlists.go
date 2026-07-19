@@ -13,12 +13,12 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const ytWatchLaterID = "WL"
@@ -72,9 +72,11 @@ type Playlists struct {
 	ytPlLoading    bool
 	ytPlLoaded     bool
 
-	vidCache   map[string][]domain.Video
-	vidLoading bool
-	vidSort    int
+	vidCache        map[string][]domain.Video
+	vidLoading      bool
+	vidSort         int
+	sortChordActive bool
+	gotoTopActive   bool
 
 	positions   map[string]int64
 	watched     map[string]bool
@@ -110,7 +112,12 @@ func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playli
 
 func (t Playlists) ID() tuipkg.TabID          { return tuipkg.TabPlaylists }
 func (t Playlists) Title() string             { return "Playlists" }
-func (t Playlists) ShortHelp() []key.Binding { return nil }
+func (t Playlists) ShortHelp() []key.Binding {
+	if t.pane == 1 {
+		return []key.Binding{t.keys.Play, t.keys.Download, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
+	}
+	return []key.Binding{t.keys.DrillDown, t.keys.NewList, t.keys.Delete}
+}
 func (t Playlists) InterceptsInput() bool     { return t.createStage == plCreateNameInput }
 
 func (t Playlists) Init() tea.Cmd {
@@ -202,13 +209,13 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.NavigateToPlaylistMsg:
 		t.scrollToPlaylist(m)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return t.handleKey(m)
 	}
 	return t, nil
 }
 
-func (t Playlists) View() string {
+func (t Playlists) View() tea.View {
 	header := styles.SectionTitle.Render("Playlists")
 	headerH := lipgloss.Height(header)
 	bodyH := t.height - headerH
@@ -222,8 +229,8 @@ func (t Playlists) View() string {
 			opt1 = styles.Selected.Render("▶ YouTube playlist")
 		}
 		prompt := styles.Bold.Render("New playlist: ") + "\n" + opt0 + "\n" + opt1
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			t.plTable.View()+"\n\n\n"+prompt)
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
+			t.plTable.View()+"\n\n\n"+prompt))
 
 	case plCreateNameInput:
 		label := "New local playlist: "
@@ -231,8 +238,8 @@ func (t Playlists) View() string {
 			label = "New YouTube playlist: "
 		}
 		prompt := styles.Bold.Render(label) + t.createInput.View()
-		return lipgloss.JoinVertical(lipgloss.Left, header,
-			t.plTable.View()+"\n\n"+prompt)
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
+			t.plTable.View()+"\n\n"+prompt))
 	}
 
 	if t.pane == 1 && t.plTable.Cursor() < t.plCount() {
@@ -252,7 +259,7 @@ func (t Playlists) View() string {
 		if t.numBuf != "" {
 			parts = append(parts, gotoLineView(t.numBuf))
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	}
 
 	body := t.plTable.View()
@@ -264,15 +271,27 @@ func (t Playlists) View() string {
 	if t.numBuf != "" {
 		parts = append(parts, gotoLineView(t.numBuf))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
-func (t Playlists) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Playlists) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch t.createStage {
 	case plCreateTypeSelect:
 		return t.handleTypeSelect(msg)
 	case plCreateNameInput:
 		return t.handleNameInput(msg)
+	}
+
+	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
+		if doTop {
+			t.numBuf = ""
+			if t.pane == 1 {
+				t.vidTable.GotoTop()
+			} else {
+				t.plTable.GotoTop()
+			}
+		}
+		return t, nil
 	}
 
 	if checkGotoNum(&t.numBuf, msg) {
@@ -301,7 +320,7 @@ func (t Playlists) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t.handleListPaneKey(msg, numBuf)
 }
 
-func (t Playlists) handleListPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
+func (t Playlists) handleListPaneKey(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := t.plCount()
 
@@ -370,7 +389,7 @@ func (t Playlists) handleListPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model, 
 	return t, nil
 }
 
-func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model, tea.Cmd) {
+func (t Playlists) handleVideoPaneKey(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
 	if t.plTable.Cursor() >= t.plCount() {
 		t.pane = 0
 		return t, nil
@@ -379,6 +398,27 @@ func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model,
 	plKey := t.selectedPlaylistKey()
 	vids := t.vidCache[plKey]
 	n := len(vids)
+
+	if t.sortChordActive {
+		t.sortChordActive = false
+		sk := keys.Sort
+		switch {
+		case key.Matches(msg, sk.Date):
+			t.vidSort = feed.SortDate
+		case key.Matches(msg, sk.Views):
+			t.vidSort = feed.SortViews
+		case key.Matches(msg, sk.Name):
+			t.vidSort = feed.SortName
+		case key.Matches(msg, sk.Channel):
+			t.vidSort = feed.SortChannel
+		case key.Matches(msg, sk.Duration):
+			t.vidSort = feed.SortDuration
+		}
+		feed.SortVideos(vids, t.vidSort)
+		t.vidCache[plKey] = vids
+		t.vidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, false, t.width))
+		return t, nil
+	}
 
 	switch {
 	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
@@ -441,11 +481,15 @@ func (t Playlists) handleVideoPaneKey(msg tea.KeyMsg, numBuf string) (tea.Model,
 		}
 	case key.Matches(msg, keys.Delete):
 		return t.removeCurrentVideo(plKey, vids)
+	case key.Matches(msg, keys.SortChord):
+		if n > 0 {
+			t.sortChordActive = true
+		}
 	}
 	return t, nil
 }
 
-func (t Playlists) handleTypeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Playlists) handleTypeSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	switch {
 	case key.Matches(msg, keys.Up), key.Matches(msg, keys.Down):
@@ -468,7 +512,7 @@ func (t Playlists) handleTypeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t Playlists) handleNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (t Playlists) handleNameInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	switch {
 	case key.Matches(msg, keys.DrillDown):
@@ -649,12 +693,13 @@ func (t Playlists) plAuxLoadCmd() tea.Cmd {
 }
 
 func (t Playlists) plColumns() []table.Column {
-	nameW := t.width - render.ColNum
+	nameW := t.width - render.ColNum - colIndicator
 	if nameW < 10 {
 		nameW = 10
 	}
 	return []table.Column{
-		{Title: "#", Width: render.ColNum},
+		{Title: ralign("#", render.ColNum), Width: render.ColNum},
+		{Title: " ", Width: colIndicator},
 		{Title: "Name", Width: nameW},
 	}
 }
@@ -663,7 +708,7 @@ func (t Playlists) toPlaylistRows() []table.Row {
 	n := t.plCount()
 	rows := make([]table.Row, n)
 	for i := 0; i < n; i++ {
-		rows[i] = table.Row{rowNum(i), t.playlistLabel(i)}
+		rows[i] = table.Row{rowNum(i), "", t.playlistLabel(i)}
 	}
 	return rows
 }

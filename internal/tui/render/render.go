@@ -8,14 +8,18 @@ import (
 
 // Column widths shared across all video-list views.
 // ColDuration is a var because it changes with the active duration format.
+// ColViews and ColDate are inflated by DimCellOverhead so that Dim-styled cells
+// (runewidth = DimCellOverhead + content) fit exactly within the column width
+// without triggering runewidth.Truncate inside the bubbles/table render pass.
 const (
-	ColNum     = 4
-	ColChannel = 30
-	ColViews   = 8
-	ColDate    = 11
+	ColNum          = 4
+	ColChannel      = 30
+	DimCellOverhead = 7  // runewidth cost of \033[2m (open=3) + \033[22m (close=4)
+	ColViews        = 8 + DimCellOverhead
+	ColDate         = 11 + DimCellOverhead
 )
 
-var ColDuration = 17 // default for hh:mm:ss; recomputed by SetDurFmt
+var ColDuration = 8*2 + 3 + DimCellOverhead // default for hh:mm:ss; recomputed by SetDurFmt
 
 // DurFmt controls how video durations are formatted in all table views.
 // Uppercase component letters = zero-padded; lowercase = no padding.
@@ -49,7 +53,7 @@ func SetDurFmt(f DurFmt) {
 		activeDurFmt = DurFmthhmm
 	}
 	maxLen := len(formatDuration(99*3600+59*60+59, activeDurFmt))
-	ColDuration = maxLen*2 + 1
+	ColDuration = maxLen*2 + 3 + DimCellOverhead
 }
 
 func Duration(secs int) string {
@@ -100,7 +104,7 @@ func formatDuration(secs int, f DurFmt) string {
 }
 
 func DurationWithPos(posMs int64, totalSecs int) string {
-	return Duration(int(posMs/1000)) + "/" + Duration(totalSecs)
+	return Duration(int(posMs/1000)) + " / " + Duration(totalSecs)
 }
 
 func Views(n int64) string {
