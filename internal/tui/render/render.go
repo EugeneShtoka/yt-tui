@@ -43,7 +43,7 @@ const (
 var activeDurFmt DurFmt = DurFmthhmmss
 
 // SetDurFmt sets the active duration format and recomputes ColDuration.
-// Call once at startup after loading config. Unrecognised values fall back to hh:mm.
+// Call once at startup after loading config. Unrecognized values fall back to hh:mm.
 func SetDurFmt(f DurFmt) {
 	switch f {
 	case DurFmtHHMMSS, DurFmthhmmss, DurFmtHHMM, DurFmthHmm, DurFmthhmm,

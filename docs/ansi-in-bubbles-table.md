@@ -49,7 +49,7 @@ For the Dim style (`\033[2m…\033[22;39m` after swapReset) the overhead is 10.
 ## swapReset
 
 The table applies `styles.Selected.Render(row)` to the *entire selected row*.
-That style adds a background colour. A full `\033[0m` reset mid-cell clears the
+That style adds a background color. A full `\033[0m` reset mid-cell clears the
 background for the rest of the row.
 
 Replace the trailing full reset with a partial one that preserves background:

@@ -122,7 +122,7 @@ func swapReset(s string) string {
 
 // dimSwapReset is like swapReset but uses \033[22m (resets bold/faint only,
 // leaves foreground and background intact). Sufficient for Dim-only cells since
-// Dim does not set a foreground colour. Saves 3 runewidth chars vs swapReset,
+// Dim does not set a foreground color. Saves 3 runewidth chars vs swapReset,
 // which is essential for narrow columns (views, date, duration).
 func dimSwapReset(s string) string {
 	const partial = "\033[22m"

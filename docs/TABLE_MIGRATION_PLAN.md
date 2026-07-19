@@ -96,7 +96,7 @@ func indicatorCell(v domain.Video, positions map[string]int64, watched map[strin
 }
 ```
 
-`bubbles/table` renders the selected-row highlight as a single `Selected` style over the whole row — so the indicator coloring for the selected row comes for free. For non-selected rows the coloured ● / ○ needs to be embedded in the pre-rendered string (lipgloss ANSI codes survive in table cells).
+`bubbles/table` renders the selected-row highlight as a single `Selected` style over the whole row — so the indicator coloring for the selected row comes for free. For non-selected rows the colored ● / ○ needs to be embedded in the pre-rendered string (lipgloss ANSI codes survive in table cells).
 
 ---
 
@@ -140,7 +140,7 @@ func tableStyles() table.Styles {
 }
 ```
 
-Set once at construction; colours match the existing theme.
+Set once at construction; colors match the existing theme.
 
 ---
 
