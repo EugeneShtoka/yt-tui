@@ -9,17 +9,17 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
-	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	etable "github.com/evertras/bubble-table/table"
 )
 
 const (
@@ -44,10 +44,29 @@ const (
 	colChTags = 14
 )
 
+// Column key constants for chTable rows.
+const (
+	colKeyChNum   = "chnum"
+	colKeyChInd   = "chind"
+	colKeyChName  = "chname"
+	colKeyChTags  = "chtags"
+	colKeyChSubs  = "chsubs"
+	colKeyChTitle = "chtitle"
+	colKeyChDur   = "chdur"
+	colKeyChViews = "chviews"
+	colKeyChDate  = "chdate"
+)
+
+// ChannelRow is the cell input type for the channel list table.
+type ChannelRow struct {
+	Channel domain.Channel
+	Latest  domain.Video
+	DurW    int
+}
+
 type chsLoadedMsg struct {
-	chans     []domain.Channel
-	latest    map[string]domain.Video
-	subVideos []domain.Video
+	chans  []domain.Channel
+	latest map[string]domain.Video
 }
 type chVideosCachedMsg struct {
 	channelID string
@@ -56,11 +75,6 @@ type chVideosCachedMsg struct {
 type chVideosFetchedMsg struct {
 	channelID string
 	videos    []domain.Video
-}
-type chAuxLoadedMsg struct {
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
 }
 
 type Channels struct {
@@ -71,16 +85,13 @@ type Channels struct {
 
 	width, height int
 
-	subs      channels.ChannelSet
-	chLatest  map[string]domain.Video
-	subVideos []domain.Video
-	loading   bool
+	subs     channels.ChannelSet
+	chLatest map[string]domain.Video
+	loading  bool
 	sortMode  int
 	spinner   spinner.Model
 
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
+	aux videotable.AuxData
 
 	pane          int
 	chVideos      []domain.Video
@@ -89,22 +100,77 @@ type Channels struct {
 	activeChID    string
 	activeChURL   string
 
-	tagsMode        bool
-	tagSel          string
 	sortChordActive bool
 	gotoTopActive   bool
 
 	editMode  int
 	editInput textinput.Model
 
-	chTable     table.Model
-	chVidTable  table.Model
-	tagTable    table.Model
-	tagVidTable table.Model
-	numBuf      string
+	// channel list table (manual nav, direct etable.Model access needed)
+	chTable etable.Model
+	chCols  []videotable.ColumnDef[ChannelRow]
+	durW    int
+	numBuf  string
+
+	// video-list table — uses TableNav
+	chVidNav  videotable.TableNav
+	chVidCols []videotable.VideoColumnDef
+}
+
+func channelListColumns(durW int) []videotable.ColumnDef[ChannelRow] {
+	return []videotable.ColumnDef[ChannelRow]{
+		{
+			Col:  etable.NewColumn(colKeyChNum, ralign("#", render.ColNum), render.ColNum),
+			Cell: func(r ChannelRow, i int) any { return fmt.Sprintf("%4d", i+1) },
+		},
+		{
+			Col:  etable.NewColumn(colKeyChInd, " ", colIndicator),
+			Cell: func(r ChannelRow, _ int) any { return "  " },
+		},
+		{
+			Col:  etable.NewColumn(colKeyChName, "Channel", colChName),
+			Cell: func(r ChannelRow, _ int) any { return r.Channel.DisplayName() },
+		},
+		{
+			Col:  etable.NewColumn(colKeyChTags, "Tags", colChTags),
+			Cell: func(r ChannelRow, _ int) any { return strings.Join(r.Channel.Tags, ", ") },
+		},
+		{
+			Col: etable.NewColumn(colKeyChSubs, ralign("Subs", colChSubs), colChSubs),
+			Cell: func(r ChannelRow, _ int) any {
+				return fmt.Sprintf("%*s ", colChSubs-1, render.Views(r.Channel.Subscribers))
+			},
+		},
+		{
+			Col:  etable.NewFlexColumn(colKeyChTitle, "Latest Video", 1),
+			Cell: func(r ChannelRow, _ int) any { return r.Latest.Title },
+		},
+		{
+			Col: etable.NewColumn(colKeyChDur, ralign("Duration", durW+1), durW+1),
+			Cell: func(r ChannelRow, _ int) any {
+				return fmt.Sprintf("%*s ", r.DurW, r.Latest.DurationStr())
+			},
+		},
+		{
+			Col: etable.NewColumn(colKeyChViews, ralign("Views", render.ColViews+1), render.ColViews+1),
+			Cell: func(r ChannelRow, _ int) any {
+				return fmt.Sprintf("%*s ", render.ColViews, r.Latest.ViewsStr())
+			},
+		},
+		{
+			Col:  etable.NewColumn(colKeyChDate, "Date", render.ColDate),
+			Cell: func(r ChannelRow, _ int) any { return r.Latest.DateStr() },
+		},
+	}
 }
 
 func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channelLatestCount int) Channels {
+	durW := render.ColDuration
+	chCols := channelListColumns(durW)
+	chVidCols := []videotable.VideoColumnDef{
+		videotable.Num, videotable.Indicator, videotable.Title,
+		videotable.DurationCol(), videotable.Views, videotable.Date,
+	}
 	return Channels{
 		backend:            backend,
 		keys:               keys,
@@ -113,23 +179,24 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		sortMode:           chSortDate,
 		spinner:            spinner.New(),
 		editInput:          textinput.New(),
-		chTable:            newTable(),
-		chVidTable:         newTable(),
-		tagTable:           newTable(),
-		tagVidTable:        newTable(),
+		chTable:            videotable.NewTable(chCols),
+		chVidNav:           videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
+		chCols:             chCols,
+		chVidCols:          chVidCols,
+		durW:               durW,
 	}
 }
 
-func (t Channels) ID() tuipkg.TabID          { return tuipkg.TabChannels }
-func (t Channels) Title() string             { return "Channels" }
+func (t Channels) ID() tuipkg.TabID         { return tuipkg.TabChannels }
+func (t Channels) Title() string            { return "Channels" }
 func (t Channels) ShortHelp() []key.Binding {
-	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.ToggleMode, t.keys.SortChord}
+	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.SortChord}
 }
-func (t Channels) InterceptsInput() bool     { return t.editInput.Focused() }
+func (t Channels) InterceptsInput() bool { return t.editInput.Focused() }
 
 func (t Channels) Init() tea.Cmd {
 	t.loading = true
-	return tea.Batch(t.chsLoadCmd(), t.chAuxLoadCmd(), t.spinner.Tick)
+	return tea.Batch(t.chsLoadCmd(), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
 }
 
 func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -137,17 +204,10 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.chTable.SetColumns(t.chChannelColumns())
-		t.chTable.SetHeight(t.height - 2)
-		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
-		t.chVidTable.SetColumns(computeVideoColumns(t.width, false))
-		t.chVidTable.SetHeight(t.height - 4)
-		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
-		t.tagTable.SetColumns(t.chTagColumns())
-		t.tagTable.SetHeight(t.height - 2)
-		t.tagTable.SetRows(t.toTagRows())
-		t.tagVidTable.SetColumns(computeVideoColumns(t.width, true))
-		t.tagVidTable.SetHeight(t.height - 4)
+		t.chTable = t.chTable.WithTargetWidth(m.Width).WithTargetHeight(m.Height - 2)
+		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+		t.chVidNav.Resize(m.Width, m.Height-2)
+		t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
 
 	case spinner.TickMsg:
 		if t.loading || t.chVidsLoading || t.chVidsRefresh {
@@ -159,26 +219,22 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chsLoadedMsg:
 		t.subs = channels.New(m.chans)
 		t.chLatest = m.latest
-		t.subVideos = m.subVideos
 		t.loading = false
-		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
-		t.tagTable.SetRows(t.toTagRows())
+		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 
-	case chAuxLoadedMsg:
-		t.positions = m.positions
-		t.watched = m.watched
-		t.localStatus = m.localStatus
-		t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
+	case videotable.AuxDataMsg:
+		t.aux = m
+		t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
 
 	case tuipkg.RefreshPositionsMsg:
-		return t, t.chAuxLoadCmd()
+		return t, videotable.LoadAuxDataCmd(t.backend)
 
 	case chVideosCachedMsg:
 		if m.channelID == t.activeChID {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = true
-			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
 			return t, t.chVideosFetchCmd()
 		}
 
@@ -187,7 +243,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = false
-			t.chVidTable.SetRows(toVideoRows(t.chVideos, t.positions, t.watched, t.localStatus, false, t.width))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
 		}
 
 	case tea.KeyPressMsg:
@@ -204,21 +260,13 @@ func (t Channels) View() tea.View {
 	if t.loading {
 		headerText += "  " + styles.Dim.Render(t.spinner.View()+" loading…")
 	}
-	if t.tagsMode {
-		headerText += "  " + styles.Dim.Render("[tags]")
-	}
 	header := styles.SectionTitle.Render(headerText)
 	headerH := lipgloss.Height(header)
 	contentH := t.height - headerH
-
-	if t.tagsMode {
-		return tea.NewView(t.viewTags(header, contentH))
-	}
-	return tea.NewView(t.viewFlat(header, contentH))
+	return tea.NewView(t.viewContent(header, contentH))
 }
 
-func (t Channels) viewFlat(header string, contentH int) string {
-	_ = contentH
+func (t Channels) viewContent(header string, _ int) string {
 	if t.pane == 0 {
 		var body string
 		switch {
@@ -233,16 +281,17 @@ func (t Channels) viewFlat(header string, contentH int) string {
 			body = t.appendEditInput(body)
 		}
 		parts := []string{header, body}
-		if t.numBuf != "" {
-			parts = append(parts, gotoLineView(t.numBuf))
+		if s := gotoLineView(t.numBuf); s != "" {
+			parts = append(parts, s)
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
 	sorted := t.sortedChannels()
 	chName := ""
-	if t.chTable.Cursor() < len(sorted) {
-		chName = sorted[t.chTable.Cursor()].DisplayName()
+	idx := t.chTable.GetHighlightedRowIndex()
+	if idx < len(sorted) {
+		chName = sorted[idx].DisplayName()
 	}
 	subHeaderText := "← " + chName
 	if t.chVidsRefresh {
@@ -253,34 +302,11 @@ func (t Channels) viewFlat(header string, contentH int) string {
 	if t.chVidsLoading {
 		body = t.spinner.View() + " Loading…"
 	} else {
-		body = t.chVidTable.View()
+		body = t.chVidNav.View()
 	}
 	parts := []string{header, subHeader, body}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (t Channels) viewTags(header string, contentH int) string {
-	_ = contentH
-	if t.pane == 1 {
-		tagHeader := styles.SectionTitle.Render("← " + tagDisplayName(t.tagSel))
-		parts := []string{header, tagHeader, t.tagVidTable.View()}
-		if t.numBuf != "" {
-			parts = append(parts, gotoLineView(t.numBuf))
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, parts...)
-	}
-	var body string
-	if t.loading && t.subs.Len() == 0 {
-		body = t.spinner.View() + " Loading channels…"
-	} else {
-		body = t.tagTable.View()
-	}
-	parts := []string{header, body}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	if s := t.chVidNav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
@@ -305,30 +331,17 @@ func (t Channels) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, sk.Tags):
 			t.sortMode = chSortTags
 		}
-		t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
-		return t, nil
-	}
-
-	if key.Matches(msg, keys.ToggleMode) {
-		t.tagsMode = !t.tagsMode
-		t.pane = 0
-		t.tagTable.GotoTop()
-		t.numBuf = ""
+		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 		return t, nil
 	}
 
 	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
 		if doTop {
 			t.numBuf = ""
-			switch {
-			case t.tagsMode && t.pane == 1:
-				t.tagVidTable.GotoTop()
-			case t.tagsMode:
-				t.tagTable.GotoTop()
-			case t.pane == 1:
-				t.chVidTable.GotoTop()
-			default:
-				t.chTable.GotoTop()
+			if t.pane == 1 {
+				t.chVidNav.GotoRow(0)
+			} else {
+				t.chTable = t.chTable.WithHighlightedRow(0)
 			}
 		}
 		return t, nil
@@ -340,30 +353,29 @@ func (t Channels) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	numBuf := t.numBuf
 	t.numBuf = ""
 
-	// GotoLine dispatched to whichever table is currently active
 	if key.Matches(msg, keys.GotoLine) {
-		var tbl *table.Model
-		switch {
-		case t.tagsMode && t.pane == 1:
-			tbl = &t.tagVidTable
-		case t.tagsMode:
-			tbl = &t.tagTable
-		case t.pane == 1:
-			tbl = &t.chVidTable
-		default:
-			tbl = &t.chTable
-		}
-		if numBuf != "" {
-			applyGoto(numBuf, tbl)
+		if t.pane == 1 {
+			n := len(t.chVideos)
+			if numBuf != "" {
+				if row := gotoRowIndex(numBuf); row >= 0 {
+					t.chVidNav.GotoRow(row)
+				}
+			} else if n > 0 {
+				t.chVidNav.GotoRow(n - 1)
+			}
 		} else {
-			tbl.GotoBottom()
+			n := len(t.sortedChannels())
+			if numBuf != "" {
+				if row := gotoRowIndex(numBuf); row >= 0 {
+					t.chTable = t.chTable.WithHighlightedRow(row)
+				}
+			} else if n > 0 {
+				t.chTable = t.chTable.WithHighlightedRow(n - 1)
+			}
 		}
 		return t, nil
 	}
 
-	if t.tagsMode {
-		return t.handleKeyTags(msg, numBuf)
-	}
 	return t.handleKeyFlat(msg, numBuf)
 }
 
@@ -373,22 +385,23 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 	if t.pane == 0 {
 		sorted := t.sortedChannels()
 		n := len(sorted)
+		idx := t.chTable.GetHighlightedRowIndex()
 		switch {
 		case key.Matches(msg, keys.Up):
-			if t.circular && n > 0 && t.chTable.Cursor() == 0 {
-				t.chTable.GotoBottom()
-			} else {
-				t.chTable.MoveUp(1)
+			if idx > 0 {
+				t.chTable = t.chTable.WithHighlightedRow(idx - 1)
+			} else if t.circular && n > 0 {
+				t.chTable = t.chTable.WithHighlightedRow(n - 1)
 			}
 		case key.Matches(msg, keys.Down):
-			if t.circular && n > 0 && t.chTable.Cursor() == n-1 {
-				t.chTable.GotoTop()
-			} else {
-				t.chTable.MoveDown(1)
+			if idx < n-1 {
+				t.chTable = t.chTable.WithHighlightedRow(idx + 1)
+			} else if t.circular && n > 0 {
+				t.chTable = t.chTable.WithHighlightedRow(0)
 			}
 		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-			if t.chTable.Cursor() < n {
-				ch := sorted[t.chTable.Cursor()]
+			if idx < n {
+				ch := sorted[idx]
 				t.pane = 1
 				if ch.ID == t.activeChID && len(t.chVideos) > 0 {
 					t.chVidsLoading = false
@@ -400,13 +413,13 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 				t.chVideos = nil
 				t.chVidsLoading = true
 				t.chVidsRefresh = false
-				t.chVidTable.GotoTop()
-				t.chVidTable.SetRows(nil)
+				t.chVidNav.SetRows(nil)
+				t.chVidNav.GotoRow(0)
 				return t, tea.Batch(t.chDrilldownCmd(ch), t.spinner.Tick)
 			}
 		case key.Matches(msg, keys.RenameChannel):
-			if t.chTable.Cursor() < n {
-				ch := sorted[t.chTable.Cursor()]
+			if idx < n {
+				ch := sorted[idx]
 				t.editInput.SetValue(ch.DisplayName())
 				t.editInput.Placeholder = "alias (empty to clear)…"
 				t.editInput.Focus()
@@ -414,8 +427,8 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 				return t, textinput.Blink
 			}
 		case key.Matches(msg, keys.TagChannel):
-			if t.chTable.Cursor() < n {
-				ch := sorted[t.chTable.Cursor()]
+			if idx < n {
+				ch := sorted[idx]
 				t.editInput.SetValue(strings.Join(ch.Tags, ", "))
 				t.editInput.Placeholder = "comma-separated tags…"
 				t.editInput.Focus()
@@ -423,10 +436,10 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 				return t, textinput.Blink
 			}
 		case key.Matches(msg, keys.Unsubscribe):
-			if t.chTable.Cursor() < n {
-				ch := sorted[t.chTable.Cursor()]
+			if idx < n {
+				ch := sorted[idx]
 				t.subs.Remove(ch)
-				t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+				t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 				return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 			}
 		case key.Matches(msg, keys.SortChord):
@@ -436,132 +449,40 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 		return t, nil
 	}
 
+	// pane 1: channel video list
 	n := len(t.chVideos)
-	switch {
-	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
-		if numBuf != "" {
-			return t, nil
-		}
-		t.pane = 0
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.chVidTable.Cursor() == 0 {
-			t.chVidTable.GotoBottom()
-		} else {
-			t.chVidTable.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.chVidTable.Cursor() == n-1 {
-			t.chVidTable.GotoTop()
-		} else {
-			t.chVidTable.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.chVidTable.MoveUp(t.chVidTable.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.chVidTable.MoveDown(t.chVidTable.Height())
-	case key.Matches(msg, keys.GotoBottom):
-		t.chVidTable.GotoBottom()
-	case key.Matches(msg, keys.Unsubscribe):
-		sorted := t.sortedChannels()
-		if t.chTable.Cursor() < len(sorted) {
-			ch := sorted[t.chTable.Cursor()]
-			t.subs.Remove(ch)
-			t.pane = 0
-			t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
-			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
-		}
-	default:
-		if v, ok := t.currentChVideo(); ok {
-			return t.handleVideoAction(msg, v)
-		}
-	}
-	return t, nil
-}
-
-func (t Channels) handleKeyTags(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
-	keys := t.keys
-
-	if t.pane == 0 {
-		items := t.allTags()
-		n := len(items)
-		switch {
-		case key.Matches(msg, keys.Up):
-			if t.circular && n > 0 && t.tagTable.Cursor() == 0 {
-				t.tagTable.GotoBottom()
-			} else {
-				t.tagTable.MoveUp(1)
-			}
-		case key.Matches(msg, keys.Down):
-			if t.circular && n > 0 && t.tagTable.Cursor() == n-1 {
-				t.tagTable.GotoTop()
-			} else {
-				t.tagTable.MoveDown(1)
-			}
-		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-			if t.tagTable.Cursor() < n {
-				t.tagSel = items[t.tagTable.Cursor()]
-				vids := t.tagVideos()
-				t.tagVidTable.SetRows(toVideoRows(vids, t.positions, t.watched, t.localStatus, true, t.width))
-				t.tagVidTable.GotoTop()
-				t.pane = 1
-			}
-		}
-		_ = numBuf
+	numBufBefore := t.chVidNav.NumBufView() != ""
+	if t.chVidNav.HandleNav(msg, keys, n) {
 		return t, nil
 	}
 
-	vids := t.tagVideos()
-	n := len(vids)
+	idx := t.chVidNav.Index()
 	switch {
 	case key.Matches(msg, keys.Left), key.Matches(msg, keys.Escape):
-		if numBuf != "" {
+		if numBufBefore {
 			return t, nil
 		}
 		t.pane = 0
-		t.tagVidTable.GotoTop()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.tagVidTable.Cursor() == 0 {
-			t.tagVidTable.GotoBottom()
-		} else {
-			t.tagVidTable.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.tagVidTable.Cursor() == n-1 {
-			t.tagVidTable.GotoTop()
-		} else {
-			t.tagVidTable.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.tagVidTable.MoveUp(t.tagVidTable.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.tagVidTable.MoveDown(t.tagVidTable.Height())
 	case key.Matches(msg, keys.GotoBottom):
-		t.tagVidTable.GotoBottom()
-	default:
-		if t.tagVidTable.Cursor() < n {
-			return t.handleVideoAction(msg, vids[t.tagVidTable.Cursor()])
+		if n > 0 {
+			t.chVidNav.GotoRow(n - 1)
 		}
-	}
-	return t, nil
-}
-
-func (t Channels) handleVideoAction(msg tea.KeyPressMsg, v domain.Video) (tea.Model, tea.Cmd) {
-	keys := t.keys
-	switch {
-	case key.Matches(msg, keys.Play):
-		return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
-	case key.Matches(msg, keys.PlayAudio):
-		return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v, AudioOnly: true} }
-	case key.Matches(msg, keys.Download):
-		return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v} }
-	case key.Matches(msg, keys.DownloadAudio):
-		return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v, AudioOnly: true} }
-	case key.Matches(msg, keys.CopyURL):
-		return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }
-	case key.Matches(msg, keys.VideoInfo):
-		return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
-	case key.Matches(msg, keys.AddList):
-		return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
+	case key.Matches(msg, keys.Unsubscribe):
+		sorted := t.sortedChannels()
+		chIdx := t.chTable.GetHighlightedRowIndex()
+		if chIdx < len(sorted) {
+			ch := sorted[chIdx]
+			t.subs.Remove(ch)
+			t.pane = 0
+			t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
+		}
+	default:
+		if v, ok := t.chVidAt(idx); ok {
+			if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+				return t, cmd
+			}
+		}
 	}
 	return t, nil
 }
@@ -576,11 +497,12 @@ func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DrillDown):
 		val := strings.TrimSpace(t.editInput.Value())
 		sorted := t.sortedChannels()
-		if t.chTable.Cursor() < len(sorted) {
-			ch := sorted[t.chTable.Cursor()]
+		idx := t.chTable.GetHighlightedRowIndex()
+		if idx < len(sorted) {
+			ch := sorted[idx]
 			if t.editMode == chEditAlias {
 				t.subs.SetAlias(ch.ID, val)
-				t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+				t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 				t.editMode = chEditNone
 				t.editInput.Blur()
 				if val == "" {
@@ -590,7 +512,7 @@ func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			tags := parseTags(val)
 			t.subs.SetTags(ch.ID, tags)
-			t.chTable.SetRows(t.toChannelRows(t.sortedChannels()))
+			t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 			t.editMode = chEditNone
 			t.editInput.Blur()
 			return t, t.chSetTagsCmd(ch.ID, tags)
@@ -649,121 +571,23 @@ func (t Channels) sortChannelSlice(chs []domain.Channel) []domain.Channel {
 	return out
 }
 
-func (t Channels) channelsInTag(tag string) []domain.Channel {
-	var out []domain.Channel
-	for _, ch := range t.subs.Channels() {
-		for _, tg := range ch.Tags {
-			if tg == tag {
-				out = append(out, ch)
-				break
-			}
-		}
-	}
-	return out
-}
-
-func (t Channels) tagVideos() []domain.Video {
-	chans := t.channelsInTag(t.tagSel)
-	if len(chans) == 0 {
-		return nil
-	}
-	idSet := make(map[string]bool, len(chans))
-	for _, ch := range chans {
-		if ch.ID != "" {
-			idSet[ch.ID] = true
-		}
-	}
-	var out []domain.Video
-	for _, v := range t.subVideos {
-		if idSet[v.ChannelID] {
-			out = append(out, v)
-		}
-	}
-	feed.SortVideos(out, feed.SortDate)
-	return out
-}
-
-func (t Channels) allTags() []string {
-	seen := map[string]bool{}
-	for _, ch := range t.subs.Channels() {
-		for _, tg := range ch.Tags {
-			if tg != "" {
-				seen[tg] = true
-			}
-		}
-	}
-	tags := make([]string, 0, len(seen))
-	for tg := range seen {
-		tags = append(tags, tg)
-	}
-	sort.Strings(tags)
-	return tags
-}
-
-func (t Channels) currentChVideo() (domain.Video, bool) {
-	c := t.chVidTable.Cursor()
-	if c >= 0 && c < len(t.chVideos) {
-		return t.chVideos[c], true
+func (t Channels) chVidAt(idx int) (domain.Video, bool) {
+	if idx >= 0 && idx < len(t.chVideos) {
+		return t.chVideos[idx], true
 	}
 	return domain.Video{}, false
 }
 
-func (t Channels) chChannelColumns() []table.Column {
-	titleW := t.width - render.ColNum - colIndicator - colChName - colChTags - colChSubs - render.ColDuration - render.ColViews - render.ColDate
-	if titleW < 10 {
-		titleW = 10
-	}
-	return []table.Column{
-		{Title: ralign("#", render.ColNum), Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Channel", Width: colChName},
-		{Title: "Tags", Width: colChTags},
-		{Title: "Subs", Width: colChSubs},
-		{Title: "Latest Video", Width: titleW},
-		{Title: "Duration", Width: render.ColDuration},
-		{Title: "Views", Width: render.ColViews},
-		{Title: "Date", Width: render.ColDate},
-	}
-}
-
-func (t Channels) chTagColumns() []table.Column {
-	labelW := t.width - render.ColNum - colIndicator
-	if labelW < 10 {
-		labelW = 10
-	}
-	return []table.Column{
-		{Title: ralign("#", render.ColNum), Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Tag", Width: labelW},
-	}
-}
-
-func (t Channels) toChannelRows(sorted []domain.Channel) []table.Row {
-	rows := make([]table.Row, len(sorted))
+func (t Channels) toChannelRows(sorted []domain.Channel) []etable.Row {
+	rows := make([]ChannelRow, len(sorted))
 	for i, ch := range sorted {
-		latest := t.chLatest[ch.ID]
-		rows[i] = table.Row{
-			rowNum(i), "  ",
-			ch.DisplayName(),
-			strings.Join(ch.Tags, ", "),
-			render.Views(ch.Subscribers),
-			latest.Title,
-			latest.DurationStr(),
-			latest.ViewsStr(),
-			latest.DateStr(),
+		rows[i] = ChannelRow{
+			Channel: ch,
+			Latest:  t.chLatest[ch.ID],
+			DurW:    t.durW,
 		}
 	}
-	return rows
-}
-
-func (t Channels) toTagRows() []table.Row {
-	items := t.allTags()
-	rows := make([]table.Row, len(items))
-	for i, tag := range items {
-		count := len(t.channelsInTag(tag))
-		rows[i] = table.Row{rowNum(i), "  ", fmt.Sprintf("%s (%d)", tagDisplayName(tag), count)}
-	}
-	return rows
+	return videotable.BuildRows(rows, t.chCols)
 }
 
 func (t Channels) appendEditInput(body string) string {
@@ -785,27 +609,7 @@ func (t Channels) chsLoadCmd() tea.Cmd {
 		if err != nil {
 			latest = make(map[string]domain.Video)
 		}
-		ids := make([]string, len(chans))
-		for i, ch := range chans {
-			ids[i] = ch.ID
-		}
-		subVideos, _ := t.backend.GetAllChannelVideos(ctx, ids)
-		feed.SortVideos(subVideos, feed.SortDate)
-		return chsLoadedMsg{chans: chans, latest: latest, subVideos: subVideos}
-	}
-}
-
-func (t Channels) chAuxLoadCmd() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		positions, _ := t.backend.AllVideoPositions(ctx)
-		watched, _ := t.backend.WatchedVideoIDs(ctx)
-		localVids, _ := t.backend.LocalVideos(ctx)
-		localStatus := make(map[string]domain.VideoStatus, len(localVids))
-		for i := range localVids {
-			localStatus[localVids[i].ID] = localVids[i].Status
-		}
-		return chAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
+		return chsLoadedMsg{chans: chans, latest: latest}
 	}
 }
 
@@ -843,9 +647,7 @@ func (t Channels) chVideosFetchCmd() tea.Cmd {
 }
 
 func (t Channels) chSetAliasCmd(channelID, alias, status string) tea.Cmd {
-	mode := t.editMode
 	return func() tea.Msg {
-		_ = mode
 		if err := t.backend.SetChannelAlias(context.Background(), channelID, alias); err != nil {
 			return tuipkg.StatusMsg{Text: "alias: " + err.Error(), IsErr: true}
 		}
@@ -861,8 +663,6 @@ func (t Channels) chSetTagsCmd(channelID string, tags []string) tea.Cmd {
 		return tuipkg.StatusMsg{Text: "Tags updated"}
 	}
 }
-
-func tagDisplayName(tag string) string { return tag }
 
 func chFirstTag(tags []string) string {
 	if len(tags) == 0 {

@@ -21,40 +21,36 @@ const (
 	KeyDate      = "date"
 )
 
-// VideoCell is the input passed to every cell renderer.
+// VideoCell is the input passed to every VideoColumnDef cell renderer.
+// Index is passed as the second argument to Cell (not stored here).
 type VideoCell struct {
 	Video domain.Video
-	Index int // 0-based row index
 	Ctx   RenderContext
 }
 
-// VideoColumnDef pairs an evertras column spec with a cell renderer.
-type VideoColumnDef struct {
-	Col  etable.Column
-	Cell func(VideoCell) any // returns string or etable.StyledCell
-}
+// VideoColumnDef is a ColumnDef typed to VideoCell.
+type VideoColumnDef = ColumnDef[VideoCell]
 
 // Pre-defined column definitions. Tabs compose a slice of these and pass it to
 // NewVideoTable / BuildVideoRows.
 //
-// Column widths are the clean content widths (no DimCellOverhead inflation).
-// evertras uses ansi.StringWidth for truncation, so ANSI styling is invisible
-// to width math and no overhead adjustments are needed.
+// Column widths are content widths. evertras uses ansi.StringWidth for
+// truncation so ANSI styling is invisible to width math.
 var (
 	Num = VideoColumnDef{
 		Col:  etable.NewColumn(KeyNum, fmt.Sprintf("%4s", "#"), 4),
-		Cell: func(vc VideoCell) any { return fmt.Sprintf("%4d", vc.Index+1) },
+		Cell: func(vc VideoCell, index int) any { return fmt.Sprintf("%4d", index+1) },
 	}
 
 	Indicator = VideoColumnDef{
 		Col:  etable.NewColumn(KeyIndicator, " ", 3),
-		Cell: func(vc VideoCell) any { return indicatorStr(vc.Video, vc.Ctx) },
+		Cell: func(vc VideoCell, _ int) any { return indicatorStr(vc.Video, vc.Ctx) },
 	}
 
 	// Title is a flex column — grows to fill the remaining width set by WithTargetWidth.
 	Title = VideoColumnDef{
 		Col: etable.NewFlexColumn(KeyTitle, "Title", 1),
-		Cell: func(vc VideoCell) any {
+		Cell: func(vc VideoCell, _ int) any {
 			st := titleStyle(vc.Video, vc.Ctx)
 			return etable.NewStyledCell(vc.Video.Title, st)
 		},
@@ -62,7 +58,7 @@ var (
 
 	Channel = VideoColumnDef{
 		Col: etable.NewColumn(KeyChannel, "Channel", 30),
-		Cell: func(vc VideoCell) any {
+		Cell: func(vc VideoCell, _ int) any {
 			ch := vc.Video.Channel
 			if vc.Ctx.Aliases != nil {
 				if a, ok := vc.Ctx.Aliases[vc.Video.ChannelID]; ok && a != "" {
@@ -75,12 +71,12 @@ var (
 
 	Views = VideoColumnDef{
 		Col:  etable.NewColumn(KeyViews, "Views", 8),
-		Cell: func(vc VideoCell) any { return fmt.Sprintf("%8s", vc.Video.ViewsStr()) },
+		Cell: func(vc VideoCell, _ int) any { return fmt.Sprintf("%8s", vc.Video.ViewsStr()) },
 	}
 
 	Date = VideoColumnDef{
-		Col:  etable.NewColumn(KeyDate, "Date", 11),
-		Cell: func(vc VideoCell) any { return vc.Video.DateStr() },
+		Col:  etable.NewColumn(KeyDate, "Date", 10),
+		Cell: func(vc VideoCell, _ int) any { return vc.Video.DateStr() },
 	}
 )
 
@@ -88,13 +84,13 @@ var (
 // duration format. Call it from a tab constructor (after render.SetDurFmt) rather
 // than at package init to capture the correct column width.
 func DurationCol() VideoColumnDef {
-	w := render.ColDuration - render.DimCellOverhead
+	w := render.ColDuration
 	return VideoColumnDef{
 		Col: etable.NewColumn(KeyDuration, "Duration", w),
-		Cell: func(vc VideoCell) any {
+		Cell: func(vc VideoCell, _ int) any {
 			dur := render.Duration(vc.Video.Duration)
 			if posMs := vc.Ctx.Positions[vc.Video.ID]; posMs > 0 {
-				dur = render.DurationWithPos(posMs, vc.Video.Duration)
+				dur = render.Duration(int(posMs / 1000))
 			}
 			return fmt.Sprintf("%*s", w, dur)
 		},
@@ -102,7 +98,6 @@ func DurationCol() VideoColumnDef {
 }
 
 // isFaded returns true when a video should be rendered with the Dim style.
-// localStatus takes priority; positions and watched are fallbacks.
 func isFaded(v domain.Video, ctx RenderContext) bool {
 	if st, ok := ctx.LocalStatus[v.ID]; ok {
 		return st == domain.StatusStarted || st == domain.StatusWatched

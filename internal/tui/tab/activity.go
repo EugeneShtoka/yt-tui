@@ -10,13 +10,20 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	etable "github.com/evertras/bubble-table/table"
 )
 
-const actColType = 16
+const (
+	actColType       = 16
+	colKeyActNum     = "actnum"
+	colKeyActInd     = "actind"
+	colKeyActType    = "acttype"
+	colKeyActDetail  = "actdetail"
+)
 
 type actLoadedMsg struct{ entries []domain.ActivityEntry }
 
@@ -25,40 +32,81 @@ type Activity struct {
 	keys     keymap.KeyMap
 	circular bool
 
-	width, height int
+	height int
 
 	entries []domain.ActivityEntry
 	loaded  bool
-	table         table.Model
-	numBuf        string
-	gotoTopActive bool
+	nav     videotable.TableNav
+	cols    []videotable.ColumnDef[domain.ActivityEntry]
+}
+
+func activityColumns() []videotable.ColumnDef[domain.ActivityEntry] {
+	return []videotable.ColumnDef[domain.ActivityEntry]{
+		{
+			Col:  etable.NewColumn(colKeyActNum, ralign("#", render.ColNum), render.ColNum),
+			Cell: func(e domain.ActivityEntry, i int) any { return fmt.Sprintf("%4d", i+1) },
+		},
+		{
+			Col:  etable.NewColumn(colKeyActInd, " ", colIndicator),
+			Cell: func(e domain.ActivityEntry, _ int) any { return "  " },
+		},
+		{
+			Col: etable.NewColumn(colKeyActType, "Type", actColType),
+			Cell: func(e domain.ActivityEntry, _ int) any {
+				return etable.NewStyledCell(e.Type, styles.Warning)
+			},
+		},
+		{
+			Col: etable.NewFlexColumn(colKeyActDetail, "Detail", 1),
+			Cell: func(e domain.ActivityEntry, _ int) any {
+				locality := "remote"
+				if e.IsLocal {
+					locality = "local"
+				}
+				switch e.Type {
+				case "subscribe":
+					return fmt.Sprintf("%s (%s)", e.ChannelName, locality)
+				case "create_playlist":
+					return fmt.Sprintf("%s (%s)", e.PlaylistName, locality)
+				case "add_to_playlist":
+					return fmt.Sprintf("%s → %s (%s)", e.VideoTitle, e.PlaylistName, locality)
+				default:
+					return e.Type
+				}
+			},
+		},
+	}
 }
 
 func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activity {
-	return Activity{backend: backend, keys: keys, circular: circular, table: newTable()}
+	cols := activityColumns()
+	return Activity{
+		backend:  backend,
+		keys:     keys,
+		circular: circular,
+		nav:      videotable.NewTableNav(videotable.NewTable(cols), circular, 2),
+		cols:     cols,
+	}
 }
 
-func (t Activity) ID() tuipkg.TabID          { return tuipkg.TabActivity }
-func (t Activity) Title() string             { return "Activity" }
-func (t Activity) ShortHelp() []key.Binding {
-	return []key.Binding{t.keys.DrillDown, t.keys.Refresh}
-}
-func (t Activity) InterceptsInput() bool     { return false }
+func (t Activity) ID() tuipkg.TabID         { return tuipkg.TabActivity }
+func (t Activity) Title() string            { return "Activity" }
+func (t Activity) ShortHelp() []key.Binding { return []key.Binding{t.keys.DrillDown, t.keys.Refresh} }
+func (t Activity) InterceptsInput() bool    { return false }
 
 func (t Activity) Init() tea.Cmd { return t.actLoadCmd() }
 
 func (t Activity) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
-		t.width, t.height = m.Width, m.Height
-		t.table.SetColumns(t.actColumns())
-		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(t.toActivityRows())
+		t.height = m.Height
+		t.nav.Resize(m.Width, m.Height)
+		t.nav.SetRows(videotable.BuildRows(t.entries, t.cols))
 	case actLoadedMsg:
 		t.entries = m.entries
 		t.loaded = true
-		t.table.SetRows(t.toActivityRows())
-		t.table.SetCursor(0)
+		t.nav.SetRows(videotable.BuildRows(t.entries, t.cols))
+		t.nav.GotoRow(0)
 	case tea.KeyPressMsg:
 		return t.actHandleKey(m)
 	}
@@ -73,60 +121,28 @@ func (t Activity) View() tea.View {
 	if len(t.entries) == 0 {
 		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.PaddingLeft(1).Render("No activity yet.")))
 	}
-	parts := []string{header, t.table.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.nav.View()}
+	if s := t.nav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
 func (t Activity) actHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			t.table.GotoTop()
-		}
+	if t.nav.HandleNav(msg, t.keys, len(t.entries)) {
 		return t, nil
 	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
 
 	keys := t.keys
-	n := len(t.entries)
+	idx := t.nav.Index()
 
 	switch {
-	case key.Matches(msg, keys.GotoLine):
-		if numBuf != "" {
-			applyGoto(numBuf, &t.table)
-		} else {
-			t.table.GotoBottom()
-		}
-	case key.Matches(msg, keys.GotoBottom):
-		t.table.GotoBottom()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.table.Cursor() == 0 {
-			t.table.GotoBottom()
-		} else {
-			t.table.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.table.Cursor() == n-1 {
-			t.table.GotoTop()
-		} else {
-			t.table.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.table.MoveUp(t.table.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.table.MoveDown(t.table.Height())
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-		if t.table.Cursor() < n {
-			return t, t.actNavigateCmd(t.entries[t.table.Cursor()])
+		if idx < len(t.entries) {
+			return t, t.actNavigateCmd(t.entries[idx])
 		}
+	case key.Matches(msg, keys.Refresh):
+		return t, t.actLoadCmd()
 	}
 	return t, nil
 }
@@ -157,45 +173,4 @@ func (t Activity) actLoadCmd() tea.Cmd {
 		}
 		return actLoadedMsg{entries}
 	}
-}
-
-func (t Activity) actColumns() []table.Column {
-	metaW := t.width - render.ColNum - colIndicator - actColType
-	if metaW < 20 {
-		metaW = 20
-	}
-	return []table.Column{
-		{Title: ralign("#", render.ColNum), Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Type", Width: actColType},
-		{Title: "Detail", Width: metaW},
-	}
-}
-
-func (t Activity) toActivityRows() []table.Row {
-	rows := make([]table.Row, len(t.entries))
-	for i := range t.entries {
-		e := &t.entries[i]
-		locality := "remote"
-		if e.IsLocal {
-			locality = "local"
-		}
-		var meta string
-		switch e.Type {
-		case "subscribe":
-			meta = fmt.Sprintf("%s (%s)", e.ChannelName, locality)
-		case "create_playlist":
-			meta = fmt.Sprintf("%s (%s)", e.PlaylistName, locality)
-		case "add_to_playlist":
-			metaW := t.width - render.ColNum - colIndicator - actColType
-			if metaW < 20 {
-				metaW = 20
-			}
-			meta = fmt.Sprintf("%s → %s (%s)", render.Truncate(e.VideoTitle, metaW/2), e.PlaylistName, locality)
-		default:
-			meta = e.Type
-		}
-		rows[i] = table.Row{rowNum(i), "  ", styles.Warning.Render(e.Type), meta}
-	}
-	return rows
 }

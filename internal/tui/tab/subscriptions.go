@@ -9,9 +9,9 @@ import (
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -19,11 +19,6 @@ import (
 type subLoadedMsg struct {
 	videos   []domain.Video
 	channels []domain.Channel
-}
-type subAuxLoadedMsg struct {
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
 }
 
 type Subscriptions struct {
@@ -36,25 +31,26 @@ type Subscriptions struct {
 	feed           feed.Feed
 	channelAliases map[string]string
 	spinner        spinner.Model
-	table          table.Model
-	numBuf         string
+	nav            videotable.TableNav
+	cols           []videotable.VideoColumnDef
+	aux            videotable.AuxData
 
 	sortMode        int
 	sortChordActive bool
-	gotoTopActive   bool
-
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
 }
 
 func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Subscriptions {
+	cols := []videotable.VideoColumnDef{
+		videotable.Num, videotable.Indicator, videotable.Title,
+		videotable.Channel, videotable.DurationCol(), videotable.Views, videotable.Date,
+	}
 	return Subscriptions{
 		backend:  backend,
 		keys:     keys,
 		circular: circular,
 		spinner:  spinner.New(),
-		table:    newTable(),
+		nav:      videotable.NewTableNav(videotable.NewVideoTable(cols), circular, 2),
+		cols:     cols,
 	}
 }
 
@@ -67,7 +63,7 @@ func (t Subscriptions) ShortHelp() []key.Binding {
 
 func (t Subscriptions) Init() tea.Cmd {
 	t.feed.StartRefresh()
-	return tea.Batch(t.subLoadCmd(), t.subAuxCmd(), t.spinner.Tick)
+	return tea.Batch(t.subLoadCmd(), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
 }
 
 func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -75,9 +71,8 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.table.SetColumns(computeVideoColumns(t.width, true))
-		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(toVideoRows(t.videosWithAliases(), t.positions, t.watched, t.localStatus, true, t.width))
+		t.nav.Resize(m.Width, m.Height)
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -95,17 +90,15 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				t.channelAliases[ch.ID] = ch.Alias
 			}
 		}
-		t.table.SetRows(toVideoRows(t.videosWithAliases(), t.positions, t.watched, t.localStatus, true, t.width))
-		t.table.GotoTop()
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+		t.nav.GotoRow(0)
 
-	case subAuxLoadedMsg:
-		t.positions = m.positions
-		t.watched = m.watched
-		t.localStatus = m.localStatus
-		t.table.SetRows(toVideoRows(t.videosWithAliases(), t.positions, t.watched, t.localStatus, true, t.width))
+	case videotable.AuxDataMsg:
+		t.aux = m
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
 
 	case tuipkg.RefreshPositionsMsg:
-		return t, t.subAuxCmd()
+		return t, videotable.LoadAuxDataCmd(t.backend)
 
 	case tea.KeyPressMsg:
 		return t.subHandleKey(m)
@@ -126,9 +119,9 @@ func (t Subscriptions) View() tea.View {
 		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
 			styles.Dim.PaddingLeft(1).Render("No videos. Press r to refresh.")))
 	}
-	parts := []string{header, t.table.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.nav.View()}
+	if s := t.nav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
@@ -150,99 +143,36 @@ func (t Subscriptions) subHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		t.feed.Sort(t.sortMode)
-		t.table.SetRows(toVideoRows(t.videosWithAliases(), t.positions, t.watched, t.localStatus, true, t.width))
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
 		return t, nil
 	}
 
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			t.table.GotoTop()
-		}
+	if t.nav.HandleNav(msg, t.keys, t.feed.Len()) {
 		return t, nil
 	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
 
 	keys := t.keys
-	n := t.feed.Len()
+	idx := t.nav.Index()
 
 	switch {
-	case key.Matches(msg, keys.GotoLine):
-		if numBuf != "" {
-			applyGoto(numBuf, &t.table)
-		} else {
-			t.table.GotoBottom()
-		}
-	case key.Matches(msg, keys.GotoBottom):
-		t.table.GotoBottom()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.table.Cursor() == 0 {
-			t.table.GotoBottom()
-		} else {
-			t.table.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.table.Cursor() == n-1 {
-			t.table.GotoTop()
-		} else {
-			t.table.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.table.MoveUp(t.table.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.table.MoveDown(t.table.Height())
-
 	case key.Matches(msg, keys.Refresh):
 		t.feed.StartRefresh()
 		return t, tea.Batch(t.subLoadCmd(), t.spinner.Tick)
-
 	case key.Matches(msg, keys.Unsubscribe):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
+		if v, ok := t.feed.At(idx); ok {
 			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
 			t.feed.RemoveChannel(ch)
-			t.table.SetRows(toVideoRows(t.videosWithAliases(), t.positions, t.watched, t.localStatus, true, t.width))
+			t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
-		}
-	case key.Matches(msg, keys.Play):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
-		}
-	case key.Matches(msg, keys.PlayAudio):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v, AudioOnly: true} }
-		}
-	case key.Matches(msg, keys.Download):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v} }
-		}
-	case key.Matches(msg, keys.DownloadAudio):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v, AudioOnly: true} }
-		}
-	case key.Matches(msg, keys.CopyURL):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }
-		}
-	case key.Matches(msg, keys.VideoInfo):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
-		}
-	case key.Matches(msg, keys.AddList):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
-		}
-	case key.Matches(msg, keys.HideChannel):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
-			return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
 		}
 	case key.Matches(msg, keys.SortChord):
 		t.sortChordActive = true
+	default:
+		if v, ok := t.feed.At(idx); ok {
+			if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+				return t, cmd
+			}
+		}
 	}
 	return t, nil
 }
@@ -264,34 +194,5 @@ func (t Subscriptions) subLoadCmd() tea.Cmd {
 		}
 		feed.SortVideos(videos, feed.SortDate)
 		return subLoadedMsg{videos: videos, channels: channels}
-	}
-}
-
-func (t Subscriptions) videosWithAliases() []domain.Video {
-	vids := t.feed.Videos()
-	if len(t.channelAliases) == 0 {
-		return vids
-	}
-	result := make([]domain.Video, len(vids))
-	copy(result, vids)
-	for i := range result {
-		if a, ok := t.channelAliases[result[i].ChannelID]; ok {
-			result[i].Channel = a
-		}
-	}
-	return result
-}
-
-func (t Subscriptions) subAuxCmd() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		positions, _ := t.backend.AllVideoPositions(ctx)
-		watched, _ := t.backend.WatchedVideoIDs(ctx)
-		localVids, _ := t.backend.LocalVideos(ctx)
-		localStatus := make(map[string]domain.VideoStatus, len(localVids))
-		for i := range localVids {
-			localStatus[localVids[i].ID] = localVids[i].Status
-		}
-		return subAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
 	}
 }

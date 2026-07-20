@@ -6,20 +6,14 @@ import (
 	etable "github.com/evertras/bubble-table/table"
 )
 
-// NewVideoTable constructs a standard evertras table for video lists.
-//
-// The g/G bindings are removed from the default KeyMap because the project
-// uses a gg-chord for GotoTop; each tab intercepts g before forwarding to
-// tbl.Update, and calls tbl.WithHighlightedRow(0).PageFirst() explicitly.
-//
-// Callers must still call WithTargetWidth/WithTargetHeight and WithRows after
-// construction (typically in the tab's resize/reload methods).
-func NewVideoTable(cols []VideoColumnDef) etable.Model {
+// newEtable constructs the standard evertras table shared by all tabs.
+// g/G are unbound — tabs handle gg chord and G via TableNav.
+func newEtable(cols []etable.Column) etable.Model {
 	km := etable.DefaultKeyMap()
-	km.PageFirst = key.NewBinding() // unbind g — tab handles gg chord
-	km.PageLast = key.NewBinding()  // unbind G
+	km.PageFirst = key.NewBinding()
+	km.PageLast = key.NewBinding()
 
-	return etable.New(VideoColumns(cols)).
+	return etable.New(cols).
 		WithKeyMap(km).
 		WithNoPagination().
 		WithFooterVisibility(false).
@@ -29,4 +23,9 @@ func NewVideoTable(cols []VideoColumnDef) etable.Model {
 		HeaderStyle(styles.ColHeader).
 		HighlightStyle(styles.Selected).
 		Focused(true)
+}
+
+// NewVideoTable constructs a standard evertras table for video lists.
+func NewVideoTable(cols []VideoColumnDef) etable.Model {
+	return NewTable(cols)
 }

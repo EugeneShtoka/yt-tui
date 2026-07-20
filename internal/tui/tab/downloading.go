@@ -10,11 +10,12 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	etable "github.com/evertras/bubble-table/table"
 )
 
 type dlItemsMsg struct{ items []api.DownloadItem }
@@ -29,42 +30,86 @@ var (
 	dlStyleEmpty    = lipgloss.NewStyle().Faint(true)
 )
 
-const colDlStatus = 52
+const (
+	colDlStatus    = 52
+	colKeyDlNum    = "dlnum"
+	colKeyDlInd    = "dlind"
+	colKeyDlTitle  = "dltitle"
+	colKeyDlCh     = "dlch"
+	colKeyDlDur    = "dldur"
+	colKeyDlStatus = "dlstatus"
+)
 
 type Downloading struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
 	circular bool
 
-	width, height int
+	height int
 
 	items  []api.DownloadItem
 	events <-chan api.Event
-	table  table.Model
-	numBuf string
+	nav    videotable.TableNav
+	cols   []videotable.ColumnDef[api.DownloadItem]
 
-	spinner       spinner.Model
-	loading       bool
-	gotoTopActive bool
+	spinner spinner.Model
+	loading bool
+}
+
+func downloadingColumns(durW int) []videotable.ColumnDef[api.DownloadItem] {
+	return []videotable.ColumnDef[api.DownloadItem]{
+		{
+			Col:  etable.NewColumn(colKeyDlNum, ralign("#", render.ColNum), render.ColNum),
+			Cell: func(item api.DownloadItem, i int) any { return fmt.Sprintf("%4d", i+1) },
+		},
+		{
+			Col:  etable.NewColumn(colKeyDlInd, " ", colIndicator),
+			Cell: func(item api.DownloadItem, _ int) any { return "  " },
+		},
+		{
+			Col: etable.NewFlexColumn(colKeyDlTitle, "Title", 1),
+			Cell: func(item api.DownloadItem, _ int) any {
+				t := item.Title
+				if item.AudioOnly {
+					t += " [audio]"
+				}
+				return t
+			},
+		},
+		{
+			Col:  etable.NewColumn(colKeyDlCh, "Channel", render.ColChannel),
+			Cell: func(item api.DownloadItem, _ int) any { return item.Channel },
+		},
+		{
+			Col: etable.NewColumn(colKeyDlDur, ralign("Duration", durW+1), durW+1),
+			Cell: func(item api.DownloadItem, _ int) any {
+				return fmt.Sprintf("%*s ", durW, item.Duration)
+			},
+		},
+		{
+			Col:  etable.NewColumn(colKeyDlStatus, "Status", colDlStatus),
+			Cell: func(item api.DownloadItem, _ int) any { return dlRenderStatus(item) },
+		},
+	}
 }
 
 func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Downloading {
+	cols := downloadingColumns(render.ColDuration)
 	return Downloading{
 		backend:  backend,
 		keys:     keys,
 		circular: circular,
 		spinner:  spinner.New(),
 		loading:  true,
-		table:    newTable(),
+		nav:      videotable.NewTableNav(videotable.NewTable(cols), circular, 2),
+		cols:     cols,
 	}
 }
 
-func (t Downloading) ID() tuipkg.TabID          { return tuipkg.TabDownloading }
-func (t Downloading) Title() string             { return "Downloading" }
-func (t Downloading) ShortHelp() []key.Binding {
-	return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL}
-}
-func (t Downloading) InterceptsInput() bool     { return false }
+func (t Downloading) ID() tuipkg.TabID         { return tuipkg.TabDownloading }
+func (t Downloading) Title() string            { return "Downloading" }
+func (t Downloading) ShortHelp() []key.Binding { return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL} }
+func (t Downloading) InterceptsInput() bool    { return false }
 
 func (t Downloading) Init() tea.Cmd {
 	return tea.Batch(t.fetchItemsCmd(), t.subscribeEventsCmd(), t.spinner.Tick)
@@ -74,10 +119,9 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 
 	case tuipkg.ContentSizeMsg:
-		t.width, t.height = m.Width, m.Height
-		t.table.SetColumns(t.dlColumns())
-		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(t.toDownloadRows())
+		t.height = m.Height
+		t.nav.Resize(m.Width, m.Height)
+		t.nav.SetRows(videotable.BuildRows(t.items, t.cols))
 		return t, nil
 
 	case tuipkg.DownloadItemsChangedMsg:
@@ -93,7 +137,7 @@ func (t Downloading) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dlItemsMsg:
 		t.loading = false
 		t.items = m.items
-		t.table.SetRows(t.toDownloadRows())
+		t.nav.SetRows(videotable.BuildRows(t.items, t.cols))
 		return t, nil
 
 	case spinner.TickMsg:
@@ -119,60 +163,25 @@ func (t Downloading) View() tea.View {
 		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
 			styles.Dim.PaddingLeft(1).Render("No active downloads. Press "+t.keys.Download.Help().Key+" on any video to start.")))
 	}
-	parts := []string{header, t.table.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.nav.View()}
+	if s := t.nav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
 func (t Downloading) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			t.table.GotoTop()
-		}
+	if t.nav.HandleNav(msg, t.keys, len(t.items)) {
 		return t, nil
 	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
 
 	keys := t.keys
-	n := len(t.items)
+	idx := t.nav.Index()
 
 	switch {
-	case key.Matches(msg, keys.GotoLine):
-		if numBuf != "" {
-			applyGoto(numBuf, &t.table)
-		} else {
-			t.table.GotoBottom()
-		}
-	case key.Matches(msg, keys.GotoBottom):
-		t.table.GotoBottom()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.table.Cursor() == 0 {
-			t.table.GotoBottom()
-		} else {
-			t.table.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.table.Cursor() == n-1 {
-			t.table.GotoTop()
-		} else {
-			t.table.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.table.MoveUp(t.table.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.table.MoveDown(t.table.Height())
-
 	case key.Matches(msg, keys.Delete):
-		if item, ok := t.current(); ok {
-			id := item.VideoID
+		if idx >= 0 && idx < len(t.items) {
+			id := t.items[idx].VideoID
 			return t, tea.Batch(
 				func() tea.Msg {
 					_ = t.backend.CancelDownload(context.Background(), id)
@@ -182,7 +191,8 @@ func (t Downloading) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			)
 		}
 	case key.Matches(msg, keys.Play):
-		if item, ok := t.current(); ok && item.Status == api.DownloadComplete {
+		if idx >= 0 && idx < len(t.items) && t.items[idx].Status == api.DownloadComplete {
+			item := t.items[idx]
 			return t, func() tea.Msg {
 				lv, found := t.backend.HasLocalVideo(context.Background(), item.VideoID)
 				if !found {
@@ -192,15 +202,15 @@ func (t Downloading) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case key.Matches(msg, keys.CopyURL):
-		if item, ok := t.current(); ok {
-			url := item.URL
+		if idx >= 0 && idx < len(t.items) {
+			url := t.items[idx].URL
 			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: url} }
 		}
 	}
 	return t, nil
 }
 
-func (t Downloading) renderStatus(item api.DownloadItem) string {
+func dlRenderStatus(item api.DownloadItem) string {
 	switch item.Status {
 	case api.DownloadPending:
 		return dlStylePending.Render("pending")
@@ -263,40 +273,4 @@ func (t Downloading) waitEventCmd() tea.Cmd {
 		}
 		return ev
 	}
-}
-
-func (t Downloading) current() (api.DownloadItem, bool) {
-	c := t.table.Cursor()
-	if c >= 0 && c < len(t.items) {
-		return t.items[c], true
-	}
-	return api.DownloadItem{}, false
-}
-
-func (t Downloading) dlColumns() []table.Column {
-	titleW := t.width - render.ColNum - colIndicator - render.ColChannel - render.ColDuration - colDlStatus
-	if titleW < 20 {
-		titleW = 20
-	}
-	return []table.Column{
-		{Title: ralign("#", render.ColNum), Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Title", Width: titleW},
-		{Title: "Channel", Width: render.ColChannel},
-		{Title: "Duration", Width: render.ColDuration},
-		{Title: "Status", Width: colDlStatus},
-	}
-}
-
-func (t Downloading) toDownloadRows() []table.Row {
-	rows := make([]table.Row, len(t.items))
-	for i := range t.items {
-		item := &t.items[i]
-		title := item.Title
-		if item.AudioOnly {
-			title += " [audio]"
-		}
-		rows[i] = table.Row{rowNum(i), "  ", title, item.Channel, ralign(item.Duration, render.ColDuration), t.renderStatus(*item)}
-	}
-	return rows
 }

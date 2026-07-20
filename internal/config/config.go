@@ -35,6 +35,7 @@ type TabKeys struct {
 	Recommended   string `toml:"recommended"`
 	Subscriptions string `toml:"subscriptions"`
 	Channels      string `toml:"channels"`
+	Tags          string `toml:"tags"`
 	Playlists     string `toml:"playlists"`
 	Search        string `toml:"search"`
 	Downloading   string `toml:"downloading"`
@@ -145,6 +146,7 @@ func defaultKeyBindings() KeyBindings {
 			Recommended:   "r",
 			Subscriptions: "s",
 			Channels:      "c",
+			Tags:          "t",
 			Playlists:     "p",
 			Search:        "S",
 			Downloading:   "d",

@@ -2,6 +2,7 @@ package tab
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -12,13 +13,29 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	etable "github.com/evertras/bubble-table/table"
 )
 
 const histColStatus = 14
+
+const (
+	colKeyHistNum   = "hnum"
+	colKeyHistInd   = "hind"
+	colKeyHistType  = "htype"
+	colKeyHistTitle = "htitle"
+	colKeyHistCh    = "hch"
+	colKeyHistDur   = "hdur"
+	colKeyHistViews = "hviews"
+	colKeyHistDate  = "hdate"
+
+	colKeyDetailType = "dtype"
+	colKeyDetailTs   = "dts"
+	colKeyDetailInfo = "dinfo"
+)
 
 type histLoadedMsg struct{ entries []domain.HistoryEntry }
 type histDetailLoadedMsg struct {
@@ -39,22 +56,96 @@ type History struct {
 	detailVideoID string
 	detail        []domain.HistoryEntry
 
-	table       table.Model
-	detailTable table.Model
-	numBuf      string
+	nav         videotable.TableNav
+	detailNav   videotable.TableNav
+	histCols    []videotable.ColumnDef[domain.HistoryEntry]
+	detailCols  []videotable.ColumnDef[domain.HistoryEntry]
 
 	sortMode        int
 	sortChordActive bool
-	gotoTopActive   bool
+}
+
+func histColumns(durW int) []videotable.ColumnDef[domain.HistoryEntry] {
+	return []videotable.ColumnDef[domain.HistoryEntry]{
+		{
+			Col:  etable.NewColumn(colKeyHistNum, ralign("#", render.ColNum), render.ColNum),
+			Cell: func(e domain.HistoryEntry, i int) any { return fmt.Sprintf("%4d", i+1) },
+		},
+		{
+			Col: etable.NewColumn(colKeyHistInd, " ", colIndicator),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				switch e.EventType {
+				case "download video", "download audio":
+					return " ● "
+				default:
+					return " ○ "
+				}
+			},
+		},
+		{
+			Col: etable.NewColumn(colKeyHistType, "Type", histColStatus),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				return etable.NewStyledCell(render.FormatEvent(e.EventType), styles.Warning)
+			},
+		},
+		{
+			Col:  etable.NewFlexColumn(colKeyHistTitle, "Title", 1),
+			Cell: func(e domain.HistoryEntry, _ int) any { return e.Title },
+		},
+		{
+			Col:  etable.NewColumn(colKeyHistCh, "Channel", render.ColChannel),
+			Cell: func(e domain.HistoryEntry, _ int) any { return e.Channel },
+		},
+		{
+			Col: etable.NewColumn(colKeyHistDur, ralign("Duration", durW+1), durW+1),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				return fmt.Sprintf("%*s ", durW, render.Duration(e.Duration))
+			},
+		},
+		{
+			Col: etable.NewColumn(colKeyHistViews, ralign("Views", render.ColViews+1), render.ColViews+1),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				return fmt.Sprintf("%*s ", render.ColViews, render.Views(e.ViewCount))
+			},
+		},
+		{
+			Col:  etable.NewColumn(colKeyHistDate, "Date", render.ColDate),
+			Cell: func(e domain.HistoryEntry, _ int) any { return render.Date(e.UploadDate) },
+		},
+	}
+}
+
+func histDetailColumns() []videotable.ColumnDef[domain.HistoryEntry] {
+	return []videotable.ColumnDef[domain.HistoryEntry]{
+		{
+			Col: etable.NewColumn(colKeyDetailType, "Type", histColStatus),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				return etable.NewStyledCell(render.FormatEvent(e.EventType), styles.Warning)
+			},
+		},
+		{
+			Col:  etable.NewColumn(colKeyDetailTs, "Timestamp", 19),
+			Cell: func(e domain.HistoryEntry, _ int) any { return e.Timestamp.Format("2006-01-02 15:04:05") },
+		},
+		{
+			Col:  etable.NewFlexColumn(colKeyDetailInfo, "Details", 1),
+			Cell: func(e domain.HistoryEntry, _ int) any { return strings.TrimSpace(e.Details) },
+		},
+	}
 }
 
 func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
+	durW := render.ColDuration
+	hCols := histColumns(durW)
+	dCols := histDetailColumns()
 	return History{
-		backend:     backend,
-		keys:        keys,
-		circular:    circular,
-		table:       newTable(),
-		detailTable: newTable(),
+		backend:    backend,
+		keys:       keys,
+		circular:   circular,
+		nav:        videotable.NewTableNav(videotable.NewTable(hCols), circular, 2),
+		detailNav:  videotable.NewTableNav(videotable.NewTable(dCols), false, 2),
+		histCols:   hCols,
+		detailCols: dCols,
 	}
 }
 
@@ -71,25 +162,23 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.table.SetColumns(t.histColumns())
-		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(t.toHistRows())
-		t.detailTable.SetColumns(histDetailColumns(t.width))
-		t.detailTable.SetHeight(t.height - 2)
+		t.nav.Resize(m.Width, m.Height)
+		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+		t.detailNav.Resize(m.Width, m.Height)
 	case tuipkg.HistoryChangedMsg:
 		return t, t.loadCmd()
 	case histLoadedMsg:
 		t.entries = m.entries
 		feed.SortHistoryEntries(t.entries, t.sortMode)
 		t.loaded = true
-		t.table.SetRows(t.toHistRows())
-		t.table.SetCursor(0)
+		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+		t.nav.GotoRow(0)
 		t.detailVideoID = ""
 	case histDetailLoadedMsg:
 		t.detailVideoID = m.videoID
 		t.detail = m.entries
-		t.detailTable.SetRows(toDetailRows(t.detail))
-		t.detailTable.GotoTop()
+		t.detailNav.SetRows(videotable.BuildRows(t.detail, t.detailCols))
+		t.detailNav.GotoRow(0)
 	case histDeletedMsg:
 		return t, func() tea.Msg { return tuipkg.StatusMsg{Text: "Deleted: " + render.Truncate(m.title, 50)} }
 	case tea.KeyPressMsg:
@@ -124,86 +213,39 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		feed.SortHistoryEntries(t.entries, t.sortMode)
-		t.table.SetRows(t.toHistRows())
+		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
 		return t, nil
 	}
-
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			if t.detailVideoID != "" {
-				t.detailTable.GotoTop()
-			} else {
-				t.table.GotoTop()
-			}
-		}
-		return t, nil
-	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
 
 	// ── detail pane ───────────────────────────────────────────────────────────
 	if t.detailVideoID != "" {
-		switch {
-		case key.Matches(msg, keys.Escape), key.Matches(msg, keys.Left):
-			if numBuf != "" {
-				return t, nil // escape just cleared numBuf
+		n := len(t.detail)
+		numBufBefore := t.detailNav.NumBufView() != ""
+		if t.detailNav.HandleNav(msg, keys, n) {
+			return t, nil
+		}
+		if key.Matches(msg, keys.Escape) || key.Matches(msg, keys.Left) {
+			if numBufBefore {
+				return t, nil
 			}
 			t.detailVideoID = ""
 			t.detail = nil
-		case key.Matches(msg, keys.GotoLine):
-			if numBuf != "" {
-				applyGoto(numBuf, &t.detailTable)
-			} else {
-				t.detailTable.GotoBottom()
-			}
-		case key.Matches(msg, keys.Up):
-			t.detailTable.MoveUp(1)
-		case key.Matches(msg, keys.Down):
-			t.detailTable.MoveDown(1)
-		case key.Matches(msg, keys.PageUp):
-			t.detailTable.MoveUp(t.detailTable.Height())
-		case key.Matches(msg, keys.PageDown):
-			t.detailTable.MoveDown(t.detailTable.Height())
 		}
 		return t, nil
 	}
 
 	// ── list pane ─────────────────────────────────────────────────────────────
 	n := len(t.entries)
+	if t.nav.HandleNav(msg, keys, n) {
+		return t, nil
+	}
+
+	idx := t.nav.Index()
 
 	switch {
-	case key.Matches(msg, keys.GotoLine):
-		if numBuf != "" {
-			applyGoto(numBuf, &t.table)
-		} else {
-			t.table.GotoBottom()
-		}
-	case key.Matches(msg, keys.GotoBottom):
-		t.table.GotoBottom()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.table.Cursor() == 0 {
-			t.table.GotoBottom()
-		} else {
-			t.table.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.table.Cursor() == n-1 {
-			t.table.GotoTop()
-		} else {
-			t.table.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.table.MoveUp(t.table.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.table.MoveDown(t.table.Height())
 	case key.Matches(msg, keys.Play):
-		if t.table.Cursor() < n {
-			e := t.entries[t.table.Cursor()]
+		if idx < n {
+			e := t.entries[idx]
 			if e.EventType != "search" {
 				v := domain.Video{
 					ID:    e.VideoID,
@@ -214,20 +256,25 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-		if t.table.Cursor() < n {
-			return t, t.histLoadDetailCmd(t.entries[t.table.Cursor()].VideoID)
+		if idx < n {
+			return t, t.histLoadDetailCmd(t.entries[idx].VideoID)
 		}
 	case key.Matches(msg, keys.Delete):
-		if t.table.Cursor() < n {
-			e := t.entries[t.table.Cursor()]
-			t.entries = append(t.entries[:t.table.Cursor()], t.entries[t.table.Cursor()+1:]...)
-			t.table.SetRows(t.toHistRows())
+		if idx < n {
+			e := t.entries[idx]
+			t.entries = append(t.entries[:idx], t.entries[idx+1:]...)
+			t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
 			return t, t.histDeleteCmd(e)
 		}
 	case key.Matches(msg, keys.HideChannel):
-		if t.table.Cursor() < n {
-			ch := domain.Channel{ID: t.entries[t.table.Cursor()].ChannelID, Name: t.entries[t.table.Cursor()].Channel}
+		if idx < n {
+			ch := domain.Channel{ID: t.entries[idx].ChannelID, Name: t.entries[idx].Channel}
 			return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
+		}
+	case key.Matches(msg, keys.CopyURL):
+		if idx < n {
+			url := "https://www.youtube.com/watch?v=" + t.entries[idx].VideoID
+			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: url} }
 		}
 	case key.Matches(msg, keys.Refresh):
 		t.loaded = false
@@ -235,9 +282,6 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.SortChord):
 		t.sortChordActive = true
 	case key.Matches(msg, keys.Escape):
-		if numBuf != "" {
-			return t, nil
-		}
 	}
 	return t, nil
 }
@@ -283,9 +327,9 @@ func (t History) renderList() string {
 	if len(t.entries) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, header, styles.Dim.Render("No history yet."))
 	}
-	parts := []string{header, t.table.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.nav.View()}
+	if s := t.nav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
@@ -296,78 +340,9 @@ func (t History) renderDetail() string {
 		title = t.detail[0].Title
 	}
 	header := styles.SectionTitle.Render("← " + render.Truncate(title, t.width-4))
-	parts := []string{header, t.detailTable.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.detailNav.View()}
+	if s := t.detailNav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (t History) histColumns() []table.Column {
-	titleW := t.width - render.ColNum - colIndicator - histColStatus - render.ColChannel - render.ColDuration - render.ColViews - render.ColDate
-	if titleW < 20 {
-		titleW = 20
-	}
-	return []table.Column{
-		{Title: ralign("#", render.ColNum), Width: render.ColNum},
-		{Title: " ", Width: colIndicator},
-		{Title: "Type", Width: histColStatus},
-		{Title: "Title", Width: titleW},
-		{Title: "Channel", Width: render.ColChannel},
-		{Title: "Duration", Width: render.ColDuration},
-		{Title: "Views", Width: render.ColViews},
-		{Title: "Date", Width: render.ColDate},
-	}
-}
-
-func (t History) toHistRows() []table.Row {
-	rows := make([]table.Row, len(t.entries))
-	for i := range t.entries {
-		e := &t.entries[i]
-		var ind string
-		switch e.EventType {
-		case "download video", "download audio":
-			ind = " ● "
-		default:
-			ind = " ○ "
-		}
-		rows[i] = table.Row{
-			rowNum(i),
-			ind,
-			swapReset(styles.Warning.Render(render.FormatEvent(e.EventType))),
-			e.Title,
-			e.Channel,
-			ralign(render.Duration(e.Duration), render.ColDuration),
-			ralign(render.Views(e.ViewCount), render.ColViews-1)+" ",
-			render.Date(e.UploadDate),
-		}
-	}
-	return rows
-}
-
-func histDetailColumns(width int) []table.Column {
-	const colEvW = 14
-	const colTsW = 19
-	detailW := width - colEvW - colTsW
-	if detailW < 20 {
-		detailW = 20
-	}
-	return []table.Column{
-		{Title: "Type", Width: colEvW},
-		{Title: "Timestamp", Width: colTsW},
-		{Title: "Details", Width: detailW},
-	}
-}
-
-func toDetailRows(entries []domain.HistoryEntry) []table.Row {
-	rows := make([]table.Row, len(entries))
-	for i := range entries {
-		e := &entries[i]
-		rows[i] = table.Row{
-			styles.Warning.Render(render.FormatEvent(e.EventType)),
-			e.Timestamp.Format("2006-01-02 15:04:05"),
-			strings.TrimSpace(e.Details),
-		}
-	}
-	return rows
 }

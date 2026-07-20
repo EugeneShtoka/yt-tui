@@ -9,25 +9,16 @@ import (
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-// ── tab-private messages ──────────────────────────────────────────────────────
-
 type recCacheMsg struct{ videos []domain.Video }
 type recFetchedMsg struct{ videos []domain.Video }
-type recAuxLoadedMsg struct {
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
-}
 type recHiddenMsg struct{ videoID string }
-
-// ── Recommended ───────────────────────────────────────────────────────────────
 
 type Recommended struct {
 	backend  api.Backend
@@ -38,25 +29,26 @@ type Recommended struct {
 
 	feed    feed.Feed
 	spinner spinner.Model
-	table   table.Model
-	numBuf  string
+	nav     videotable.TableNav
+	cols    []videotable.VideoColumnDef
+	aux     videotable.AuxData
 
 	sortMode        int
 	sortChordActive bool
-	gotoTopActive   bool
-
-	positions   map[string]int64
-	watched     map[string]bool
-	localStatus map[string]domain.VideoStatus
 }
 
 func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Recommended {
+	cols := []videotable.VideoColumnDef{
+		videotable.Num, videotable.Indicator, videotable.Title,
+		videotable.Channel, videotable.DurationCol(), videotable.Views, videotable.Date,
+	}
 	return Recommended{
 		backend:  backend,
 		keys:     keys,
 		circular: circular,
 		spinner:  spinner.New(),
-		table:    newTable(),
+		nav:      videotable.NewTableNav(videotable.NewVideoTable(cols), circular, 2),
+		cols:     cols,
 	}
 }
 
@@ -69,7 +61,7 @@ func (t Recommended) ShortHelp() []key.Binding {
 
 func (t Recommended) Init() tea.Cmd {
 	t.feed.StartRefresh()
-	return tea.Batch(t.recLoadCacheCmd(), t.recLoadAuxCmd(), t.spinner.Tick)
+	return tea.Batch(t.recLoadCacheCmd(), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
 }
 
 func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -77,9 +69,8 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.table.SetColumns(computeVideoColumns(t.width, true))
-		t.table.SetHeight(t.height - 2)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
+		t.nav.Resize(m.Width, m.Height)
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -91,30 +82,28 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recCacheMsg:
 		t.feed = feed.NewStarting(m.videos)
 		t.feed.Sort(t.sortMode)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
-		t.table.GotoTop()
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
+		t.nav.GotoRow(0)
 		return t, t.recFetchCmd()
 
 	case recFetchedMsg:
-		cursor := t.feed.Merge(m.videos, t.table.Cursor(), 0)
+		cursor := t.feed.Merge(m.videos, t.nav.Index(), 0)
 		t.feed.FinishFetch()
 		t.feed.Sort(t.sortMode)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
-		t.table.SetCursor(cursor)
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
+		t.nav.GotoRow(cursor)
 		return t, t.recSaveCacheCmd()
 
-	case tuipkg.RefreshPositionsMsg:
-		return t, t.recLoadAuxCmd()
+	case videotable.AuxDataMsg:
+		t.aux = m
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
 
-	case recAuxLoadedMsg:
-		t.positions = m.positions
-		t.watched = m.watched
-		t.localStatus = m.localStatus
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
+	case tuipkg.RefreshPositionsMsg:
+		return t, videotable.LoadAuxDataCmd(t.backend)
 
 	case recHiddenMsg:
 		t.feed.RemoveVideo(m.videoID)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
 
 	case tea.KeyPressMsg:
 		return t.recHandleKey(m)
@@ -135,9 +124,9 @@ func (t Recommended) View() tea.View {
 		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header,
 			styles.Dim.PaddingLeft(1).Render("No videos. Press r to refresh.")))
 	}
-	parts := []string{header, t.table.View()}
-	if t.numBuf != "" {
-		parts = append(parts, gotoLineView(t.numBuf))
+	parts := []string{header, t.nav.View()}
+	if s := t.nav.NumBufView(); s != "" {
+		parts = append(parts, s)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
@@ -145,115 +134,51 @@ func (t Recommended) View() tea.View {
 func (t Recommended) recHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if t.sortChordActive {
 		t.sortChordActive = false
-		keys := t.keys.Sort
+		sk := t.keys.Sort
 		switch {
-		case key.Matches(msg, keys.Date):
+		case key.Matches(msg, sk.Date):
 			t.sortMode = feed.SortDate
-		case key.Matches(msg, keys.Views):
+		case key.Matches(msg, sk.Views):
 			t.sortMode = feed.SortViews
-		case key.Matches(msg, keys.Name):
+		case key.Matches(msg, sk.Name):
 			t.sortMode = feed.SortName
-		case key.Matches(msg, keys.Channel):
+		case key.Matches(msg, sk.Channel):
 			t.sortMode = feed.SortChannel
-		case key.Matches(msg, keys.Duration):
+		case key.Matches(msg, sk.Duration):
 			t.sortMode = feed.SortDuration
 		}
 		t.feed.Sort(t.sortMode)
-		t.table.SetRows(toVideoRows(t.feed.Videos(), t.positions, t.watched, t.localStatus, true, t.width))
+		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(nil)))
 		return t, nil
 	}
 
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			t.table.GotoTop()
-		}
+	if t.nav.HandleNav(msg, t.keys, t.feed.Len()) {
 		return t, nil
 	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
 
 	keys := t.keys
-	n := t.feed.Len()
+	idx := t.nav.Index()
 
 	switch {
-	case key.Matches(msg, keys.GotoLine):
-		if numBuf != "" {
-			applyGoto(numBuf, &t.table)
-		} else {
-			t.table.GotoBottom()
-		}
-	case key.Matches(msg, keys.GotoBottom):
-		t.table.GotoBottom()
-	case key.Matches(msg, keys.Up):
-		if t.circular && n > 0 && t.table.Cursor() == 0 {
-			t.table.GotoBottom()
-		} else {
-			t.table.MoveUp(1)
-		}
-	case key.Matches(msg, keys.Down):
-		if t.circular && n > 0 && t.table.Cursor() == n-1 {
-			t.table.GotoTop()
-		} else {
-			t.table.MoveDown(1)
-		}
-	case key.Matches(msg, keys.PageUp):
-		t.table.MoveUp(t.table.Height())
-	case key.Matches(msg, keys.PageDown):
-		t.table.MoveDown(t.table.Height())
-
 	case key.Matches(msg, keys.Refresh):
 		t.feed.StartRefresh()
 		return t, tea.Batch(t.recFetchCmd(), t.spinner.Tick)
-
 	case key.Matches(msg, keys.ForceRefresh):
 		t.feed.Clear()
 		t.feed.StartRefresh()
 		return t, tea.Batch(t.recClearAndFetchCmd(), t.spinner.Tick)
-
 	case key.Matches(msg, keys.HideVideo):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
+		if v, ok := t.feed.At(idx); ok {
 			return t, t.recHideVideoCmd(v)
-		}
-	case key.Matches(msg, keys.HideChannel):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
-			return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
-		}
-	case key.Matches(msg, keys.Play):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v} }
-		}
-	case key.Matches(msg, keys.PlayAudio):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.PlayVideoMsg{Video: v, AudioOnly: true} }
-		}
-	case key.Matches(msg, keys.Download):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v} }
-		}
-	case key.Matches(msg, keys.DownloadAudio):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.EnqueueMsg{Video: v, AudioOnly: true} }
-		}
-	case key.Matches(msg, keys.CopyURL):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }
-		}
-	case key.Matches(msg, keys.VideoInfo):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }
-		}
-	case key.Matches(msg, keys.AddList):
-		if v, ok := t.feed.At(t.table.Cursor()); ok {
-			return t, func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }
 		}
 	case key.Matches(msg, keys.SortChord):
 		t.sortChordActive = true
+	default:
+		if v, ok := t.feed.At(idx); ok {
+			if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+				return t, cmd
+			}
+		}
 	}
 	return t, nil
 }
@@ -287,20 +212,6 @@ func (t Recommended) recClearAndFetchCmd() tea.Cmd {
 			return tuipkg.StatusMsg{Text: "recommended: " + err.Error(), IsErr: true}
 		}
 		return recFetchedMsg{videos}
-	}
-}
-
-func (t Recommended) recLoadAuxCmd() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		positions, _ := t.backend.AllVideoPositions(ctx)
-		watched, _ := t.backend.WatchedVideoIDs(ctx)
-		localVids, _ := t.backend.LocalVideos(ctx)
-		localStatus := make(map[string]domain.VideoStatus, len(localVids))
-		for i := range localVids {
-			localStatus[localVids[i].ID] = localVids[i].Status
-		}
-		return recAuxLoadedMsg{positions: positions, watched: watched, localStatus: localStatus}
 	}
 }
 

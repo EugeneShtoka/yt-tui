@@ -13,6 +13,7 @@ const (
 	TabRecommended   TabID = iota
 	TabSubscriptions
 	TabChannels
+	TabTags
 	TabPlaylists
 	TabSearch
 	TabDownloading
