@@ -312,11 +312,9 @@ func (t Playlists) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.GotoLine) {
 		if t.pane == 1 {
 			n := len(t.vidCache[t.selectedPlaylistKey()])
-			if t.vidNav.HandleNav(msg, keys, n) {
-			}
+			t.vidNav.HandleNav(msg, keys, n)
 		} else {
-			if t.plNav.HandleNav(msg, keys, t.plCount()) {
-			}
+			t.plNav.HandleNav(msg, keys, t.plCount())
 		}
 		return t, nil
 	}
