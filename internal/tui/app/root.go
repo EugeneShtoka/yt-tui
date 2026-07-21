@@ -26,6 +26,7 @@ import (
 // scheduling playerWaitCmd to track process exit.
 type playerStartedMsg struct {
 	videoID string
+	sess    *player.Session
 	text    string
 }
 
@@ -146,7 +147,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, tea.Batch(
 			func() tea.Msg { return tuipkg.StatusMsg{Text: m.text} },
 			func() tea.Msg { return tuipkg.HistoryChangedMsg{} },
-			r.playerWaitCmd(m.videoID),
+			r.playerWaitCmd(m.videoID, m.sess),
 		)
 
 	case tuipkg.RefreshPositionsMsg:
@@ -431,11 +432,12 @@ func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, histEvent s
 		}
 		posMs, _ := r.backend.VideoPosition(context.Background(), id)
 		pos := time.Duration(posMs) * time.Millisecond
+		var sess *player.Session
 		var launchErr error
 		if audioOnly {
-			launchErr = r.player.LaunchAudio(src.URI, title, pos)
+			sess, launchErr = r.player.LaunchAudio(src.URI, title, pos)
 		} else {
-			launchErr = r.player.Launch(src.URI, title, pos)
+			sess, launchErr = r.player.Launch(src.URI, title, pos)
 		}
 		if launchErr != nil {
 			return tuipkg.StatusMsg{Text: "player: " + launchErr.Error(), IsErr: true}
@@ -445,36 +447,32 @@ func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, histEvent s
 			suffix = "Audio"
 		}
 		_ = r.backend.AddHistory(context.Background(), id, histEvent+suffix, "")
-		// Periodic saves — final save is handled by playerWaitCmd after exit.
+		// Periodic position saves — bound to this session so a concurrent
+		// playback can't write its position under this video's ID.
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
-			exitCh := make(chan struct{})
-			go func() { _ = r.player.Wait(); close(exitCh) }()
-			savePos := func() {
-				if p, _ := r.player.Position(); p > 0 {
-					_ = r.backend.SaveVideoPosition(context.Background(), id, p.Milliseconds())
-				}
-			}
 			for {
 				select {
-				case <-exitCh:
+				case <-sess.Done():
 					return
 				case <-ticker.C:
-					savePos()
+					if p, _ := sess.Position(); p > 0 {
+						_ = r.backend.SaveVideoPosition(context.Background(), id, p.Milliseconds())
+					}
 				}
 			}
 		}()
-		return playerStartedMsg{videoID: id, text: "Playing: " + render.Truncate(title, 60)}
+		return playerStartedMsg{videoID: id, sess: sess, text: "Playing: " + render.Truncate(title, 60)}
 	}
 }
 
 // playerWaitCmd blocks until the player process exits, saves the final position,
 // then triggers a UI refresh so tabs show the updated playback progress.
-func (r Root) playerWaitCmd(id string) tea.Cmd {
+func (r Root) playerWaitCmd(id string, sess *player.Session) tea.Cmd {
 	return func() tea.Msg {
-		_ = r.player.Wait()
-		if p, _ := r.player.Position(); p > 0 {
+		<-sess.Done()
+		if p, _ := sess.Position(); p > 0 {
 			_ = r.backend.SaveVideoPosition(context.Background(), id, p.Milliseconds())
 		}
 		return tuipkg.RefreshPositionsMsg{}

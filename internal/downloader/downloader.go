@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -65,9 +64,6 @@ type Event struct {
 	FilePath string
 	Err      error
 }
-
-// EventMsg wraps Event as a bubbletea message.
-type EventMsg Event
 
 type Downloader struct {
 	cfg       *config.Config
@@ -170,10 +166,10 @@ func (d *Downloader) run(item *Item) {
 			item.Speed = m[2]
 			item.ETA = m[3]
 			d.mu.Unlock()
-			d.eventCh <- Event{
+			d.emit(Event{
 				Kind: EventProgress, VideoID: item.Video.ID,
 				Progress: pct, Speed: m[2], ETA: m[3],
-			}
+			})
 		} else if m := mergerRe.FindStringSubmatch(line); len(m) == 2 {
 			finalPath = strings.TrimSpace(m[1])
 		} else if m := destRe.FindStringSubmatch(line); len(m) == 2 {
@@ -227,7 +223,7 @@ func (d *Downloader) run(item *Item) {
 	})
 	_ = d.db.AddHistory(item.Video.ID, "download "+string(item.Type), "")
 
-	d.eventCh <- Event{Kind: EventComplete, VideoID: item.Video.ID, Type: item.Type, FilePath: finalPath}
+	d.emit(Event{Kind: EventComplete, VideoID: item.Video.ID, Type: item.Type, FilePath: finalPath})
 }
 
 func (d *Downloader) buildArgs(item *Item) []string {
@@ -293,7 +289,25 @@ func (d *Downloader) fail(item *Item, err error) {
 	item.Status = StatusFailed
 	item.Err = err
 	d.mu.Unlock()
-	d.eventCh <- Event{Kind: EventError, VideoID: item.Video.ID, Err: err}
+	d.emit(Event{Kind: EventError, VideoID: item.Video.ID, Err: err})
+}
+
+// emit sends an event non-blockingly. If the buffer is full it drops the
+// oldest event to make room — progress events are lossy by nature, and
+// completion/error events are self-healing via fetchItemsCmd polling.
+func (d *Downloader) emit(ev Event) {
+	select {
+	case d.eventCh <- ev:
+	default:
+		select {
+		case <-d.eventCh:
+		default:
+		}
+		select {
+		case d.eventCh <- ev:
+		default:
+		}
+	}
 }
 
 // Remove cancels and removes a download item by video ID.
@@ -341,11 +355,4 @@ func (d *Downloader) IsDownloading(id string) bool {
 // EventChan returns the raw event channel for non-tea consumers.
 func (d *Downloader) EventChan() <-chan Event {
 	return d.eventCh
-}
-
-// WaitForEvent returns a Cmd that blocks until the next download event.
-func (d *Downloader) WaitForEvent() tea.Cmd {
-	return func() tea.Msg {
-		return EventMsg(<-d.eventCh)
-	}
 }

@@ -17,13 +17,9 @@ type mprisBackend struct {
 	driver Driver
 	conn   *dbus.Conn
 
+	// mu protects curSess for Close().
 	mu      sync.Mutex
-	lastPos time.Duration
-	active  bool
-
-	stopCh chan struct{}
-	doneCh chan struct{} // closed when player process exits
-	once   sync.Once
+	curSess *Session
 }
 
 func newMPRISBackend(driver Driver) (*mprisBackend, error) {
@@ -42,12 +38,18 @@ func newMPRISBackend(driver Driver) (*mprisBackend, error) {
 	return &mprisBackend{driver: driver, conn: conn}, nil
 }
 
-func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
-	b.Close()
+func (b *mprisBackend) exec(args []string, startAt time.Duration) (*Session, error) {
+	// Stop previous session's poll goroutine before starting a new one.
+	b.mu.Lock()
+	old := b.curSess
+	b.mu.Unlock()
+	if old != nil {
+		old.stop()
+	}
 
 	null, err := os.Open(os.DevNull)
 	if err != nil {
-		return fmt.Errorf("exec: open devnull: %w", err)
+		return nil, fmt.Errorf("exec: open devnull: %w", err)
 	}
 	defer null.Close()
 	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...)
@@ -55,37 +57,33 @@ func (b *mprisBackend) exec(args []string, startAt time.Duration) error {
 	cmd.Stdout = null
 	cmd.Stderr = null
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("exec: %w", err)
+		return nil, fmt.Errorf("exec: %w", err)
 	}
 
+	sess := newSession(startAt)
+
 	b.mu.Lock()
-	b.lastPos = startAt
-	b.active = true
-	b.stopCh = make(chan struct{})
-	b.doneCh = make(chan struct{})
-	b.once = sync.Once{}
-	stop := b.stopCh
-	done := b.doneCh
+	b.curSess = sess
 	b.mu.Unlock()
 
-	go b.poll(stop)
+	go b.pollSession(sess)
 	go func() {
 		_ = cmd.Wait()
-		b.Close()
-		close(done)
+		sess.stop()
+		close(sess.doneCh)
 	}()
-	return nil
+	return sess, nil
 }
 
-func (b *mprisBackend) Launch(source, title string, startAt time.Duration) error {
+func (b *mprisBackend) Launch(source, title string, startAt time.Duration) (*Session, error) {
 	return b.exec(b.driver.Args(source, title, startAt), startAt)
 }
 
-func (b *mprisBackend) LaunchAudio(source, title string, startAt time.Duration) error {
+func (b *mprisBackend) LaunchAudio(source, title string, startAt time.Duration) (*Session, error) {
 	return b.exec(b.driver.AudioArgs(source, title, startAt), startAt)
 }
 
-func (b *mprisBackend) poll(stopCh chan struct{}) {
+func (b *mprisBackend) pollSession(sess *Session) {
 	// Give the player a moment to register on D-Bus.
 	time.Sleep(1500 * time.Millisecond)
 
@@ -93,18 +91,11 @@ func (b *mprisBackend) poll(stopCh chan struct{}) {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCh:
+		case <-sess.stopCh:
 			return
 		case <-ticker.C:
 			pos, ok := b.queryPosition()
-			b.mu.Lock()
-			if ok {
-				b.lastPos = pos
-				b.active = true
-			} else {
-				b.active = false
-			}
-			b.mu.Unlock()
+			sess.setPosition(pos, ok)
 		}
 	}
 }
@@ -122,31 +113,11 @@ func (b *mprisBackend) queryPosition() (time.Duration, bool) {
 	return time.Duration(us) * time.Microsecond, true
 }
 
-func (b *mprisBackend) Position() (time.Duration, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.lastPos, b.active
-}
-
-func (b *mprisBackend) Wait() error {
-	b.mu.Lock()
-	ch := b.doneCh
-	b.mu.Unlock()
-	if ch == nil {
-		return nil
-	}
-	<-ch
-	return nil
-}
-
 func (b *mprisBackend) Close() {
-	b.once.Do(func() {
-		b.mu.Lock()
-		b.active = false
-		ch := b.stopCh
-		b.mu.Unlock()
-		if ch != nil {
-			close(ch)
-		}
-	})
+	b.mu.Lock()
+	sess := b.curSess
+	b.mu.Unlock()
+	if sess != nil {
+		sess.stop()
+	}
 }

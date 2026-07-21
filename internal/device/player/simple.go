@@ -5,25 +5,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sync"
 	"syscall"
 	"time"
 )
 
 type simpleBackend struct {
 	driver Driver
-	mu     sync.Mutex
-	doneCh chan struct{}
 }
 
 func newSimpleBackend(driver Driver) *simpleBackend {
 	return &simpleBackend{driver: driver}
 }
 
-func (s *simpleBackend) exec(args []string) error {
+func (s *simpleBackend) exec(args []string) (*Session, error) {
 	null, err := os.Open(os.DevNull)
 	if err != nil {
-		return fmt.Errorf("exec: open devnull: %w", err)
+		return nil, fmt.Errorf("exec: open devnull: %w", err)
 	}
 	defer null.Close()
 	cmd := exec.CommandContext(context.Background(), s.driver.Path(), args...)
@@ -31,38 +28,24 @@ func (s *simpleBackend) exec(args []string) error {
 	cmd.Stdout = null
 	cmd.Stderr = null
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("exec: %w", err)
+		return nil, fmt.Errorf("exec: %w", err)
 	}
-	done := make(chan struct{})
-	s.mu.Lock()
-	s.doneCh = done
-	s.mu.Unlock()
+	sess := newSession(0)
+	sess.setPosition(0, false) // simple backend has no position tracking
 	go func() {
 		_ = cmd.Wait()
-		close(done)
+		sess.stop()
+		close(sess.doneCh)
 	}()
-	return nil
+	return sess, nil
 }
 
-func (s *simpleBackend) Launch(source, title string, startAt time.Duration) error {
+func (s *simpleBackend) Launch(source, title string, startAt time.Duration) (*Session, error) {
 	return s.exec(s.driver.Args(source, title, startAt))
 }
 
-func (s *simpleBackend) LaunchAudio(source, title string, startAt time.Duration) error {
+func (s *simpleBackend) LaunchAudio(source, title string, startAt time.Duration) (*Session, error) {
 	return s.exec(s.driver.AudioArgs(source, title, startAt))
-}
-
-func (s *simpleBackend) Position() (time.Duration, bool) { return 0, false }
-
-func (s *simpleBackend) Wait() error {
-	s.mu.Lock()
-	ch := s.doneCh
-	s.mu.Unlock()
-	if ch == nil {
-		return nil
-	}
-	<-ch
-	return nil
 }
 
 func (s *simpleBackend) Close() {}

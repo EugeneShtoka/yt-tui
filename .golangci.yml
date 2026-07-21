@@ -1,5 +1,10 @@
 version: "2"
 
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
 linters:
   default: none
   enable:
@@ -83,6 +88,20 @@ linters:
               desc: "backend must not import tui"
             - pkg: "github.com/EugeneShtoka/yt-tui/internal/api"
               desc: "backend must not import api"
+
+        # Infrastructure packages must not import Bubble Tea.
+        # internal/youtube is excluded: it still returns tea.Cmd helpers that need
+        # to be migrated to the TUI layer (tracked in the audit as a future item).
+        no-bubbletea-in-infra:
+          files:
+            - "**/internal/downloader/**"
+            - "**/internal/db/**"
+            - "**/internal/domain/**"
+            - "**/internal/backend/**"
+            - "**/internal/device/**"
+          deny:
+            - pkg: "charm.land/bubbletea"
+              desc: "infrastructure packages must not import bubbletea; keep the TUI framework in internal/tui"
 
         # TUI is the presentation layer — it talks to the world through api,
         # never by reaching into infrastructure packages directly.
