@@ -109,6 +109,7 @@ type Backend interface {
 	UpdateLastPosition(ctx context.Context, id string, ms int64) error
 	AddHistory(ctx context.Context, videoID, eventType, details string) error
 	DeleteVideoHistory(ctx context.Context, videoID string) error
+	DeleteVideoCompletely(ctx context.Context, videoID string) error
 	DeleteSearchHistory(ctx context.Context, query string) error
 	ClearHistory(ctx context.Context) error
 	LogActivity(ctx context.Context, e domain.ActivityEntry) error

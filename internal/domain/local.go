@@ -40,13 +40,3 @@ func (lv LocalVideo) GetRawDate() string { return lv.UploadDate }
 
 func (lv LocalVideo) GetDurationSecs() int     { return lv.Duration }
 func (lv LocalVideo) GetLastPositionSecs() int { return int(lv.LastPositionMs / 1000) }
-
-func (lv LocalVideo) GetIndicator() string {
-	switch lv.Status {
-	case StatusNew:
-		return " ● "
-	case StatusStarted, StatusWatched:
-		return " ○ "
-	}
-	return "   "
-}

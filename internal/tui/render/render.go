@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"sync"
 
 	runewidth "github.com/mattn/go-runewidth"
 )
@@ -41,18 +42,28 @@ const (
 
 var activeDurFmt DurFmt = DurFmthhmmss
 
+var durFmtOnce sync.Once
+
 // SetDurFmt sets the active duration format and recomputes ColDuration and ColDurationPos.
 // Call once at startup after loading config. Unrecognized values fall back to hh:mm.
+// Panics if called more than once.
 func SetDurFmt(f DurFmt) {
-	switch f {
-	case DurFmtHHMMSS, DurFmthhmmss, DurFmtHHMM, DurFmthHmm, DurFmthhmm,
-		DurFmtMMMSS, DurFmtmmmss, DurFmtMMM, DurFmtmMM, DurFmtmmm:
-		activeDurFmt = f
-	default:
-		activeDurFmt = DurFmthhmm
+	called := false
+	durFmtOnce.Do(func() {
+		called = true
+		switch f {
+		case DurFmtHHMMSS, DurFmthhmmss, DurFmtHHMM, DurFmthHmm, DurFmthhmm,
+			DurFmtMMMSS, DurFmtmmmss, DurFmtMMM, DurFmtmMM, DurFmtmmm:
+			activeDurFmt = f
+		default:
+			activeDurFmt = DurFmthhmm
+		}
+		ColDuration = len(formatDuration(99*3600+59*60+59, activeDurFmt))
+		ColDurationPos = 2*ColDuration + 1
+	})
+	if !called {
+		panic("render.SetDurFmt called more than once")
 	}
-	ColDuration = len(formatDuration(99*3600+59*60+59, activeDurFmt))
-	ColDurationPos = 2*ColDuration + 1
 }
 
 // DateFmt controls how dates are displayed in all table views.
@@ -67,16 +78,26 @@ const (
 
 var activeDateFmt DateFmt = DateFmtDMY
 
+var dateFmtOnce sync.Once
+
 // SetDateFmt sets the active date format and recomputes ColDate.
 // Call once at startup after loading config. Unrecognized values fall back to dd/mm/yyyy.
+// Panics if called more than once.
 func SetDateFmt(f DateFmt) {
-	switch f {
-	case DateFmtDMY, DateFmtMDY, DateFmtYMD, DateFmtDMYDash:
-		activeDateFmt = f
-	default:
-		activeDateFmt = DateFmtDMY
+	called := false
+	dateFmtOnce.Do(func() {
+		called = true
+		switch f {
+		case DateFmtDMY, DateFmtMDY, DateFmtYMD, DateFmtDMYDash:
+			activeDateFmt = f
+		default:
+			activeDateFmt = DateFmtDMY
+		}
+		ColDate = len(formatDate("20260721", activeDateFmt))
+	})
+	if !called {
+		panic("render.SetDateFmt called more than once")
 	}
-	ColDate = len(formatDate("20260721", activeDateFmt))
 }
 
 func Duration(secs int) string {

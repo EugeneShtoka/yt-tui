@@ -393,6 +393,16 @@ func (r *Remote) DeleteVideoHistory(ctx context.Context, videoID string) error {
 	return err
 }
 
+func (r *Remote) DeleteVideoCompletely(ctx context.Context, videoID string) error {
+	// File deletion is handled server-side; skip os.Remove.
+	_ = r.DeleteLocalVideo(ctx, videoID) // no-op if not a local video
+	if err := r.DeleteVideoHistory(ctx, videoID); err != nil {
+		return err
+	}
+	_ = r.DeleteVideoPosition(ctx, videoID)
+	return nil
+}
+
 func (r *Remote) DeleteSearchHistory(ctx context.Context, query string) error {
 	_, err := r.history.DeleteSearchHistory(ctx, connect.NewRequest(&v1.DeleteSearchHistoryRequest{Query: query}))
 	return err

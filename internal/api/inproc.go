@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/EugeneShtoka/yt-tui/internal/backend/service"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
@@ -205,6 +206,18 @@ func (p *InProc) AddHistory(_ context.Context, videoID, eventType, details strin
 
 func (p *InProc) DeleteVideoHistory(_ context.Context, videoID string) error {
 	return p.db.DeleteVideoHistory(videoID)
+}
+
+func (p *InProc) DeleteVideoCompletely(_ context.Context, videoID string) error {
+	if lv, ok := p.db.HasLocalVideo(videoID); ok && lv.FilePath != "" {
+		_ = os.Remove(lv.FilePath) // best-effort; ignore if already gone
+	}
+	_ = p.db.DeleteLocalVideo(videoID) // no-op if no local record
+	if err := p.db.DeleteVideoHistory(videoID); err != nil {
+		return fmt.Errorf("DeleteVideoCompletely: %w", err)
+	}
+	_ = p.db.DeleteVideoPosition(videoID) // best-effort position cleanup
+	return nil
 }
 
 func (p *InProc) DeleteSearchHistory(_ context.Context, query string) error {

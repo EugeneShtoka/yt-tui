@@ -25,9 +25,9 @@ func HandleVideoAction(msg tea.KeyPressMsg, v domain.Video, keys keymap.KeyMap) 
 	case key.Matches(msg, keys.CopyURL):
 		return func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }, true
 	case key.Matches(msg, keys.VideoInfo):
-		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "video_detail", Video: v} }, true
+		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayVideoDetail, Video: v} }, true
 	case key.Matches(msg, keys.AddList):
-		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: "add_to_playlist", Video: v} }, true
+		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayAddToPlaylist, Video: v} }, true
 	case key.Matches(msg, keys.HideChannel):
 		ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
 		return func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }, true

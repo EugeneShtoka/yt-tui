@@ -34,6 +34,14 @@ type Tab interface {
 	InterceptsInput() bool
 }
 
+// OverlayKind identifies which overlay to open.
+type OverlayKind int
+
+const (
+	OverlayVideoDetail OverlayKind = iota
+	OverlayAddToPlaylist
+)
+
 // ── Cross-root messages ───────────────────────────────────────────────────────
 // Tabs emit these as tea.Cmd results; Root handles them.
 
@@ -75,7 +83,7 @@ type CopyURLMsg struct{ URL string }
 
 // OpenOverlayMsg requests Root to open a named overlay over the current tab.
 type OpenOverlayMsg struct {
-	Kind  string       // "video_detail" | "add_to_playlist"
+	Kind  OverlayKind  // OverlayVideoDetail | OverlayAddToPlaylist
 	Video domain.Video // the video the overlay concerns
 }
 

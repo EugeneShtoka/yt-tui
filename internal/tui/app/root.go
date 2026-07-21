@@ -21,6 +21,14 @@ import (
 	"github.com/atotto/clipboard"
 )
 
+// History event type constants — stored in DB; must match DB migration strings.
+const (
+	evtStreamVideo = "streamVideo"
+	evtStreamAudio = "streamAudio"
+	evtPlayVideo   = "playVideo"
+	evtPlayAudio   = "playAudio"
+)
+
 // playerStartedMsg is a root-internal signal emitted by playCmd after the
 // player process has been launched. Root handles it by showing status and
 // scheduling playerWaitCmd to track process exit.
@@ -135,13 +143,17 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.PlayVideoMsg:
 		v, audio := m.Video, m.AudioOnly
-		return r, r.playCmd(v.ID, v.URL, v.Title, audio, "stream")
+		evt := evtStreamVideo
+		if audio {
+			evt = evtStreamAudio
+		}
+		return r, r.playCmd(v.ID, v.URL, v.Title, audio, evt)
 
 	case tuipkg.LaunchLocalVideoMsg:
 		lv := m.Video
 		// For local videos, pass empty fallbackURL — InProc returns the file path,
 		// Remote returns the daemon's /media/{id} URL.
-		return r, r.playCmd(lv.ID, "", lv.Title, false, "play")
+		return r, r.playCmd(lv.ID, "", lv.Title, false, evtPlayVideo)
 
 	case playerStartedMsg:
 		return r, tea.Batch(
@@ -286,12 +298,12 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 
 func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	switch m.Kind {
-	case "video_detail":
+	case tuipkg.OverlayVideoDetail:
 		vd, cmd := ovpkg.NewVideoDetail(r.backend, r.keys, m.Video, r.cfg.CloseOnLinkOpen, r.cfg.CircularNav)
 		r.overlays = append(r.overlays, vd)
 		_, resizeCmd := r.handleResize(r.width, r.height)
 		return r, tea.Batch(cmd, resizeCmd)
-	case "add_to_playlist":
+	case tuipkg.OverlayAddToPlaylist:
 		atp, cmd := ovpkg.NewAddToPlaylist(r.backend, r.keys, m.Video, r.cfg.CircularNav)
 		r.overlays = append(r.overlays, atp)
 		return r, cmd
@@ -421,7 +433,7 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 	return r, nil
 }
 
-func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, histEvent string) tea.Cmd {
+func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, eventType string) tea.Cmd {
 	return func() tea.Msg {
 		if r.player == nil {
 			return tuipkg.StatusMsg{Text: "no video player found — install mpv or vlc", IsErr: true}
@@ -442,11 +454,7 @@ func (r Root) playCmd(id, fallbackURL, title string, audioOnly bool, histEvent s
 		if launchErr != nil {
 			return tuipkg.StatusMsg{Text: "player: " + launchErr.Error(), IsErr: true}
 		}
-		suffix := "Video"
-		if audioOnly {
-			suffix = "Audio"
-		}
-		_ = r.backend.AddHistory(context.Background(), id, histEvent+suffix, "")
+		_ = r.backend.AddHistory(context.Background(), id, eventType, "")
 		// Periodic position saves — bound to this session so a concurrent
 		// playback can't write its position under this video's ID.
 		go func() {

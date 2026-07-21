@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -36,33 +35,19 @@ func (e HistoryEntry) GetRawDate() string { return e.UploadDate }
 func (e HistoryEntry) GetDurationSecs() int     { return e.Duration }
 func (e HistoryEntry) GetLastPositionSecs() int { return 0 }
 
-func (e HistoryEntry) GetIndicator() string {
-	if isAudioEvent(e.EventType) || strings.HasPrefix(e.EventType, "download") {
-		return " ● "
-	}
-	return " ○ "
-}
-
-// GetLabel returns a simplified event category for the Type column.
-func (e HistoryEntry) GetLabel() string {
-	switch {
-	case strings.HasPrefix(e.EventType, "stream"):
-		return "Streamed"
-	case strings.HasPrefix(e.EventType, "download"):
-		return "Downloaded"
-	case strings.HasPrefix(e.EventType, "play"):
-		return "Played"
-	}
-	return e.EventType
-}
-
 // GetTimestampRawDate returns the event timestamp as YYYYMMDD for the detail table's date column.
 func (e HistoryEntry) GetTimestampRawDate() string {
 	return e.Timestamp.Format("20060102")
 }
 
+const (
+	evtStreamAudio   = "streamAudio"
+	evtDownloadAudio = "download audio"
+	evtPlayAudio     = "playAudio"
+)
+
 func isAudioEvent(eventType string) bool {
-	return eventType == "streamAudio" || eventType == "download audio" || eventType == "playAudio"
+	return eventType == evtStreamAudio || eventType == evtDownloadAudio || eventType == evtPlayAudio
 }
 
 // ActivityEntry records a user action such as subscribe or playlist modification.

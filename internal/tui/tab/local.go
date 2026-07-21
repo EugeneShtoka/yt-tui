@@ -22,6 +22,29 @@ type localLoadedMsg struct {
 	status string
 }
 
+// LocalVideoRow wraps domain.LocalVideo to add the presentation-layer indicator.
+type LocalVideoRow struct {
+	domain.LocalVideo
+}
+
+func (r LocalVideoRow) GetIndicator() string {
+	switch r.Status {
+	case domain.StatusNew:
+		return " ● "
+	case domain.StatusStarted, domain.StatusWatched:
+		return " ○ "
+	}
+	return "   "
+}
+
+func toLocalVideoRows(videos []domain.LocalVideo) []LocalVideoRow {
+	rows := make([]LocalVideoRow, len(videos))
+	for i, v := range videos {
+		rows[i] = LocalVideoRow{v}
+	}
+	return rows
+}
+
 type Local struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
@@ -32,13 +55,13 @@ type Local struct {
 	videos []domain.LocalVideo
 	loaded bool
 	nav    videotable.TableNav
-	cols   []videotable.ColumnDef[domain.LocalVideo]
+	cols   []videotable.ColumnDef[LocalVideoRow]
 
 	sortMode        int
 	sortChordActive bool
 }
 
-func localStyler(lv domain.LocalVideo) *lipgloss.Style {
+func localStyler(lv LocalVideoRow) *lipgloss.Style {
 	if lv.Status == domain.StatusStarted || lv.Status == domain.StatusWatched {
 		return &styles.Dim
 	}
@@ -46,14 +69,14 @@ func localStyler(lv domain.LocalVideo) *lipgloss.Style {
 }
 
 func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
-	cols := []videotable.ColumnDef[domain.LocalVideo]{
-		videotable.NumCol[domain.LocalVideo](),
-		videotable.IndicatorCol[domain.LocalVideo](),
-		videotable.AudioTitleFlexCol[domain.LocalVideo](),
-		videotable.ChannelCol[domain.LocalVideo](),
-		videotable.DurationCol[domain.LocalVideo](),
-		videotable.ViewsCol[domain.LocalVideo](),
-		videotable.DateCol[domain.LocalVideo](),
+	cols := []videotable.ColumnDef[LocalVideoRow]{
+		videotable.NumCol[LocalVideoRow](),
+		videotable.IndicatorCol[LocalVideoRow](),
+		videotable.AudioTitleFlexCol[LocalVideoRow](),
+		videotable.ChannelCol[LocalVideoRow](),
+		videotable.DurationCol[LocalVideoRow](),
+		videotable.ViewsCol[LocalVideoRow](),
+		videotable.DateCol[LocalVideoRow](),
 	}
 	return Local{
 		backend:  backend,
@@ -78,12 +101,12 @@ func (t Local) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildRowsStyled(t.videos, t.cols, localStyler))
+		t.nav.SetRows(videotable.BuildRowsStyled(toLocalVideoRows(t.videos), t.cols, localStyler))
 	case localLoadedMsg:
 		t.videos = m.videos
 		feed.SortLocalVideos(t.videos, t.sortMode)
 		t.loaded = true
-		t.nav.SetRows(videotable.BuildRowsStyled(t.videos, t.cols, localStyler))
+		t.nav.SetRows(videotable.BuildRowsStyled(toLocalVideoRows(t.videos), t.cols, localStyler))
 		if m.status != "" {
 			return t, func() tea.Msg { return tuipkg.StatusMsg{Text: m.status} }
 		}
@@ -130,7 +153,7 @@ func (t Local) localHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		feed.SortLocalVideos(t.videos, t.sortMode)
-		t.nav.SetRows(videotable.BuildRowsStyled(t.videos, t.cols, localStyler))
+		t.nav.SetRows(videotable.BuildRowsStyled(toLocalVideoRows(t.videos), t.cols, localStyler))
 		return t, nil
 	}
 

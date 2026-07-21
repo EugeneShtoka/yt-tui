@@ -2,7 +2,6 @@ package tab
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -39,6 +38,25 @@ func (r HistoryRow) GetChannelName() string {
 		return r.displayChannel
 	}
 	return r.HistoryEntry.GetChannelName()
+}
+
+func (r HistoryRow) GetIndicator() string {
+	if r.IsAudio() || strings.HasPrefix(r.EventType, "download") {
+		return " ● "
+	}
+	return " ○ "
+}
+
+func (r HistoryRow) GetLabel() string {
+	switch {
+	case strings.HasPrefix(r.EventType, "stream"):
+		return "Streamed"
+	case strings.HasPrefix(r.EventType, "download"):
+		return "Downloaded"
+	case strings.HasPrefix(r.EventType, "play"):
+		return "Played"
+	}
+	return r.EventType
 }
 
 func enrichHistoryRows(entries []domain.HistoryEntry, aux videotable.AuxData) []HistoryRow {
@@ -87,7 +105,23 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 		videotable.DateCol[HistoryRow](),
 	}
 	dCols := []videotable.ColumnDef[domain.HistoryEntry]{
-		videotable.StyledLabelCol[domain.HistoryEntry]("Type", videotable.ColHistStatus, styles.Warning),
+		{
+			Col: etable.NewColumn(videotable.KeyLabel, "Type", videotable.ColHistStatus),
+			Cell: func(e domain.HistoryEntry, _ int) any {
+				var label string
+				switch {
+				case strings.HasPrefix(e.EventType, "stream"):
+					label = "Streamed"
+				case strings.HasPrefix(e.EventType, "download"):
+					label = "Downloaded"
+				case strings.HasPrefix(e.EventType, "play"):
+					label = "Played"
+				default:
+					label = e.EventType
+				}
+				return etable.NewStyledCell(label, styles.Warning)
+			},
+		},
 		{
 			Col:  etable.NewColumn(videotable.KeyHistTs, "Timestamp", render.ColDate),
 			Cell: func(e domain.HistoryEntry, _ int) any { return render.Date(e.GetTimestampRawDate()) },
@@ -272,13 +306,9 @@ func (t History) histLoadDetailCmd(videoID string) tea.Cmd {
 
 func (t History) histDeleteCmd(e domain.HistoryEntry) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		if lv, ok := t.backend.HasLocalVideo(ctx, e.VideoID); ok {
-			_ = os.Remove(lv.FilePath)
-			_ = t.backend.DeleteLocalVideo(ctx, lv.ID)
+		if err := t.backend.DeleteVideoCompletely(context.Background(), e.VideoID); err != nil {
+			return tuipkg.StatusMsg{Text: "delete: " + err.Error(), IsErr: true}
 		}
-		_ = t.backend.DeleteVideoHistory(ctx, e.VideoID)
-		_ = t.backend.DeleteVideoPosition(ctx, e.VideoID)
 		return histDeletedMsg{title: e.Title}
 	}
 }
