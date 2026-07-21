@@ -3,143 +3,197 @@ package videotable
 import (
 	"fmt"
 
-	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	etable "github.com/evertras/bubble-table/table"
 	"charm.land/lipgloss/v2"
+	etable "github.com/evertras/bubble-table/table"
 )
 
-// Column key constants — used as RowData map keys.
+// ── Column key constants ────────────────────────────────────────────────────
+// Shared keys (used across multiple tables)
 const (
-	KeyNum       = "num"
-	KeyIndicator = "ind"
-	KeyTitle     = "title"
-	KeyChannel   = "ch"
-	KeyDuration  = "dur"
-	KeyViews     = "views"
-	KeyDate      = "date"
+	KeyNum      = "num"
+	KeyInd      = "ind"
+	KeyTitle    = "title"
+	KeyChannel  = "ch"
+	KeyDuration = "dur"
+	KeyCount    = "count"
+	KeyDate     = "date"
+	KeyLabel    = "label"
 )
 
-// VideoCell is the input passed to every VideoColumnDef cell renderer.
-// Index is passed as the second argument to Cell (not stored here).
-type VideoCell struct {
-	Video domain.Video
-	Ctx   RenderContext
+// Tab-specific keys
+const (
+	KeyHistType   = "histtype"
+	KeyHistDetail = "histdetail"
+	KeyHistTs     = "histts"
+
+	KeyChName  = "chname"
+	KeyChTags  = "chtags"
+	KeyChSubs  = "chsubs"
+	KeyChTitle = "chtitle"
+
+	KeyDlStatus = "dlstatus"
+
+	KeyActType   = "acttype"
+	KeyActDetail = "actdetail"
+
+	KeyTagLabel = "taglabel"
+	KeyPlName   = "plname"
+
+	KeySrchChName = "srchchname"
+)
+
+// ── Column width constants ──────────────────────────────────────────────────
+const (
+	ColIndicator  = 3
+	ColChName     = 22
+	ColChTags     = 14
+	ColChSubs     = 12
+	ColHistStatus = 14
+	ColDlStatus   = 52
+	ColActType    = 16
+)
+
+// ── Generic column factories ────────────────────────────────────────────────
+
+func NumCol[T any]() ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyNum, fmt.Sprintf("%4s", "#"), render.ColNum),
+		Cell: func(_ T, i int) any { return fmt.Sprintf("%4d", i+1) },
+	}
 }
 
-// VideoColumnDef is a ColumnDef typed to VideoCell.
-type VideoColumnDef = ColumnDef[VideoCell]
-
-// Pre-defined column definitions. Tabs compose a slice of these and pass it to
-// NewVideoTable / BuildVideoRows.
-//
-// Column widths are content widths. evertras uses ansi.StringWidth for
-// truncation so ANSI styling is invisible to width math.
-var (
-	Num = VideoColumnDef{
-		Col:  etable.NewColumn(KeyNum, fmt.Sprintf("%4s", "#"), 4),
-		Cell: func(vc VideoCell, index int) any { return fmt.Sprintf("%4d", index+1) },
+func BlankIndicatorCol[T any]() ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyInd, " ", ColIndicator),
+		Cell: func(_ T, _ int) any { return "   " },
 	}
+}
 
-	Indicator = VideoColumnDef{
-		Col:  etable.NewColumn(KeyIndicator, " ", 3),
-		Cell: func(vc VideoCell, _ int) any { return indicatorStr(vc.Video, vc.Ctx) },
+func IndicatorCol[T HasIndicator]() ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyInd, " ", ColIndicator),
+		Cell: func(item T, _ int) any { return item.GetIndicator() },
 	}
+}
 
-	// Title is a flex column — grows to fill the remaining width set by WithTargetWidth.
-	Title = VideoColumnDef{
+func TitleFlexCol[T HasTitle]() ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewFlexColumn(KeyTitle, "Title", 1),
+		Cell: func(item T, _ int) any { return item.GetTitle() },
+	}
+}
+
+// AudioTitleFlexCol renders title + " ♪" for audio rows. The ♪ logic lives here,
+// not in each type's GetBaseTitle.
+func AudioTitleFlexCol[T HasAudioTitle]() ColumnDef[T] {
+	return ColumnDef[T]{
 		Col: etable.NewFlexColumn(KeyTitle, "Title", 1),
-		Cell: func(vc VideoCell, _ int) any {
-			st := titleStyle(vc.Video, vc.Ctx)
-			return etable.NewStyledCell(vc.Video.Title, st)
+		Cell: func(item T, _ int) any {
+			t := item.GetBaseTitle()
+			if item.IsAudio() {
+				t += " ♪"
+			}
+			return t
 		},
 	}
+}
 
-	Channel = VideoColumnDef{
-		Col: etable.NewColumn(KeyChannel, "Channel", 30),
-		Cell: func(vc VideoCell, _ int) any {
-			ch := vc.Video.Channel
-			if vc.Ctx.Aliases != nil {
-				if a, ok := vc.Ctx.Aliases[vc.Video.ChannelID]; ok && a != "" {
-					ch = a
+// ChannelCol renders the channel name with alias resolution.
+// aliases is a live map[channelID]alias — looked up at cell render time.
+func ChannelCol[T HasChannelInfo](aliases map[string]string) ColumnDef[T] {
+	return ColumnDef[T]{
+		Col: etable.NewColumn(KeyChannel, "Channel", render.ColChannel),
+		Cell: func(item T, _ int) any {
+			if aliases != nil {
+				if a := aliases[item.GetChannelID()]; a != "" {
+					return a
 				}
 			}
-			return ch
+			return item.GetChannelName()
 		},
 	}
+}
 
-	Views = VideoColumnDef{
-		Col:  etable.NewColumn(KeyViews, "Views", 8),
-		Cell: func(vc VideoCell, _ int) any { return fmt.Sprintf("%8s", vc.Video.ViewsStr()) },
-	}
-
-	Date = VideoColumnDef{
-		Col:  etable.NewColumn(KeyDate, "Date", 10),
-		Cell: func(vc VideoCell, _ int) any { return vc.Video.DateStr() },
-	}
-)
-
-// DurationCol returns a VideoColumnDef whose width is computed from the active
-// duration format. Call it from a tab constructor (after render.SetDurFmt) rather
-// than at package init to capture the correct column width.
-func DurationCol() VideoColumnDef {
-	w := render.ColDuration
-	return VideoColumnDef{
-		Col: etable.NewColumn(KeyDuration, "Duration", w),
-		Cell: func(vc VideoCell, _ int) any {
-			dur := render.Duration(vc.Video.Duration)
-			if posMs := vc.Ctx.Positions[vc.Video.ID]; posMs > 0 {
-				dur = render.Duration(int(posMs / 1000))
+// DurationCol renders "pos/total" when position > 0, otherwise "total".
+// Both values use the active duration format. Column width is ColDurationPos.
+func DurationCol[T HasDuration]() ColumnDef[T] {
+	w := render.ColDurationPos
+	return ColumnDef[T]{
+		Col: etable.NewColumn(KeyDuration, calign("Duration", w), w),
+		Cell: func(item T, _ int) any {
+			total := render.Duration(item.GetDurationSecs())
+			if pos := item.GetLastPositionSecs(); pos > 0 {
+				return fmt.Sprintf("%*s", w, render.Duration(pos)+"/"+total)
 			}
-			return fmt.Sprintf("%*s", w, dur)
+			return fmt.Sprintf("%*s", w, total)
 		},
 	}
 }
 
-// isFaded returns true when a video should be rendered with the Dim style.
-func isFaded(v domain.Video, ctx RenderContext) bool {
-	if st, ok := ctx.LocalStatus[v.ID]; ok {
-		return st == domain.StatusStarted || st == domain.StatusWatched
+// CountCol renders a right-aligned large integer (views, subscribers, etc.).
+// header is the column title (e.g. "Views", "Subs").
+func CountCol[T HasCount](header string) ColumnDef[T] {
+	w := render.ColViews
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyCount, calign(header, w+1), w+1),
+		Cell: func(item T, _ int) any { return fmt.Sprintf("%*s ", w, render.Views(item.GetCount())) },
 	}
-	_, hasPos := ctx.Positions[v.ID]
-	return hasPos || ctx.Watched[v.ID]
 }
 
-// titleStyle returns the lipgloss style for a video's title cell.
-func titleStyle(v domain.Video, ctx RenderContext) lipgloss.Style {
-	if st, ok := ctx.LocalStatus[v.ID]; ok {
-		switch st {
-		case domain.StatusNew:
-			return styles.Bold
-		case domain.StatusStarted, domain.StatusWatched:
-			return styles.Dim
-		}
+func DateCol[T HasDate]() ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyDate, calign("Date", render.ColDate), render.ColDate),
+		Cell: func(item T, _ int) any { return render.Date(item.GetRawDate()) },
 	}
-	if _, hasPos := ctx.Positions[v.ID]; hasPos {
-		return styles.Dim
-	}
-	if ctx.Watched[v.ID] {
-		return styles.Dim
-	}
-	return styles.Normal
 }
 
-// indicatorStr returns the 3-char indicator symbol for a video row.
-func indicatorStr(v domain.Video, ctx RenderContext) string {
-	if _, hasPos := ctx.Positions[v.ID]; hasPos {
-		return " ○ "
+// StyledLabelCol renders a fixed-width label with the given lipgloss style.
+// Used for event-type columns (history, activity) that always show a Warning-styled tag.
+func StyledLabelCol[T HasLabel](header string, width int, style lipgloss.Style) ColumnDef[T] {
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyLabel, header, width),
+		Cell: func(item T, _ int) any { return etable.NewStyledCell(item.GetLabel(), style) },
 	}
-	if ctx.Watched[v.ID] {
-		return " ○ "
+}
+
+// ── VideoData columns (pre-enriched video rows) ─────────────────────────────
+// These compose the generic factories for the common video-feed layout.
+// Tabs that show domain.Video data call EnrichAll first, then pick from these.
+
+func VideoNumCol() ColumnDef[VideoData]       { return NumCol[VideoData]() }
+func VideoIndicatorCol() ColumnDef[VideoData] { return IndicatorCol[VideoData]() }
+func VideoTitleCol() ColumnDef[VideoData]     { return TitleFlexCol[VideoData]() }
+func VideoDurationCol() ColumnDef[VideoData]  { return DurationCol[VideoData]() }
+func VideoCountCol() ColumnDef[VideoData]     { return CountCol[VideoData]("Views") }
+func VideoDateCol() ColumnDef[VideoData]      { return DateCol[VideoData]() }
+
+// VideoChannelCol builds a channel column. Alias resolution is baked into VideoData
+// at enrichment time via EnrichAll, so no map is needed here.
+func VideoChannelCol() ColumnDef[VideoData] {
+	return ChannelCol[VideoData](nil)
+}
+
+// VideoTitleStyler returns a per-row Dim style for faded VideoData rows.
+func VideoTitleStyler(vd VideoData) *lipgloss.Style {
+	if isFadedVD(vd) {
+		return &styles.Dim
 	}
-	if st, ok := ctx.LocalStatus[v.ID]; ok {
-		switch st {
-		case domain.StatusNew:
-			return " ● "
-		case domain.StatusStarted, domain.StatusWatched:
-			return " ○ "
-		}
+	return nil
+}
+
+// ralign right-aligns a string within width w.
+func ralign(s string, w int) string {
+	return fmt.Sprintf("%*s", w, s)
+}
+
+// calign center-aligns a string within width w (left-biased on odd remainder).
+func calign(s string, w int) string {
+	n := len(s)
+	if n >= w {
+		return s
 	}
-	return "   "
+	left := (w - n) / 2
+	return fmt.Sprintf("%*s%-*s", left+n, s, w-left-n, "")
 }

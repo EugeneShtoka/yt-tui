@@ -7,15 +7,18 @@ import (
 )
 
 // Column widths shared across all video-list views.
-// ColDuration is a var because it changes with the active duration format.
+// ColDuration and ColDate are vars because they change with the active format.
 const (
 	ColNum     = 4
 	ColChannel = 30
-	ColViews   = 8  // max content: "100.0K"
-	ColDate    = 10 // max content: "dd/mm/yyyy"
+	ColViews   = 8 // max content: "100.0K"
 )
 
-var ColDuration = 8 // default for hh:mm:ss; recomputed by SetDurFmt
+var (
+	ColDuration    = 8  // recomputed by SetDurFmt
+	ColDurationPos = 17 // pos/total: 2*ColDuration+1, recomputed by SetDurFmt
+	ColDate        = 10 // recomputed by SetDateFmt; all built-in formats are 10 chars
+)
 
 // DurFmt controls how video durations are formatted in all table views.
 // Uppercase component letters = zero-padded; lowercase = no padding.
@@ -38,7 +41,7 @@ const (
 
 var activeDurFmt DurFmt = DurFmthhmmss
 
-// SetDurFmt sets the active duration format and recomputes ColDuration.
+// SetDurFmt sets the active duration format and recomputes ColDuration and ColDurationPos.
 // Call once at startup after loading config. Unrecognized values fall back to hh:mm.
 func SetDurFmt(f DurFmt) {
 	switch f {
@@ -49,6 +52,31 @@ func SetDurFmt(f DurFmt) {
 		activeDurFmt = DurFmthhmm
 	}
 	ColDuration = len(formatDuration(99*3600+59*60+59, activeDurFmt))
+	ColDurationPos = 2*ColDuration + 1
+}
+
+// DateFmt controls how dates are displayed in all table views.
+type DateFmt string
+
+const (
+	DateFmtDMY DateFmt = "dd/mm/yyyy" // 21/07/2026 — default
+	DateFmtMDY DateFmt = "mm/dd/yyyy" // 07/21/2026
+	DateFmtYMD DateFmt = "yyyy-mm-dd" // 2026-07-21
+	DateFmtDMYDash DateFmt = "dd-mm-yyyy" // 21-07-2026
+)
+
+var activeDateFmt DateFmt = DateFmtDMY
+
+// SetDateFmt sets the active date format and recomputes ColDate.
+// Call once at startup after loading config. Unrecognized values fall back to dd/mm/yyyy.
+func SetDateFmt(f DateFmt) {
+	switch f {
+	case DateFmtDMY, DateFmtMDY, DateFmtYMD, DateFmtDMYDash:
+		activeDateFmt = f
+	default:
+		activeDateFmt = DateFmtDMY
+	}
+	ColDate = len(formatDate("20260721", activeDateFmt))
 }
 
 func Duration(secs int) string {
@@ -116,25 +144,21 @@ func Date(yyyymmdd string) string {
 	if len(yyyymmdd) != 8 {
 		return yyyymmdd
 	}
-	return yyyymmdd[6:] + "/" + yyyymmdd[4:6] + "/" + yyyymmdd[:4]
+	return formatDate(yyyymmdd, activeDateFmt)
 }
 
-func FormatEvent(s string) string {
-	switch s {
-	case "streamVideo":
-		return "Stream video"
-	case "streamAudio":
-		return "Stream audio"
-	case "playVideo":
-		return "Play video"
-	case "playAudio":
-		return "Play audio"
-	case "download video":
-		return "Download video"
-	case "download audio":
-		return "Download audio"
+func formatDate(yyyymmdd string, f DateFmt) string {
+	y, m, d := yyyymmdd[:4], yyyymmdd[4:6], yyyymmdd[6:]
+	switch f {
+	case DateFmtMDY:
+		return m + "/" + d + "/" + y
+	case DateFmtYMD:
+		return y + "-" + m + "-" + d
+	case DateFmtDMYDash:
+		return d + "-" + m + "-" + y
+	default: // DateFmtDMY
+		return d + "/" + m + "/" + y
 	}
-	return s
 }
 
 func Truncate(s string, n int) string {

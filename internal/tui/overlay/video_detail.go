@@ -149,8 +149,20 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (vd VideoDetail) Render(behind string, width, height int) (string, string) {
 	_, thumbH := vd.thumbDimensions()
 	panel := vd.renderPanel(panelW, height, thumbH)
-	composed := lipgloss.JoinHorizontal(lipgloss.Top, behind, panel)
 
+	// Clamp each line of 'behind' to strictly fill the remaining width
+	leftW := width - panelW
+	if leftW < 0 {
+		leftW = 0
+	}
+
+	behindLines := strings.Split(behind, "\n")
+	for i, line := range behindLines {
+		behindLines[i] = lipgloss.NewStyle().MaxWidth(leftW).Width(leftW).Render(line)
+	}
+	croppedBehind := strings.Join(behindLines, "\n")
+
+	composed := lipgloss.JoinHorizontal(lipgloss.Top, croppedBehind, panel)
 	// Modals stack on top of the composed view.
 	switch vd.subState {
 	case vdLinks:
@@ -329,6 +341,7 @@ func (vd VideoDetail) moveSelector(sel, n int, msg tea.KeyPressMsg) (newSel int,
 			return n - 1, true
 		}
 		return sel, true
+
 	}
 	return sel, false
 }
@@ -340,9 +353,9 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	accent := lipgloss.NewStyle().Foreground(styles.ColorAccent)
 	norm := func(s string) string { return styles.Normal.Width(innerW).Render(s) }
 
-	inner := panelH - 2
+	innerH := panelH - 2
 	const footerH = 2
-	contentRows := inner - footerH
+	contentRows := innerH - footerH
 
 	var lines []string
 	needsScroll := false
@@ -439,7 +452,8 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	}
 	lines = append(lines, styles.Help.Width(innerW).Render(""), styles.Help.Width(innerW).Render(footerText))
 
-	top := accent.Render("╭─ Video Details " + strings.Repeat("─", innerW-16) + "╮")
+	title := " Video Details " 
+	top := accent.Render("╭─" + title + strings.Repeat("─", innerW - len(title) - 1) + "╮")
 	bot := accent.Render("╰" + strings.Repeat("─", innerW) + "╯")
 	rows := make([]string, 0, panelH)
 	rows = append(rows, top)

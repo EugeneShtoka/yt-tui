@@ -17,3 +17,5 @@ func (ch Channel) DisplayName() string {
 	}
 	return ch.Name
 }
+
+func (ch Channel) GetTitle() string { return ch.DisplayName() }

@@ -12,8 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const colIndicator = 3
-
 func ralign(s string, width int) string {
 	return fmt.Sprintf("%*s", width, s)
 }

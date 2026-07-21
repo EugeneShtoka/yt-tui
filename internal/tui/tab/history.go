@@ -2,7 +2,6 @@ package tab
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
@@ -20,29 +19,31 @@ import (
 	etable "github.com/evertras/bubble-table/table"
 )
 
-const histColStatus = 14
-
-const (
-	colKeyHistNum   = "hnum"
-	colKeyHistInd   = "hind"
-	colKeyHistType  = "htype"
-	colKeyHistTitle = "htitle"
-	colKeyHistCh    = "hch"
-	colKeyHistDur   = "hdur"
-	colKeyHistViews = "hviews"
-	colKeyHistDate  = "hdate"
-
-	colKeyDetailType = "dtype"
-	colKeyDetailTs   = "dts"
-	colKeyDetailInfo = "dinfo"
-)
-
 type histLoadedMsg struct{ entries []domain.HistoryEntry }
 type histDetailLoadedMsg struct {
 	videoID string
 	entries []domain.HistoryEntry
 }
 type histDeletedMsg struct{ title string }
+
+// HistoryRow wraps a HistoryEntry with a pre-enriched playback position.
+type HistoryRow struct {
+	domain.HistoryEntry
+	lastPositionSecs int
+}
+
+func (r HistoryRow) GetLastPositionSecs() int { return r.lastPositionSecs }
+
+func enrichHistoryRows(entries []domain.HistoryEntry, positions map[string]int64) []HistoryRow {
+	rows := make([]HistoryRow, len(entries))
+	for i, e := range entries {
+		rows[i] = HistoryRow{
+			HistoryEntry:     e,
+			lastPositionSecs: int(positions[e.VideoID] / 1000),
+		}
+	}
+	return rows
+}
 
 type History struct {
 	backend  api.Backend
@@ -55,89 +56,39 @@ type History struct {
 	loaded        bool
 	detailVideoID string
 	detail        []domain.HistoryEntry
+	aux           videotable.AuxData
 
-	nav         videotable.TableNav
-	detailNav   videotable.TableNav
-	histCols    []videotable.ColumnDef[domain.HistoryEntry]
-	detailCols  []videotable.ColumnDef[domain.HistoryEntry]
+	nav        videotable.TableNav
+	detailNav  videotable.TableNav
+	histCols   []videotable.ColumnDef[HistoryRow]
+	detailCols []videotable.ColumnDef[domain.HistoryEntry]
 
 	sortMode        int
 	sortChordActive bool
 }
 
-func histColumns(durW int) []videotable.ColumnDef[domain.HistoryEntry] {
-	return []videotable.ColumnDef[domain.HistoryEntry]{
-		{
-			Col:  etable.NewColumn(colKeyHistNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(e domain.HistoryEntry, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col: etable.NewColumn(colKeyHistInd, " ", colIndicator),
-			Cell: func(e domain.HistoryEntry, _ int) any {
-				switch e.EventType {
-				case "download video", "download audio":
-					return " ● "
-				default:
-					return " ○ "
-				}
-			},
-		},
-		{
-			Col: etable.NewColumn(colKeyHistType, "Type", histColStatus),
-			Cell: func(e domain.HistoryEntry, _ int) any {
-				return etable.NewStyledCell(render.FormatEvent(e.EventType), styles.Warning)
-			},
-		},
-		{
-			Col:  etable.NewFlexColumn(colKeyHistTitle, "Title", 1),
-			Cell: func(e domain.HistoryEntry, _ int) any { return e.Title },
-		},
-		{
-			Col:  etable.NewColumn(colKeyHistCh, "Channel", render.ColChannel),
-			Cell: func(e domain.HistoryEntry, _ int) any { return e.Channel },
-		},
-		{
-			Col: etable.NewColumn(colKeyHistDur, ralign("Duration", durW+1), durW+1),
-			Cell: func(e domain.HistoryEntry, _ int) any {
-				return fmt.Sprintf("%*s ", durW, render.Duration(e.Duration))
-			},
-		},
-		{
-			Col: etable.NewColumn(colKeyHistViews, ralign("Views", render.ColViews+1), render.ColViews+1),
-			Cell: func(e domain.HistoryEntry, _ int) any {
-				return fmt.Sprintf("%*s ", render.ColViews, render.Views(e.ViewCount))
-			},
-		},
-		{
-			Col:  etable.NewColumn(colKeyHistDate, "Date", render.ColDate),
-			Cell: func(e domain.HistoryEntry, _ int) any { return render.Date(e.UploadDate) },
-		},
+func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
+	hCols := []videotable.ColumnDef[HistoryRow]{
+		videotable.NumCol[HistoryRow](),
+		videotable.IndicatorCol[HistoryRow](),
+		videotable.StyledLabelCol[HistoryRow]("Type", videotable.ColHistStatus, styles.Warning),
+		videotable.AudioTitleFlexCol[HistoryRow](),
+		videotable.ChannelCol[HistoryRow](nil),
+		videotable.DurationCol[HistoryRow](),
+		videotable.CountCol[HistoryRow]("Views"),
+		videotable.DateCol[HistoryRow](),
 	}
-}
-
-func histDetailColumns() []videotable.ColumnDef[domain.HistoryEntry] {
-	return []videotable.ColumnDef[domain.HistoryEntry]{
+	dCols := []videotable.ColumnDef[domain.HistoryEntry]{
+		videotable.StyledLabelCol[domain.HistoryEntry]("Type", videotable.ColHistStatus, styles.Warning),
 		{
-			Col: etable.NewColumn(colKeyDetailType, "Type", histColStatus),
-			Cell: func(e domain.HistoryEntry, _ int) any {
-				return etable.NewStyledCell(render.FormatEvent(e.EventType), styles.Warning)
-			},
+			Col:  etable.NewColumn(videotable.KeyHistTs, "Timestamp", render.ColDate),
+			Cell: func(e domain.HistoryEntry, _ int) any { return render.Date(e.GetTimestampRawDate()) },
 		},
 		{
-			Col:  etable.NewColumn(colKeyDetailTs, "Timestamp", 19),
-			Cell: func(e domain.HistoryEntry, _ int) any { return e.Timestamp.Format("2006-01-02 15:04:05") },
-		},
-		{
-			Col:  etable.NewFlexColumn(colKeyDetailInfo, "Details", 1),
+			Col:  etable.NewFlexColumn(videotable.KeyHistDetail, "Details", 1),
 			Cell: func(e domain.HistoryEntry, _ int) any { return strings.TrimSpace(e.Details) },
 		},
 	}
-}
-
-func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
-	durW := render.ColDuration
-	hCols := histColumns(durW)
-	dCols := histDetailColumns()
 	return History{
 		backend:    backend,
 		keys:       keys,
@@ -156,22 +107,29 @@ func (t History) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.DrillDown, t.keys.Delete, t.keys.CopyURL, t.keys.SortChord}
 }
 
-func (t History) Init() tea.Cmd { return t.loadCmd() }
+func (t History) Init() tea.Cmd {
+	return tea.Batch(t.loadCmd(), videotable.LoadAuxDataCmd(t.backend))
+}
 
 func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
 		t.detailNav.Resize(m.Width, m.Height)
 	case tuipkg.HistoryChangedMsg:
 		return t, t.loadCmd()
+	case videotable.AuxDataMsg:
+		t.aux = m
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+	case tuipkg.RefreshPositionsMsg:
+		return t, videotable.LoadAuxDataCmd(t.backend)
 	case histLoadedMsg:
 		t.entries = m.entries
 		feed.SortHistoryEntries(t.entries, t.sortMode)
 		t.loaded = true
-		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
 		t.nav.GotoRow(0)
 		t.detailVideoID = ""
 	case histDetailLoadedMsg:
@@ -213,11 +171,10 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		feed.SortHistoryEntries(t.entries, t.sortMode)
-		t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
 		return t, nil
 	}
 
-	// ── detail pane ───────────────────────────────────────────────────────────
 	if t.detailVideoID != "" {
 		n := len(t.detail)
 		numBufBefore := t.detailNav.NumBufView() != ""
@@ -234,7 +191,6 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return t, nil
 	}
 
-	// ── list pane ─────────────────────────────────────────────────────────────
 	n := len(t.entries)
 	if t.nav.HandleNav(msg, keys, n) {
 		return t, nil
@@ -263,7 +219,7 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if idx < n {
 			e := t.entries[idx]
 			t.entries = append(t.entries[:idx], t.entries[idx+1:]...)
-			t.nav.SetRows(videotable.BuildRows(t.entries, t.histCols))
+			t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
 			return t, t.histDeleteCmd(e)
 		}
 	case key.Matches(msg, keys.HideChannel):

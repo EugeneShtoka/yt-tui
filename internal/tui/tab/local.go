@@ -2,7 +2,6 @@ package tab
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
@@ -16,7 +15,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	etable "github.com/evertras/bubble-table/table"
 )
 
 type localLoadedMsg struct {
@@ -40,59 +38,6 @@ type Local struct {
 	sortChordActive bool
 }
 
-func localColumns(durW int) []videotable.ColumnDef[domain.LocalVideo] {
-	return []videotable.ColumnDef[domain.LocalVideo]{
-		{
-			Col:  etable.NewColumn(videotable.KeyNum, fmt.Sprintf("%4s", "#"), 4),
-			Cell: func(lv domain.LocalVideo, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col: etable.NewColumn(videotable.KeyIndicator, " ", 3),
-			Cell: func(lv domain.LocalVideo, _ int) any {
-				switch lv.Status {
-				case domain.StatusNew:
-					return " ● "
-				case domain.StatusStarted, domain.StatusWatched:
-					return " ○ "
-				}
-				return "   "
-			},
-		},
-		{
-			Col: etable.NewFlexColumn(videotable.KeyTitle, "Title", 1),
-			Cell: func(lv domain.LocalVideo, _ int) any {
-				t := lv.Title
-				if lv.DownloadType == "audio" {
-					t += " ♪"
-				}
-				return t
-			},
-		},
-		{
-			Col:  etable.NewColumn(videotable.KeyChannel, "Channel", render.ColChannel),
-			Cell: func(lv domain.LocalVideo, _ int) any { return lv.Channel },
-		},
-		{
-			Col: etable.NewColumn(videotable.KeyDuration, "Duration", durW),
-			Cell: func(lv domain.LocalVideo, _ int) any {
-				dur := render.Duration(lv.Duration)
-				if lv.Status == domain.StatusStarted && lv.LastPositionMs > 0 {
-					dur = render.Duration(int(lv.LastPositionMs / 1000))
-				}
-				return fmt.Sprintf("%*s", durW, dur)
-			},
-		},
-		{
-			Col:  etable.NewColumn(videotable.KeyViews, "Views", render.ColViews),
-			Cell: func(lv domain.LocalVideo, _ int) any { return fmt.Sprintf("%8s", render.Views(lv.ViewCount)) },
-		},
-		{
-			Col:  etable.NewColumn(videotable.KeyDate, "Date", render.ColDate),
-			Cell: func(lv domain.LocalVideo, _ int) any { return render.Date(lv.UploadDate) },
-		},
-	}
-}
-
 func localStyler(lv domain.LocalVideo) *lipgloss.Style {
 	if lv.Status == domain.StatusStarted || lv.Status == domain.StatusWatched {
 		return &styles.Dim
@@ -101,7 +46,15 @@ func localStyler(lv domain.LocalVideo) *lipgloss.Style {
 }
 
 func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
-	cols := localColumns(render.ColDuration)
+	cols := []videotable.ColumnDef[domain.LocalVideo]{
+		videotable.NumCol[domain.LocalVideo](),
+		videotable.IndicatorCol[domain.LocalVideo](),
+		videotable.AudioTitleFlexCol[domain.LocalVideo](),
+		videotable.ChannelCol[domain.LocalVideo](nil),
+		videotable.DurationCol[domain.LocalVideo](),
+		videotable.CountCol[domain.LocalVideo]("Views"),
+		videotable.DateCol[domain.LocalVideo](),
+	}
 	return Local{
 		backend:  backend,
 		keys:     keys,

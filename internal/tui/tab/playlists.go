@@ -11,7 +11,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
@@ -30,12 +29,6 @@ const (
 	plCreateNone        plCreateStage = iota
 	plCreateTypeSelect
 	plCreateNameInput
-)
-
-const (
-	colKeyPlNum  = "plnum"
-	colKeyPlInd  = "plind"
-	colKeyPlName = "plname"
 )
 
 type plLocalLoadedMsg struct{ playlists []domain.Playlist }
@@ -68,6 +61,8 @@ type PlaylistRow struct {
 	Index int
 }
 
+func (r PlaylistRow) GetTitle() string { return r.Label }
+
 type Playlists struct {
 	backend  api.Backend
 	keys     keymap.KeyMap
@@ -98,33 +93,20 @@ type Playlists struct {
 	plNav    videotable.TableNav
 	vidNav   videotable.TableNav
 	plCols   []videotable.ColumnDef[PlaylistRow]
-	vidCols  []videotable.VideoColumnDef
-}
-
-func playlistColumns() []videotable.ColumnDef[PlaylistRow] {
-	return []videotable.ColumnDef[PlaylistRow]{
-		{
-			Col:  etable.NewColumn(colKeyPlNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(r PlaylistRow, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeyPlInd, " ", colIndicator),
-			Cell: func(r PlaylistRow, _ int) any { return "" },
-		},
-		{
-			Col:  etable.NewFlexColumn(colKeyPlName, "Name", 1),
-			Cell: func(r PlaylistRow, _ int) any { return r.Label },
-		},
-	}
+	vidCols  []videotable.ColumnDef[videotable.VideoData]
 }
 
 func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playlists {
 	ti := textinput.New()
 	ti.Placeholder = "Playlist name…"
-	plCols := playlistColumns()
-	vidCols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.DurationCol(), videotable.Views, videotable.Date,
+	plCols := []videotable.ColumnDef[PlaylistRow]{
+		videotable.NumCol[PlaylistRow](),
+		videotable.BlankIndicatorCol[PlaylistRow](),
+		videotable.TitleFlexCol[PlaylistRow](),
+	}
+	vidCols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
 	}
 	return Playlists{
 		backend:     backend,
@@ -200,7 +182,7 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vids := m.videos
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[m.playlistID] = vids
-		t.vidNav.SetRows(videotable.BuildVideoRows(vids, t.vidCols, t.aux.RenderCtx(nil)))
+		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.vidCols))
 
 	case videotable.AuxDataMsg:
 		t.aux = m
@@ -400,7 +382,7 @@ func (t Playlists) handleVideoPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		}
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[plKey] = vids
-		t.vidNav.SetRows(videotable.BuildVideoRows(vids, t.vidCols, t.aux.RenderCtx(nil)))
+		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.vidCols))
 		return t, nil
 	}
 
@@ -541,7 +523,7 @@ func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playli
 		}
 	}
 	t.vidCache[plKey] = updated
-	t.vidNav.SetRows(videotable.BuildVideoRows(updated, t.vidCols, t.aux.RenderCtx(nil)))
+	t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(updated, t.aux, nil), t.vidCols))
 
 	vidID := vid.ID
 	if localID := plLocalID(plKey); localID != 0 {

@@ -11,7 +11,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
@@ -21,44 +20,18 @@ import (
 	etable "github.com/evertras/bubble-table/table"
 )
 
-// Column key constants for tagTable rows.
-const (
-	colKeyTagNum   = "tagnum"
-	colKeyTagInd   = "tagind"
-	colKeyTagLabel = "taglabel"
-)
-
 // TagRow is the cell input type for the tag list table.
 type TagRow struct {
 	Tag   string
 	Count int
 }
 
+func (r TagRow) GetTitle() string { return fmt.Sprintf("%s (%d)", r.Tag, r.Count) }
+
 type tagsDataMsg struct {
 	chans     []domain.Channel
 	subVideos []domain.Video
 }
-
-func tagListColumns() []videotable.ColumnDef[TagRow] {
-	return []videotable.ColumnDef[TagRow]{
-		{
-			Col:  etable.NewColumn(colKeyTagNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(r TagRow, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeyTagInd, " ", colIndicator),
-			Cell: func(r TagRow, _ int) any { return "  " },
-		},
-		{
-			Col: etable.NewFlexColumn(colKeyTagLabel, "Tag", 1),
-			Cell: func(r TagRow, _ int) any {
-				return fmt.Sprintf("%s (%d)", tagDisplayName(r.Tag), r.Count)
-			},
-		},
-	}
-}
-
-func tagDisplayName(tag string) string { return tag }
 
 func allTagsFrom(subs channels.ChannelSet) []string {
 	seen := map[string]bool{}
@@ -133,14 +106,18 @@ type Tags struct {
 	tagTable   etable.Model
 	tagVidNav  videotable.TableNav
 	tagCols    []videotable.ColumnDef[TagRow]
-	tagVidCols []videotable.VideoColumnDef
+	tagVidCols []videotable.ColumnDef[videotable.VideoData]
 }
 
 func NewTags(backend api.Backend, keys keymap.KeyMap, circular bool) Tags {
-	tagCols := tagListColumns()
-	tagVidCols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.Channel, videotable.DurationCol(), videotable.Views, videotable.Date,
+	tagCols := []videotable.ColumnDef[TagRow]{
+		videotable.NumCol[TagRow](),
+		videotable.BlankIndicatorCol[TagRow](),
+		videotable.TitleFlexCol[TagRow](),
+	}
+	tagVidCols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
 	}
 	return Tags{
 		backend:    backend,
@@ -172,7 +149,7 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.tagTable = t.tagTable.WithTargetWidth(m.Width).WithTargetHeight(m.Height - 2)
 		t.tagTable = t.tagTable.WithRows(t.toTagRows())
 		t.tagVidNav.Resize(m.Width, m.Height-2)
-		t.tagVidNav.SetRows(videotable.BuildVideoRows(t.tagVideosFor(t.tagSel), t.tagVidCols, t.aux.RenderCtx(nil)))
+		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux, nil), t.tagVidCols))
 
 	case spinner.TickMsg:
 		if t.loading {
@@ -189,7 +166,7 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.tagVidNav.SetRows(videotable.BuildVideoRows(t.tagVideosFor(t.tagSel), t.tagVidCols, t.aux.RenderCtx(nil)))
+		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux, nil), t.tagVidCols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -210,7 +187,7 @@ func (t Tags) View() tea.View {
 	contentH := t.height - headerH
 
 	if t.pane == 1 {
-		tagHeader := styles.SectionTitle.Render("← " + tagDisplayName(t.tagSel))
+		tagHeader := styles.SectionTitle.Render("← " + t.tagSel)
 		parts := []string{header, tagHeader, t.tagVidNav.View()}
 		if s := t.tagVidNav.NumBufView(); s != "" {
 			parts = append(parts, s)
@@ -304,7 +281,7 @@ func (t Tags) handleKeyList(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.
 		if idx < n {
 			t.tagSel = items[idx]
 			vids := t.tagVideosFor(t.tagSel)
-			t.tagVidNav.SetRows(videotable.BuildVideoRows(vids, t.tagVidCols, t.aux.RenderCtx(nil)))
+			t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.tagVidCols))
 			t.tagVidNav.GotoRow(0)
 			t.pane = 1
 		}

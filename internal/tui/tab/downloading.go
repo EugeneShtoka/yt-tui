@@ -15,7 +15,6 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	etable "github.com/evertras/bubble-table/table"
 )
 
 type dlItemsMsg struct{ items []api.DownloadItem }
@@ -30,15 +29,6 @@ var (
 	dlStyleEmpty    = lipgloss.NewStyle().Faint(true)
 )
 
-const (
-	colDlStatus    = 52
-	colKeyDlNum    = "dlnum"
-	colKeyDlInd    = "dlind"
-	colKeyDlTitle  = "dltitle"
-	colKeyDlCh     = "dlch"
-	colKeyDlDur    = "dldur"
-	colKeyDlStatus = "dlstatus"
-)
 
 type Downloading struct {
 	backend  api.Backend
@@ -56,45 +46,15 @@ type Downloading struct {
 	loading bool
 }
 
-func downloadingColumns(durW int) []videotable.ColumnDef[api.DownloadItem] {
-	return []videotable.ColumnDef[api.DownloadItem]{
-		{
-			Col:  etable.NewColumn(colKeyDlNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(item api.DownloadItem, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeyDlInd, " ", colIndicator),
-			Cell: func(item api.DownloadItem, _ int) any { return "  " },
-		},
-		{
-			Col: etable.NewFlexColumn(colKeyDlTitle, "Title", 1),
-			Cell: func(item api.DownloadItem, _ int) any {
-				t := item.Title
-				if item.AudioOnly {
-					t += " [audio]"
-				}
-				return t
-			},
-		},
-		{
-			Col:  etable.NewColumn(colKeyDlCh, "Channel", render.ColChannel),
-			Cell: func(item api.DownloadItem, _ int) any { return item.Channel },
-		},
-		{
-			Col: etable.NewColumn(colKeyDlDur, ralign("Duration", durW+1), durW+1),
-			Cell: func(item api.DownloadItem, _ int) any {
-				return fmt.Sprintf("%*s ", durW, item.Duration)
-			},
-		},
-		{
-			Col:  etable.NewColumn(colKeyDlStatus, "Status", colDlStatus),
-			Cell: func(item api.DownloadItem, _ int) any { return dlRenderStatus(item) },
-		},
-	}
-}
-
 func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Downloading {
-	cols := downloadingColumns(render.ColDuration)
+	cols := []videotable.ColumnDef[api.DownloadItem]{
+		videotable.NumCol[api.DownloadItem](),
+		videotable.BlankIndicatorCol[api.DownloadItem](),
+		videotable.AudioTitleFlexCol[api.DownloadItem](),
+		videotable.ChannelCol[api.DownloadItem](nil),
+		videotable.DlDurationCol[api.DownloadItem](),
+		videotable.DlStatusCol[api.DownloadItem](func(item api.DownloadItem) any { return dlRenderStatus(item) }),
+	}
 	return Downloading{
 		backend:  backend,
 		keys:     keys,

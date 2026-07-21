@@ -48,6 +48,12 @@ type DownloadItem struct {
 	Err       error
 }
 
+func (di DownloadItem) GetBaseTitle() string    { return di.Title }
+func (di DownloadItem) IsAudio() bool           { return di.AudioOnly }
+func (di DownloadItem) GetChannelID() string    { return "" }
+func (di DownloadItem) GetChannelName() string  { return di.Channel }
+func (di DownloadItem) GetDurationStr() string  { return di.Duration }
+
 // PlayableSource is returned by ResolveSource. URI is either an absolute file
 // path (co-located InProc with a downloaded file) or an http[s]:// URL.
 type PlayableSource struct {

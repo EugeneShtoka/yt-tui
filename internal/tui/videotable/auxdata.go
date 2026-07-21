@@ -37,12 +37,3 @@ func LoadAuxDataCmd(backend api.Backend) tea.Cmd {
 	}
 }
 
-// RenderCtx constructs a RenderContext from AuxData and an optional alias map.
-func (a AuxData) RenderCtx(aliases map[string]string) RenderContext {
-	return RenderContext{
-		Positions:   a.Positions,
-		Watched:     a.Watched,
-		LocalStatus: a.LocalStatus,
-		Aliases:     aliases,
-	}
-}

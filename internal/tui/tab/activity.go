@@ -2,27 +2,16 @@ package tab
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	etable "github.com/evertras/bubble-table/table"
-)
-
-const (
-	actColType       = 16
-	colKeyActNum     = "actnum"
-	colKeyActInd     = "actind"
-	colKeyActType    = "acttype"
-	colKeyActDetail  = "actdetail"
 )
 
 type actLoadedMsg struct{ entries []domain.ActivityEntry }
@@ -40,46 +29,13 @@ type Activity struct {
 	cols    []videotable.ColumnDef[domain.ActivityEntry]
 }
 
-func activityColumns() []videotable.ColumnDef[domain.ActivityEntry] {
-	return []videotable.ColumnDef[domain.ActivityEntry]{
-		{
-			Col:  etable.NewColumn(colKeyActNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(e domain.ActivityEntry, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeyActInd, " ", colIndicator),
-			Cell: func(e domain.ActivityEntry, _ int) any { return "  " },
-		},
-		{
-			Col: etable.NewColumn(colKeyActType, "Type", actColType),
-			Cell: func(e domain.ActivityEntry, _ int) any {
-				return etable.NewStyledCell(e.Type, styles.Warning)
-			},
-		},
-		{
-			Col: etable.NewFlexColumn(colKeyActDetail, "Detail", 1),
-			Cell: func(e domain.ActivityEntry, _ int) any {
-				locality := "remote"
-				if e.IsLocal {
-					locality = "local"
-				}
-				switch e.Type {
-				case "subscribe":
-					return fmt.Sprintf("%s (%s)", e.ChannelName, locality)
-				case "create_playlist":
-					return fmt.Sprintf("%s (%s)", e.PlaylistName, locality)
-				case "add_to_playlist":
-					return fmt.Sprintf("%s → %s (%s)", e.VideoTitle, e.PlaylistName, locality)
-				default:
-					return e.Type
-				}
-			},
-		},
-	}
-}
-
 func NewActivity(backend api.Backend, keys keymap.KeyMap, circular bool) Activity {
-	cols := activityColumns()
+	cols := []videotable.ColumnDef[domain.ActivityEntry]{
+		videotable.NumCol[domain.ActivityEntry](),
+		videotable.BlankIndicatorCol[domain.ActivityEntry](),
+		videotable.StyledLabelCol[domain.ActivityEntry]("Type", videotable.ColActType, styles.Warning),
+		videotable.ActDetailCol[domain.ActivityEntry](),
+	}
 	return Activity{
 		backend:  backend,
 		keys:     keys,

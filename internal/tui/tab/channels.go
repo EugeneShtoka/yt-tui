@@ -2,7 +2,6 @@ package tab
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	"charm.land/bubbles/v2/key"
@@ -38,30 +36,21 @@ const (
 	chEditTags  = 2
 )
 
-const (
-	colChName = 22
-	colChSubs = 12
-	colChTags = 14
-)
-
-// Column key constants for chTable rows.
-const (
-	colKeyChNum   = "chnum"
-	colKeyChInd   = "chind"
-	colKeyChName  = "chname"
-	colKeyChTags  = "chtags"
-	colKeyChSubs  = "chsubs"
-	colKeyChTitle = "chtitle"
-	colKeyChDur   = "chdur"
-	colKeyChViews = "chviews"
-	colKeyChDate  = "chdate"
-)
 
 // ChannelRow is the cell input type for the channel list table.
 type ChannelRow struct {
-	Channel domain.Channel
-	Latest  domain.Video
-	DurW    int
+	Channel            domain.Channel
+	Latest             domain.Video
+	LatestPositionSecs int
+}
+
+func (r ChannelRow) GetTitle() string       { return r.Latest.Title }
+func (r ChannelRow) GetChannelID() string   { return r.Channel.ID }
+func (r ChannelRow) GetChannelName() string { return r.Channel.DisplayName() }
+func (r ChannelRow) GetCount() int64        { return r.Channel.Subscribers }
+func (r ChannelRow) GetTags() []string      { return r.Channel.Tags }
+func (r ChannelRow) GetLatestVideo() videotable.VideoData {
+	return videotable.VideoData{Video: r.Latest, LastPositionSecs: r.LatestPositionSecs}
 }
 
 type chsLoadedMsg struct {
@@ -108,68 +97,29 @@ type Channels struct {
 
 	// channel list table (manual nav, direct etable.Model access needed)
 	chTable etable.Model
-	chCols  []videotable.ColumnDef[ChannelRow]
-	durW    int
-	numBuf  string
+	chCols []videotable.ColumnDef[ChannelRow]
+	numBuf string
 
 	// video-list table — uses TableNav
 	chVidNav  videotable.TableNav
-	chVidCols []videotable.VideoColumnDef
-}
-
-func channelListColumns(durW int) []videotable.ColumnDef[ChannelRow] {
-	return []videotable.ColumnDef[ChannelRow]{
-		{
-			Col:  etable.NewColumn(colKeyChNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(r ChannelRow, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeyChInd, " ", colIndicator),
-			Cell: func(r ChannelRow, _ int) any { return "  " },
-		},
-		{
-			Col:  etable.NewColumn(colKeyChName, "Channel", colChName),
-			Cell: func(r ChannelRow, _ int) any { return r.Channel.DisplayName() },
-		},
-		{
-			Col:  etable.NewColumn(colKeyChTags, "Tags", colChTags),
-			Cell: func(r ChannelRow, _ int) any { return strings.Join(r.Channel.Tags, ", ") },
-		},
-		{
-			Col: etable.NewColumn(colKeyChSubs, ralign("Subs", colChSubs), colChSubs),
-			Cell: func(r ChannelRow, _ int) any {
-				return fmt.Sprintf("%*s ", colChSubs-1, render.Views(r.Channel.Subscribers))
-			},
-		},
-		{
-			Col:  etable.NewFlexColumn(colKeyChTitle, "Latest Video", 1),
-			Cell: func(r ChannelRow, _ int) any { return r.Latest.Title },
-		},
-		{
-			Col: etable.NewColumn(colKeyChDur, ralign("Duration", durW+1), durW+1),
-			Cell: func(r ChannelRow, _ int) any {
-				return fmt.Sprintf("%*s ", r.DurW, r.Latest.DurationStr())
-			},
-		},
-		{
-			Col: etable.NewColumn(colKeyChViews, ralign("Views", render.ColViews+1), render.ColViews+1),
-			Cell: func(r ChannelRow, _ int) any {
-				return fmt.Sprintf("%*s ", render.ColViews, r.Latest.ViewsStr())
-			},
-		},
-		{
-			Col:  etable.NewColumn(colKeyChDate, "Date", render.ColDate),
-			Cell: func(r ChannelRow, _ int) any { return r.Latest.DateStr() },
-		},
-	}
+	chVidCols []videotable.ColumnDef[videotable.VideoData]
 }
 
 func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channelLatestCount int) Channels {
-	durW := render.ColDuration
-	chCols := channelListColumns(durW)
-	chVidCols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.DurationCol(), videotable.Views, videotable.Date,
+	chCols := []videotable.ColumnDef[ChannelRow]{
+		videotable.NumCol[ChannelRow](),
+		videotable.BlankIndicatorCol[ChannelRow](),
+		videotable.ChNameCol[ChannelRow](),
+		videotable.ChTagsCol[ChannelRow](),
+		videotable.CountCol[ChannelRow]("Subs"),
+		videotable.TitleFlexCol[ChannelRow](),
+		videotable.ChLatestDurationCol[ChannelRow](),
+		videotable.ChLatestViewsCol[ChannelRow](),
+		videotable.ChLatestDateCol[ChannelRow](),
+	}
+	chVidCols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
 	}
 	return Channels{
 		backend:            backend,
@@ -179,11 +129,10 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		sortMode:           chSortDate,
 		spinner:            spinner.New(),
 		editInput:          textinput.New(),
-		chTable:            videotable.NewTable(chCols),
-		chVidNav:           videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
-		chCols:             chCols,
-		chVidCols:          chVidCols,
-		durW:               durW,
+		chTable:   videotable.NewTable(chCols),
+		chVidNav:  videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
+		chCols:    chCols,
+		chVidCols: chVidCols,
 	}
 }
 
@@ -207,7 +156,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.chTable = t.chTable.WithTargetWidth(m.Width).WithTargetHeight(m.Height - 2)
 		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
 		t.chVidNav.Resize(m.Width, m.Height-2)
-		t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
+		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
 
 	case spinner.TickMsg:
 		if t.loading || t.chVidsLoading || t.chVidsRefresh {
@@ -224,7 +173,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
+		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -234,7 +183,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = true
-			t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
 			return t, t.chVideosFetchCmd()
 		}
 
@@ -243,7 +192,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = false
-			t.chVidNav.SetRows(videotable.BuildVideoRows(t.chVideos, t.chVidCols, t.aux.RenderCtx(nil)))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
 		}
 
 	case tea.KeyPressMsg:
@@ -581,10 +530,11 @@ func (t Channels) chVidAt(idx int) (domain.Video, bool) {
 func (t Channels) toChannelRows(sorted []domain.Channel) []etable.Row {
 	rows := make([]ChannelRow, len(sorted))
 	for i, ch := range sorted {
+		latest := t.chLatest[ch.ID]
 		rows[i] = ChannelRow{
-			Channel: ch,
-			Latest:  t.chLatest[ch.ID],
-			DurW:    t.durW,
+			Channel:            ch,
+			Latest:             latest,
+			LatestPositionSecs: int(t.aux.Positions[latest.ID] / 1000),
 		}
 	}
 	return videotable.BuildRows(rows, t.chCols)

@@ -32,7 +32,7 @@ type Subscriptions struct {
 	channelAliases map[string]string
 	spinner        spinner.Model
 	nav            videotable.TableNav
-	cols           []videotable.VideoColumnDef
+	cols           []videotable.ColumnDef[videotable.VideoData]
 	aux            videotable.AuxData
 
 	sortMode        int
@@ -40,9 +40,9 @@ type Subscriptions struct {
 }
 
 func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Subscriptions {
-	cols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.Channel, videotable.DurationCol(), videotable.Views, videotable.Date,
+	cols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
 	}
 	return Subscriptions{
 		backend:  backend,
@@ -72,7 +72,7 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -90,12 +90,12 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				t.channelAliases[ch.ID] = ch.Alias
 			}
 		}
-		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
 		t.nav.GotoRow(0)
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -143,7 +143,7 @@ func (t Subscriptions) subHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		t.feed.Sort(t.sortMode)
-		t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
 		return t, nil
 	}
 
@@ -162,7 +162,7 @@ func (t Subscriptions) subHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if v, ok := t.feed.At(idx); ok {
 			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
 			t.feed.RemoveChannel(ch)
-			t.nav.SetRows(videotable.BuildVideoRows(t.feed.Videos(), t.cols, t.aux.RenderCtx(t.channelAliases)))
+			t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 		}
 	case key.Matches(msg, keys.SortChord):

@@ -22,9 +22,6 @@ import (
 )
 
 const (
-	colKeySrchChNum  = "srchnum"
-	colKeySrchChInd  = "srchind"
-	colKeySrchChName = "srchname"
 )
 
 type srchResultMsg struct {
@@ -57,12 +54,12 @@ type Search struct {
 	chVideos   []domain.Video
 	chLoading  bool
 	drillTable etable.Model
-	drillCols  []videotable.VideoColumnDef
+	drillCols  []videotable.ColumnDef[videotable.VideoData]
 
 	chTable  etable.Model
 	chCols   []videotable.ColumnDef[domain.Channel]
 	vidTable etable.Model
-	vidCols  []videotable.VideoColumnDef
+	vidCols  []videotable.ColumnDef[videotable.VideoData]
 	onVideos bool // false = channel pane focused, true = video pane focused
 
 	numBuf        string
@@ -77,37 +74,24 @@ type Search struct {
 	recentMode   bool
 }
 
-func searchChannelColumns() []videotable.ColumnDef[domain.Channel] {
-	return []videotable.ColumnDef[domain.Channel]{
-		{
-			Col:  etable.NewColumn(colKeySrchChNum, ralign("#", render.ColNum), render.ColNum),
-			Cell: func(ch domain.Channel, i int) any { return fmt.Sprintf("%4d", i+1) },
-		},
-		{
-			Col:  etable.NewColumn(colKeySrchChInd, " ", colIndicator),
-			Cell: func(ch domain.Channel, _ int) any { return "   " },
-		},
-		{
-			Col:  etable.NewFlexColumn(colKeySrchChName, "Name", 1),
-			Cell: func(ch domain.Channel, _ int) any { return ch.DisplayName() },
-		},
-	}
-}
-
 func NewSearch(backend api.Backend, keys keymap.KeyMap, circular bool) Search {
 	ti := textinput.New()
 	ti.Placeholder = "Search YouTube…"
 	ti.CharLimit = 200
 	ti.Focus()
 
-	chCols := searchChannelColumns()
-	vidCols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.Channel, videotable.DurationCol(), videotable.Views, videotable.Date,
+	chCols := []videotable.ColumnDef[domain.Channel]{
+		videotable.NumCol[domain.Channel](),
+		videotable.BlankIndicatorCol[domain.Channel](),
+		videotable.TitleFlexCol[domain.Channel](),
 	}
-	drillCols := []videotable.VideoColumnDef{
-		videotable.Num, videotable.Indicator, videotable.Title,
-		videotable.DurationCol(), videotable.Views, videotable.Date,
+	vidCols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+	}
+	drillCols := []videotable.ColumnDef[videotable.VideoData]{
+		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
+		videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
 	}
 	return Search{
 		backend:    backend,
@@ -179,7 +163,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.vidTable = t.vidTable.WithTargetWidth(m.Width)
 		t.applyResultHeights()
 		t.chTable = t.chTable.WithRows(videotable.BuildRows(t.channels, t.chCols))
-		t.vidTable = t.vidTable.WithRows(videotable.BuildVideoRows(t.videos, t.vidCols, t.aux.RenderCtx(nil)))
+		t.vidTable = t.vidTable.WithRows(videotable.BuildVideoRows(videotable.EnrichAll(t.videos, t.aux, nil), t.vidCols))
 		return t, nil
 
 	case tuipkg.SearchFocusInputMsg:
@@ -239,7 +223,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.videos = m.videos
 		t.applyResultHeights()
 		t.chTable = t.chTable.WithRows(videotable.BuildRows(t.channels, t.chCols)).WithHighlightedRow(0)
-		t.vidTable = t.vidTable.WithRows(videotable.BuildVideoRows(t.videos, t.vidCols, t.aux.RenderCtx(nil))).WithHighlightedRow(0)
+		t.vidTable = t.vidTable.WithRows(videotable.BuildVideoRows(videotable.EnrichAll(t.videos, t.aux, nil), t.vidCols)).WithHighlightedRow(0)
 		t.drillCh = nil
 		t.chVideos = nil
 		t.onVideos = len(t.channels) == 0
@@ -249,7 +233,7 @@ func (t Search) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.chLoading = false
 		t.chVideos = m.videos
 		t.drillTable = t.drillTable.
-			WithRows(videotable.BuildVideoRows(t.chVideos, t.drillCols, t.aux.RenderCtx(nil))).
+			WithRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.drillCols)).
 			WithHighlightedRow(0)
 		return t, nil
 
