@@ -39,8 +39,8 @@ func (r LocalVideoRow) GetIndicator() string {
 
 func toLocalVideoRows(videos []domain.LocalVideo) []LocalVideoRow {
 	rows := make([]LocalVideoRow, len(videos))
-	for i, v := range videos {
-		rows[i] = LocalVideoRow{v}
+	for i := range videos {
+		rows[i] = LocalVideoRow{videos[i]}
 	}
 	return rows
 }
