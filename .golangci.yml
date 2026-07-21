@@ -27,6 +27,7 @@ linters:
     - ineffassign    # detect ineffective assignments
     # Security
     - gosec          # security checks (G202/G204/G304/G104 excluded below)
+    - funlen
 
   settings:
     govet:
@@ -143,6 +144,10 @@ linters:
         - G204  # subprocess: intentional tool launching (yt-dlp, mpv, editor)
         - G304  # file include: legitimate config/debug file path ops
         - G104  # unhandled errors: covered by errcheck exclusions (Close/Rollback)
+
+    funlen:
+      lines: 150       # Target: Flag functions longer than 60 lines
+      statements: 100  # Target: Flag functions longer than 40 statements
 
 issues:
   exclude-rules:
