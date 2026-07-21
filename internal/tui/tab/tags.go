@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"sort"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
@@ -13,10 +17,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	etable "github.com/evertras/bubble-table/table"
 )
 

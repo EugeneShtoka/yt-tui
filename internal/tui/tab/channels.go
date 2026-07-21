@@ -5,6 +5,11 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
@@ -12,11 +17,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	etable "github.com/evertras/bubble-table/table"
 )
 
@@ -35,7 +35,6 @@ const (
 	chEditAlias = 1
 	chEditTags  = 2
 )
-
 
 // ChannelRow is the cell input type for the channel list table.
 type ChannelRow struct {
@@ -77,8 +76,8 @@ type Channels struct {
 	subs     channels.ChannelSet
 	chLatest map[string]domain.Video
 	loading  bool
-	sortMode  int
-	spinner   spinner.Model
+	sortMode int
+	spinner  spinner.Model
 
 	aux videotable.AuxData
 
@@ -97,8 +96,8 @@ type Channels struct {
 
 	// channel list table (manual nav, direct etable.Model access needed)
 	chTable etable.Model
-	chCols []videotable.ColumnDef[ChannelRow]
-	numBuf string
+	chCols  []videotable.ColumnDef[ChannelRow]
+	numBuf  string
 
 	// video-list table — uses TableNav
 	chVidNav  videotable.TableNav
@@ -129,15 +128,15 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		sortMode:           chSortDate,
 		spinner:            spinner.New(),
 		editInput:          textinput.New(),
-		chTable:   videotable.NewTable(chCols),
-		chVidNav:  videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
-		chCols:    chCols,
-		chVidCols: chVidCols,
+		chTable:            videotable.NewTable(chCols),
+		chVidNav:           videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
+		chCols:             chCols,
+		chVidCols:          chVidCols,
 	}
 }
 
-func (t Channels) ID() tuipkg.TabID         { return tuipkg.TabChannels }
-func (t Channels) Title() string            { return "Channels" }
+func (t Channels) ID() tuipkg.TabID { return tuipkg.TabChannels }
+func (t Channels) Title() string    { return "Channels" }
 func (t Channels) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.SortChord}
 }

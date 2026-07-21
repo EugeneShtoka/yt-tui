@@ -3,6 +3,10 @@ package tab
 import (
 	"context"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
@@ -10,10 +14,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 type subLoadedMsg struct {
@@ -54,9 +54,9 @@ func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Su
 	}
 }
 
-func (t Subscriptions) ID() tuipkg.TabID         { return tuipkg.TabSubscriptions }
-func (t Subscriptions) Title() string            { return "Subscriptions" }
-func (t Subscriptions) InterceptsInput() bool    { return false }
+func (t Subscriptions) ID() tuipkg.TabID      { return tuipkg.TabSubscriptions }
+func (t Subscriptions) Title() string         { return "Subscriptions" }
+func (t Subscriptions) InterceptsInput() bool { return false }
 func (t Subscriptions) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.Unsubscribe, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

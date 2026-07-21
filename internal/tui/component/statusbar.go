@@ -4,10 +4,10 @@ import (
 	"strings"
 	"time"
 
-	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 )
 
 // StatusBar renders the single-line status row at the bottom of the screen.

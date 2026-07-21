@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
@@ -13,9 +16,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	etable "github.com/evertras/bubble-table/table"
 )
 
@@ -100,9 +100,9 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 	}
 }
 
-func (t History) ID() tuipkg.TabID         { return tuipkg.TabHistory }
-func (t History) Title() string            { return "History" }
-func (t History) InterceptsInput() bool    { return false }
+func (t History) ID() tuipkg.TabID      { return tuipkg.TabHistory }
+func (t History) Title() string         { return "History" }
+func (t History) InterceptsInput() bool { return false }
 func (t History) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.DrillDown, t.keys.Delete, t.keys.CopyURL, t.keys.SortChord}
 }

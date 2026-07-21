@@ -3,6 +3,10 @@ package tab
 import (
 	"context"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
@@ -10,10 +14,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 type recCacheMsg struct{ videos []domain.Video }
@@ -52,9 +52,9 @@ func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Reco
 	}
 }
 
-func (t Recommended) ID() tuipkg.TabID         { return tuipkg.TabRecommended }
-func (t Recommended) Title() string            { return "Recommended" }
-func (t Recommended) InterceptsInput() bool    { return false }
+func (t Recommended) ID() tuipkg.TabID      { return tuipkg.TabRecommended }
+func (t Recommended) Title() string         { return "Recommended" }
+func (t Recommended) InterceptsInput() bool { return false }
 func (t Recommended) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.HideVideo, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

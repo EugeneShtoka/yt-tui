@@ -5,6 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
@@ -13,11 +18,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	etable "github.com/evertras/bubble-table/table"
 )
 
@@ -106,8 +106,8 @@ func NewSearch(backend api.Backend, keys keymap.KeyMap, circular bool) Search {
 	}
 }
 
-func (t Search) ID() tuipkg.TabID         { return tuipkg.TabSearch }
-func (t Search) Title() string            { return "Search" }
+func (t Search) ID() tuipkg.TabID { return tuipkg.TabSearch }
+func (t Search) Title() string    { return "Search" }
 func (t Search) ShortHelp() []key.Binding {
 	if t.input.Focused() {
 		return nil

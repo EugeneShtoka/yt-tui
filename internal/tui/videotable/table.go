@@ -1,9 +1,9 @@
 package videotable
 
 import (
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"charm.land/bubbles/v2/key"
-  "charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	etable "github.com/evertras/bubble-table/table"
 )
 

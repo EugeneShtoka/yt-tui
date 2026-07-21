@@ -59,9 +59,9 @@ func SetDurFmt(f DurFmt) {
 type DateFmt string
 
 const (
-	DateFmtDMY DateFmt = "dd/mm/yyyy" // 21/07/2026 — default
-	DateFmtMDY DateFmt = "mm/dd/yyyy" // 07/21/2026
-	DateFmtYMD DateFmt = "yyyy-mm-dd" // 2026-07-21
+	DateFmtDMY     DateFmt = "dd/mm/yyyy" // 21/07/2026 — default
+	DateFmtMDY     DateFmt = "mm/dd/yyyy" // 07/21/2026
+	DateFmtYMD     DateFmt = "yyyy-mm-dd" // 2026-07-21
 	DateFmtDMYDash DateFmt = "dd-mm-yyyy" // 21-07-2026
 )
 

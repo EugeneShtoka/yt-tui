@@ -50,4 +50,3 @@ func (lv LocalVideo) GetIndicator() string {
 	}
 	return "   "
 }
-

@@ -896,4 +896,3 @@ func rProtoCachedDetails(pb *v1.CachedDetails) domain.CachedDetails {
 	}
 	return cd
 }
-

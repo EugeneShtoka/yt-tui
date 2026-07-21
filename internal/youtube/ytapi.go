@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
-	tea "charm.land/bubbletea/v2"
 )
 
 // YTClient holds browser-extracted cookies and can make YouTube innertube API calls.

@@ -3,8 +3,8 @@ package styles
 import (
 	"image/color"
 
-	"github.com/EugeneShtoka/yt-tui/internal/theme"
 	"charm.land/lipgloss/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/theme"
 )
 
 var (

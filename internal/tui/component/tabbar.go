@@ -3,8 +3,8 @@ package component
 import (
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	tea "charm.land/bubbletea/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 )
 
 // TabBar renders the row of tab labels at the top of the screen.

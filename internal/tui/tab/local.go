@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
@@ -12,9 +15,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 type localLoadedMsg struct {
@@ -64,9 +64,9 @@ func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
 	}
 }
 
-func (t Local) ID() tuipkg.TabID         { return tuipkg.TabLocal }
-func (t Local) Title() string            { return "Local" }
-func (t Local) InterceptsInput() bool    { return false }
+func (t Local) ID() tuipkg.TabID      { return tuipkg.TabLocal }
+func (t Local) Title() string         { return "Local" }
+func (t Local) InterceptsInput() bool { return false }
 func (t Local) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.Delete, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

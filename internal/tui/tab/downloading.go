@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 type dlItemsMsg struct{ items []api.DownloadItem }
@@ -28,7 +28,6 @@ var (
 	dlStyleFill     = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd75f"))
 	dlStyleEmpty    = lipgloss.NewStyle().Faint(true)
 )
-
 
 type Downloading struct {
 	backend  api.Backend
@@ -66,10 +65,12 @@ func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Down
 	}
 }
 
-func (t Downloading) ID() tuipkg.TabID         { return tuipkg.TabDownloading }
-func (t Downloading) Title() string            { return "Downloading" }
-func (t Downloading) ShortHelp() []key.Binding { return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL} }
-func (t Downloading) InterceptsInput() bool    { return false }
+func (t Downloading) ID() tuipkg.TabID { return tuipkg.TabDownloading }
+func (t Downloading) Title() string    { return "Downloading" }
+func (t Downloading) ShortHelp() []key.Binding {
+	return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL}
+}
+func (t Downloading) InterceptsInput() bool { return false }
 
 func (t Downloading) Init() tea.Cmd {
 	return tea.Batch(t.fetchItemsCmd(), t.subscribeEventsCmd(), t.spinner.Tick)

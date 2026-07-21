@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // ── private messages ──────────────────────────────────────────────────────────
@@ -25,18 +25,18 @@ type atpPlaylistsLoadedMsg struct {
 }
 
 type atpCreatedMsg struct {
-	name   string
-	id     string // YT playlist ID (empty for local)
+	name    string
+	id      string // YT playlist ID (empty for local)
 	localID int64
-	err    error
+	err     error
 }
 
 // ── AddToPlaylist ─────────────────────────────────────────────────────────────
 
 // AddToPlaylist is the "add video to playlist" modal overlay.
 type AddToPlaylist struct {
-	backend api.Backend
-	keys    keymap.KeyMap
+	backend  api.Backend
+	keys     keymap.KeyMap
 	circular bool
 
 	video domain.Video

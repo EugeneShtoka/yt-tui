@@ -3,10 +3,10 @@ package app
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
-	tea "charm.land/bubbletea/v2"
 )
 
 // tabIDByName maps the lowercase command-bar name to a TabID.

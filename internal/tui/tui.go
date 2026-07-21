@@ -1,16 +1,16 @@
 package tui
 
 import (
-	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
 // TabID is a typed identifier for each tab, used in navigation messages.
 type TabID int
 
 const (
-	TabRecommended   TabID = iota
+	TabRecommended TabID = iota
 	TabSubscriptions
 	TabChannels
 	TabTags

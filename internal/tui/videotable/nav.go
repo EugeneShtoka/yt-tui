@@ -3,10 +3,10 @@ package videotable
 import (
 	"strconv"
 
-	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	etable "github.com/evertras/bubble-table/table"
 )
 

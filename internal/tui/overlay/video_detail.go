@@ -6,19 +6,19 @@ import (
 	"image"
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/api"
-	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	"github.com/EugeneShtoka/yt-tui/internal/domain/media"
-	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"github.com/EugeneShtoka/yt-tui/internal/sys"
-	"github.com/atotto/clipboard"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/EugeneShtoka/yt-tui/internal/api"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+	"github.com/EugeneShtoka/yt-tui/internal/domain/media"
+	"github.com/EugeneShtoka/yt-tui/internal/sys"
+	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
+	"github.com/atotto/clipboard"
 )
 
 const panelW = 52
@@ -47,9 +47,9 @@ type VideoDetail struct {
 	keys         keymap.KeyMap
 	closeOnLinks bool // cfg.CloseOnLinkOpen
 
-	video    *domain.VideoDetails
-	loading  bool
-	spinner  spinner.Model
+	video   *domain.VideoDetails
+	loading bool
+	spinner spinner.Model
 
 	descLines []string
 	descVS    int
@@ -60,10 +60,10 @@ type VideoDetail struct {
 	thumbB64      string
 	thumbRendered string
 
-	subState    vdSubState
-	linkSel     int
-	chapterSel  int
-	circular    bool
+	subState   vdSubState
+	linkSel    int
+	chapterSel int
+	circular   bool
 }
 
 // NewVideoDetail creates a VideoDetail overlay that immediately starts loading
@@ -88,7 +88,7 @@ func (vd VideoDetail) WidthReduction() int   { return panelW }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
-func (vd VideoDetail) Init() tea.Cmd { return nil }
+func (vd VideoDetail) Init() tea.Cmd  { return nil }
 func (vd VideoDetail) View() tea.View { return tea.NewView("") } // rendering done via Render(behind,...)
 
 func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -452,8 +452,8 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	}
 	lines = append(lines, styles.Help.Width(innerW).Render(""), styles.Help.Width(innerW).Render(footerText))
 
-	title := " Video Details " 
-	top := accent.Render("╭─" + title + strings.Repeat("─", innerW - len(title) - 1) + "╮")
+	title := " Video Details "
+	top := accent.Render("╭─" + title + strings.Repeat("─", innerW-len(title)-1) + "╮")
 	bot := accent.Render("╰" + strings.Repeat("─", innerW) + "╯")
 	rows := make([]string, 0, panelH)
 	rows = append(rows, top)
@@ -541,7 +541,7 @@ func (vd VideoDetail) thumbDimensions() (w, h int) {
 		iw := b.Max.X - b.Min.X
 		ih := b.Max.Y - b.Min.Y
 		if iw > 0 && ih > 0 {
-			if h := (thumbW*ih+iw-1) / iw / 2; h >= 1 {
+			if h := (thumbW*ih + iw - 1) / iw / 2; h >= 1 {
 				thumbH = h
 			}
 		}

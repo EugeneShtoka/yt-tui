@@ -3,9 +3,9 @@ package videotable
 import (
 	"context"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
-	tea "charm.land/bubbletea/v2"
 )
 
 // AuxData carries per-video playback state used by all feed-showing tabs.
@@ -36,4 +36,3 @@ func LoadAuxDataCmd(backend api.Backend) tea.Cmd {
 		}
 	}
 }
-

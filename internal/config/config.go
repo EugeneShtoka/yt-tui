@@ -222,8 +222,8 @@ type ClientConfig struct {
 	PlayerBackend   string      `toml:"player_backend"`
 	Theme           string      `toml:"theme,omitempty"`
 	Tabs            []string    `toml:"tabs"`
-	HintMode        string      `toml:"hint_mode"`        // "full" | "minimal" | "none"
-	DurationFormat  string      `toml:"duration_format"`  // see render.DurFmt constants
+	HintMode        string      `toml:"hint_mode"`       // "full" | "minimal" | "none"
+	DurationFormat  string      `toml:"duration_format"` // see render.DurFmt constants
 	CloseOnLinkOpen bool        `toml:"close_on_link_open"`
 	CircularNav     bool        `toml:"circular_nav"`
 	Keybindings     KeyBindings `toml:"keybindings"`

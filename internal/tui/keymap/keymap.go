@@ -3,8 +3,8 @@ package keymap
 import (
 	"strings"
 
-	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"charm.land/bubbles/v2/key"
+	"github.com/EugeneShtoka/yt-tui/internal/config"
 )
 
 // SortKeyMap holds the second-key bindings for the sort chord (s → <key>).

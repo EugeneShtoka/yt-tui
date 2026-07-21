@@ -3,12 +3,12 @@ package tab
 import (
 	"strconv"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 )
 
 // ── transitional nav helpers (removed as tabs migrate to TableNav) ────────────

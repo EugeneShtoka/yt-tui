@@ -6,6 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
@@ -13,11 +18,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	etable "github.com/evertras/bubble-table/table"
 )
 
@@ -26,7 +26,7 @@ const ytWatchLaterID = "WL"
 type plCreateStage int
 
 const (
-	plCreateNone        plCreateStage = iota
+	plCreateNone plCreateStage = iota
 	plCreateTypeSelect
 	plCreateNameInput
 )
@@ -89,11 +89,11 @@ type Playlists struct {
 	createModeYT  bool
 	createInput   textinput.Model
 
-	spinner  spinner.Model
-	plNav    videotable.TableNav
-	vidNav   videotable.TableNav
-	plCols   []videotable.ColumnDef[PlaylistRow]
-	vidCols  []videotable.ColumnDef[videotable.VideoData]
+	spinner spinner.Model
+	plNav   videotable.TableNav
+	vidNav  videotable.TableNav
+	plCols  []videotable.ColumnDef[PlaylistRow]
+	vidCols []videotable.ColumnDef[videotable.VideoData]
 }
 
 func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playlists {
@@ -122,8 +122,8 @@ func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playli
 	}
 }
 
-func (t Playlists) ID() tuipkg.TabID         { return tuipkg.TabPlaylists }
-func (t Playlists) Title() string            { return "Playlists" }
+func (t Playlists) ID() tuipkg.TabID { return tuipkg.TabPlaylists }
+func (t Playlists) Title() string    { return "Playlists" }
 func (t Playlists) ShortHelp() []key.Binding {
 	if t.pane == 1 {
 		return []key.Binding{t.keys.Play, t.keys.Download, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}

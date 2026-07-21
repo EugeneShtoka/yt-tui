@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
-	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	v1 "github.com/EugeneShtoka/yt-tui/internal/api/backend/v1"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

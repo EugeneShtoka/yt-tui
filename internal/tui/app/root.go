@@ -5,6 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/device/player"
@@ -16,9 +19,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/tab"
 	"github.com/atotto/clipboard"
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // playerStartedMsg is a root-internal signal emitted by playCmd after the
@@ -411,7 +411,7 @@ func (r Root) updateTopOverlay(msg tea.Msg) (Root, tea.Cmd) {
 
 func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 	n := len(r.tabs)
-	r.activeIdx = ((r.activeIdx + dir) % n + n) % n
+	r.activeIdx = ((r.activeIdx+dir)%n + n) % n
 	r.tabBar = r.tabBar.WithActive(r.activeIdx)
 	r.statusBar = r.statusBar.WithHints(r.tabHints())
 	if r.activeTab().ID() == tuipkg.TabSearch {
