@@ -38,8 +38,8 @@ func enrichHistoryRows(entries []domain.HistoryEntry, positions map[string]int64
 	rows := make([]HistoryRow, len(entries))
 	for i := range entries {
 		rows[i] = HistoryRow{
-			HistoryEntry:     &entries[i],
-			lastPositionSecs: int(positions[&entries[i].VideoID] / 1000),
+			HistoryEntry:     entries[i],
+			lastPositionSecs: int(positions[entries[i].VideoID] / 1000),
 		}
 	}
 	return rows

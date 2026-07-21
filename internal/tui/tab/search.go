@@ -21,9 +21,6 @@ import (
 	etable "github.com/evertras/bubble-table/table"
 )
 
-const (
-)
-
 type srchResultMsg struct {
 	query    string
 	channels []domain.Channel

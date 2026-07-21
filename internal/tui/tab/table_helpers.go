@@ -1,7 +1,6 @@
 package tab
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -11,10 +10,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
-
-func ralign(s string, width int) string {
-	return fmt.Sprintf("%*s", width, s)
-}
 
 // ── transitional nav helpers (removed as tabs migrate to TableNav) ────────────
 
