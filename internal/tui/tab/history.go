@@ -36,10 +36,10 @@ func (r HistoryRow) GetLastPositionSecs() int { return r.lastPositionSecs }
 
 func enrichHistoryRows(entries []domain.HistoryEntry, positions map[string]int64) []HistoryRow {
 	rows := make([]HistoryRow, len(entries))
-	for i, e := range entries {
+	for i := range entries {
 		rows[i] = HistoryRow{
-			HistoryEntry:     e,
-			lastPositionSecs: int(positions[e.VideoID] / 1000),
+			HistoryEntry:     &entries[i],
+			lastPositionSecs: int(positions[&entries[i].VideoID] / 1000),
 		}
 	}
 	return rows
