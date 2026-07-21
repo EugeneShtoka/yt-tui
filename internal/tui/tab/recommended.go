@@ -39,8 +39,8 @@ type Recommended struct {
 
 func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Recommended {
 	cols := []videotable.ColumnDef[videotable.VideoData]{
-		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
-		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
+		videotable.ChannelCol[videotable.VideoData](), videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Recommended{
 		backend:  backend,
@@ -70,7 +70,7 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -82,7 +82,7 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recCacheMsg:
 		t.feed = feed.NewStarting(m.videos)
 		t.feed.Sort(t.sortMode)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 		t.nav.GotoRow(0)
 		return t, t.recFetchCmd()
 
@@ -90,20 +90,20 @@ func (t Recommended) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cursor := t.feed.Merge(m.videos, t.nav.Index(), 0)
 		t.feed.FinishFetch()
 		t.feed.Sort(t.sortMode)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 		t.nav.GotoRow(cursor)
 		return t, t.recSaveCacheCmd()
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
 
 	case recHiddenMsg:
 		t.feed.RemoveVideo(m.videoID)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 
 	case tea.KeyPressMsg:
 		return t.recHandleKey(m)
@@ -148,7 +148,7 @@ func (t Recommended) recHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		t.feed.Sort(t.sortMode)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, nil), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 		return t, nil
 	}
 

@@ -50,7 +50,7 @@ func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Down
 		videotable.NumCol[api.DownloadItem](),
 		videotable.BlankIndicatorCol[api.DownloadItem](),
 		videotable.AudioTitleFlexCol[api.DownloadItem](),
-		videotable.ChannelCol[api.DownloadItem](nil),
+		videotable.ChannelCol[api.DownloadItem](),
 		videotable.DlDurationCol[api.DownloadItem](),
 		videotable.DlStatusCol[api.DownloadItem](func(item api.DownloadItem) any { return dlRenderStatus(item) }),
 	}

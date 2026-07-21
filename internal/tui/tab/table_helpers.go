@@ -1,54 +1,12 @@
 package tab
 
 import (
-	"strconv"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
-	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 )
-
-// ── transitional nav helpers (removed as tabs migrate to TableNav) ────────────
-
-func handleGotoPrefix(active *bool, keys keymap.KeyMap, msg tea.KeyPressMsg) (consumed, doGotoTop bool) {
-	if key.Matches(msg, keys.GotoPrefix) {
-		if *active {
-			*active = false
-			return true, true
-		}
-		*active = true
-		return true, false
-	}
-	*active = false
-	return false, false
-}
-
-func checkGotoNum(buf *string, msg tea.KeyPressMsg) bool {
-	if len(msg.Text) == 1 {
-		if r := rune(msg.Text[0]); r >= '0' && r <= '9' {
-			*buf += string(r)
-			return true
-		}
-	}
-	return false
-}
-
-func gotoRowIndex(numBuf string) int {
-	if n, err := strconv.Atoi(numBuf); err == nil && n > 0 {
-		return n - 1
-	}
-	return -1
-}
-
-func gotoLineView(numBuf string) string {
-	if numBuf == "" {
-		return ""
-	}
-	return styles.Bold.Render(":" + numBuf + "▌")
-}
 
 // HandleVideoAction dispatches the 8 universal pure-message video actions:
 // Play, PlayAudio, Download, DownloadAudio, CopyURL, VideoInfo, AddList, HideChannel.

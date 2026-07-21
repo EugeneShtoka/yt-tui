@@ -26,20 +26,28 @@ type histDetailLoadedMsg struct {
 }
 type histDeletedMsg struct{ title string }
 
-// HistoryRow wraps a HistoryEntry with a pre-enriched playback position.
+// HistoryRow wraps a HistoryEntry with pre-enriched playback position and alias.
 type HistoryRow struct {
 	domain.HistoryEntry
 	lastPositionSecs int
+	displayChannel   string
 }
 
 func (r HistoryRow) GetLastPositionSecs() int { return r.lastPositionSecs }
+func (r HistoryRow) GetChannelName() string {
+	if r.displayChannel != "" {
+		return r.displayChannel
+	}
+	return r.HistoryEntry.GetChannelName()
+}
 
-func enrichHistoryRows(entries []domain.HistoryEntry, positions map[string]int64) []HistoryRow {
+func enrichHistoryRows(entries []domain.HistoryEntry, aux videotable.AuxData) []HistoryRow {
 	rows := make([]HistoryRow, len(entries))
 	for i := range entries {
 		rows[i] = HistoryRow{
 			HistoryEntry:     entries[i],
-			lastPositionSecs: int(positions[entries[i].VideoID] / 1000),
+			lastPositionSecs: int(aux.Positions[entries[i].VideoID] / 1000),
+			displayChannel:   aux.Aliases[entries[i].ChannelID],
 		}
 	}
 	return rows
@@ -73,9 +81,9 @@ func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History 
 		videotable.IndicatorCol[HistoryRow](),
 		videotable.StyledLabelCol[HistoryRow]("Type", videotable.ColHistStatus, styles.Warning),
 		videotable.AudioTitleFlexCol[HistoryRow](),
-		videotable.ChannelCol[HistoryRow](nil),
+		videotable.ChannelCol[HistoryRow](),
 		videotable.DurationCol[HistoryRow](),
-		videotable.CountCol[HistoryRow]("Views"),
+		videotable.ViewsCol[HistoryRow](),
 		videotable.DateCol[HistoryRow](),
 	}
 	dCols := []videotable.ColumnDef[domain.HistoryEntry]{
@@ -116,20 +124,20 @@ func (t History) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux), t.histCols))
 		t.detailNav.Resize(m.Width, m.Height)
 	case tuipkg.HistoryChangedMsg:
 		return t, t.loadCmd()
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux), t.histCols))
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
 	case histLoadedMsg:
 		t.entries = m.entries
 		feed.SortHistoryEntries(t.entries, t.sortMode)
 		t.loaded = true
-		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux), t.histCols))
 		t.nav.GotoRow(0)
 		t.detailVideoID = ""
 	case histDetailLoadedMsg:
@@ -171,7 +179,7 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		feed.SortHistoryEntries(t.entries, t.sortMode)
-		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+		t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux), t.histCols))
 		return t, nil
 	}
 
@@ -219,7 +227,7 @@ func (t History) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if idx < n {
 			e := t.entries[idx]
 			t.entries = append(t.entries[:idx], t.entries[idx+1:]...)
-			t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux.Positions), t.histCols))
+			t.nav.SetRows(videotable.BuildRows(enrichHistoryRows(t.entries, t.aux), t.histCols))
 			return t, t.histDeleteCmd(e)
 		}
 	case key.Matches(msg, keys.HideChannel):

@@ -151,3 +151,21 @@ func (n *TableNav) Model() etable.Model {
 func (n *TableNav) SetModel(tbl etable.Model) {
 	n.tbl = tbl
 }
+
+// SetWidth sets only the table width, leaving height unchanged.
+func (n *TableNav) SetWidth(w int) {
+	n.tbl = n.tbl.WithTargetWidth(w)
+}
+
+// SetTargetHeight sets the rendered table height and adjusts the internal
+// total height so page-step equals h (for split-pane use where height is
+// not simply totalHeight-overhead).
+func (n *TableNav) SetTargetHeight(h int) {
+	n.tbl = n.tbl.WithTargetHeight(h)
+	n.height = h + n.overhead
+}
+
+// ClearNumBuf discards any partially typed goto-line digits.
+func (n *TableNav) ClearNumBuf() {
+	n.numBuf = ""
+}

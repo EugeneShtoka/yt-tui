@@ -50,9 +50,9 @@ func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
 		videotable.NumCol[domain.LocalVideo](),
 		videotable.IndicatorCol[domain.LocalVideo](),
 		videotable.AudioTitleFlexCol[domain.LocalVideo](),
-		videotable.ChannelCol[domain.LocalVideo](nil),
+		videotable.ChannelCol[domain.LocalVideo](),
 		videotable.DurationCol[domain.LocalVideo](),
-		videotable.CountCol[domain.LocalVideo]("Views"),
+		videotable.ViewsCol[domain.LocalVideo](),
 		videotable.DateCol[domain.LocalVideo](),
 	}
 	return Local{

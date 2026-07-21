@@ -13,7 +13,7 @@ type HasAudioTitle interface {
 }
 
 // HasChannelInfo is implemented by row types that have an associated channel.
-// ChannelCol uses GetChannelID to look up aliases; falls back to GetChannelName.
+// Alias resolution happens at enrich time; GetChannelName returns the display-ready value.
 type HasChannelInfo interface {
 	GetChannelID() string
 	GetChannelName() string

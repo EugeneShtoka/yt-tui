@@ -17,8 +17,7 @@ import (
 )
 
 type subLoadedMsg struct {
-	videos   []domain.Video
-	channels []domain.Channel
+	videos []domain.Video
 }
 
 type Subscriptions struct {
@@ -28,12 +27,11 @@ type Subscriptions struct {
 
 	width, height int
 
-	feed           feed.Feed
-	channelAliases map[string]string
-	spinner        spinner.Model
-	nav            videotable.TableNav
-	cols           []videotable.ColumnDef[videotable.VideoData]
-	aux            videotable.AuxData
+	feed    feed.Feed
+	spinner spinner.Model
+	nav     videotable.TableNav
+	cols    []videotable.ColumnDef[videotable.VideoData]
+	aux     videotable.AuxData
 
 	sortMode        int
 	sortChordActive bool
@@ -41,8 +39,8 @@ type Subscriptions struct {
 
 func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Subscriptions {
 	cols := []videotable.ColumnDef[videotable.VideoData]{
-		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
-		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
+		videotable.ChannelCol[videotable.VideoData](), videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Subscriptions{
 		backend:  backend,
@@ -72,7 +70,7 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.nav.Resize(m.Width, m.Height)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 
 	case spinner.TickMsg:
 		if t.feed.Loading() || t.feed.Refreshing() {
@@ -84,18 +82,12 @@ func (t Subscriptions) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subLoadedMsg:
 		t.feed = feed.New(m.videos)
 		t.feed.Sort(t.sortMode)
-		t.channelAliases = make(map[string]string, len(m.channels))
-		for _, ch := range m.channels {
-			if ch.Alias != "" {
-				t.channelAliases[ch.ID] = ch.Alias
-			}
-		}
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 		t.nav.GotoRow(0)
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -143,7 +135,7 @@ func (t Subscriptions) subHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = feed.SortDuration
 		}
 		t.feed.Sort(t.sortMode)
-		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
+		t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 		return t, nil
 	}
 
@@ -162,7 +154,7 @@ func (t Subscriptions) subHandleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if v, ok := t.feed.At(idx); ok {
 			ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
 			t.feed.RemoveChannel(ch)
-			t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux, t.channelAliases), t.cols))
+			t.nav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.feed.Videos(), t.aux), t.cols))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 		}
 	case key.Matches(msg, keys.SortChord):
@@ -193,6 +185,6 @@ func (t Subscriptions) subLoadCmd() tea.Cmd {
 			return tuipkg.StatusMsg{Text: "subscriptions: " + err.Error(), IsErr: true}
 		}
 		feed.SortVideos(videos, feed.SortDate)
-		return subLoadedMsg{videos: videos, channels: channels}
+		return subLoadedMsg{videos: videos}
 	}
 }

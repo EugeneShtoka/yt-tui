@@ -105,8 +105,8 @@ func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playli
 		videotable.TitleFlexCol[PlaylistRow](),
 	}
 	vidCols := []videotable.ColumnDef[videotable.VideoData]{
-		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
-		videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
+		videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Playlists{
 		backend:     backend,
@@ -182,7 +182,7 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vids := m.videos
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[m.playlistID] = vids
-		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.vidCols))
+		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.vidCols))
 
 	case videotable.AuxDataMsg:
 		t.aux = m
@@ -382,7 +382,7 @@ func (t Playlists) handleVideoPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		}
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[plKey] = vids
-		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.vidCols))
+		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.vidCols))
 		return t, nil
 	}
 
@@ -523,7 +523,7 @@ func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playli
 		}
 	}
 	t.vidCache[plKey] = updated
-	t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(updated, t.aux, nil), t.vidCols))
+	t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(updated, t.aux), t.vidCols))
 
 	vidID := vid.ID
 	if localID := plLocalID(plKey); localID != 0 {

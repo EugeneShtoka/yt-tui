@@ -98,14 +98,15 @@ type Tags struct {
 
 	aux videotable.AuxData
 
-	pane          int
-	tagSel        string
-	gotoTopActive bool
-	numBuf        string
+	pane   int
+	tagSel string
 
-	tagTable   etable.Model
+	// tag list table — uses TableNav
+	tagNav  videotable.TableNav
+	tagCols []videotable.ColumnDef[TagRow]
+
+	// tag video table — uses TableNav
 	tagVidNav  videotable.TableNav
-	tagCols    []videotable.ColumnDef[TagRow]
 	tagVidCols []videotable.ColumnDef[videotable.VideoData]
 }
 
@@ -116,15 +117,15 @@ func NewTags(backend api.Backend, keys keymap.KeyMap, circular bool) Tags {
 		videotable.TitleFlexCol[TagRow](),
 	}
 	tagVidCols := []videotable.ColumnDef[videotable.VideoData]{
-		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
-		videotable.VideoChannelCol(), videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
+		videotable.ChannelCol[videotable.VideoData](), videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Tags{
 		backend:    backend,
 		keys:       keys,
 		circular:   circular,
 		spinner:    spinner.New(),
-		tagTable:   videotable.NewTable(tagCols),
+		tagNav:     videotable.NewTableNav(videotable.NewTable(tagCols), circular, 2),
 		tagVidNav:  videotable.NewTableNav(videotable.NewVideoTable(tagVidCols), circular, 4),
 		tagCols:    tagCols,
 		tagVidCols: tagVidCols,
@@ -146,10 +147,10 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.tagTable = t.tagTable.WithTargetWidth(m.Width).WithTargetHeight(m.Height - 2)
-		t.tagTable = t.tagTable.WithRows(t.toTagRows())
+		t.tagNav.Resize(m.Width, m.Height)
+		t.tagNav.SetRows(t.toTagRows())
 		t.tagVidNav.Resize(m.Width, m.Height-2)
-		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux, nil), t.tagVidCols))
+		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux), t.tagVidCols))
 
 	case spinner.TickMsg:
 		if t.loading {
@@ -162,11 +163,11 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.subs = channels.New(m.chans)
 		t.subVideos = m.subVideos
 		t.loading = false
-		t.tagTable = t.tagTable.WithRows(t.toTagRows())
+		t.tagNav.SetRows(t.toTagRows())
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux, nil), t.tagVidCols))
+		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux), t.tagVidCols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -183,8 +184,6 @@ func (t Tags) View() tea.View {
 		headerText += "  " + styles.Dim.Render(t.spinner.View()+" loading…")
 	}
 	header := styles.SectionTitle.Render(headerText)
-	headerH := lipgloss.Height(header)
-	contentH := t.height - headerH
 
 	if t.pane == 1 {
 		tagHeader := styles.SectionTitle.Render("← " + t.tagSel)
@@ -195,15 +194,14 @@ func (t Tags) View() tea.View {
 		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	}
 
-	_ = contentH
 	var body string
 	if t.loading && t.subs.Len() == 0 {
 		body = t.spinner.View() + " Loading tags…"
 	} else {
-		body = t.tagTable.View()
+		body = t.tagNav.View()
 	}
 	parts := []string{header, body}
-	if s := gotoLineView(t.numBuf); s != "" {
+	if s := t.tagNav.NumBufView(); s != "" {
 		parts = append(parts, s)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
@@ -212,86 +210,29 @@ func (t Tags) View() tea.View {
 func (t Tags) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			if t.pane == 1 {
-				t.tagVidNav.GotoRow(0)
-			} else {
-				t.tagTable = t.tagTable.WithHighlightedRow(0)
-			}
-		}
-		return t, nil
-	}
-
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
-
-	if key.Matches(msg, keys.GotoLine) {
-		if t.pane == 1 {
-			n := len(t.tagVideosFor(t.tagSel))
-			if numBuf != "" {
-				if row := gotoRowIndex(numBuf); row >= 0 {
-					t.tagVidNav.GotoRow(row)
-				}
-			} else if n > 0 {
-				t.tagVidNav.GotoRow(n - 1)
-			}
-		} else {
-			n := len(allTagsFrom(t.subs))
-			if numBuf != "" {
-				if row := gotoRowIndex(numBuf); row >= 0 {
-					t.tagTable = t.tagTable.WithHighlightedRow(row)
-				}
-			} else if n > 0 {
-				t.tagTable = t.tagTable.WithHighlightedRow(n - 1)
-			}
-		}
-		return t, nil
-	}
-
 	if t.pane == 0 {
-		return t.handleKeyList(msg, numBuf)
-	}
-	return t.handleKeyVids(msg, numBuf)
-}
+		items := allTagsFrom(t.subs)
+		n := len(items)
 
-func (t Tags) handleKeyList(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
-	keys := t.keys
-	items := allTagsFrom(t.subs)
-	n := len(items)
-	idx := t.tagTable.GetHighlightedRowIndex()
-	switch {
-	case key.Matches(msg, keys.Up):
-		if idx > 0 {
-			t.tagTable = t.tagTable.WithHighlightedRow(idx - 1)
-		} else if t.circular && n > 0 {
-			t.tagTable = t.tagTable.WithHighlightedRow(n - 1)
+		if t.tagNav.HandleNav(msg, keys, n) {
+			return t, nil
 		}
-	case key.Matches(msg, keys.Down):
-		if idx < n-1 {
-			t.tagTable = t.tagTable.WithHighlightedRow(idx + 1)
-		} else if t.circular && n > 0 {
-			t.tagTable = t.tagTable.WithHighlightedRow(0)
-		}
-	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
-		if idx < n {
-			t.tagSel = items[idx]
-			vids := t.tagVideosFor(t.tagSel)
-			t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux, nil), t.tagVidCols))
-			t.tagVidNav.GotoRow(0)
-			t.pane = 1
-		}
-	}
-	_ = numBuf
-	return t, nil
-}
 
-func (t Tags) handleKeyVids(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
-	keys := t.keys
+		idx := t.tagNav.Index()
+		switch {
+		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
+			if idx < n {
+				t.tagSel = items[idx]
+				vids := t.tagVideosFor(t.tagSel)
+				t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.tagVidCols))
+				t.tagVidNav.GotoRow(0)
+				t.pane = 1
+			}
+		}
+		return t, nil
+	}
+
+	// pane 1: tag video list
 	vids := t.tagVideosFor(t.tagSel)
 	n := len(vids)
 	numBufBefore := t.tagVidNav.NumBufView() != ""
@@ -318,7 +259,6 @@ func (t Tags) handleKeyVids(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.
 			}
 		}
 	}
-	_ = numBuf
 	return t, nil
 }
 

@@ -73,11 +73,12 @@ type Channels struct {
 
 	width, height int
 
-	subs     channels.ChannelSet
-	chLatest map[string]domain.Video
-	loading  bool
-	sortMode int
-	spinner  spinner.Model
+	subs      channels.ChannelSet
+	chLatest  map[string]domain.Video
+	sortedChs []domain.Channel // cached sorted slice, rebuilt on mutation
+	loading   bool
+	sortMode  int
+	spinner   spinner.Model
 
 	aux videotable.AuxData
 
@@ -89,15 +90,13 @@ type Channels struct {
 	activeChURL   string
 
 	sortChordActive bool
-	gotoTopActive   bool
 
 	editMode  int
 	editInput textinput.Model
 
-	// channel list table (manual nav, direct etable.Model access needed)
-	chTable etable.Model
-	chCols  []videotable.ColumnDef[ChannelRow]
-	numBuf  string
+	// channel list table — uses TableNav
+	chNav  videotable.TableNav
+	chCols []videotable.ColumnDef[ChannelRow]
 
 	// video-list table — uses TableNav
 	chVidNav  videotable.TableNav
@@ -110,15 +109,15 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		videotable.BlankIndicatorCol[ChannelRow](),
 		videotable.ChNameCol[ChannelRow](),
 		videotable.ChTagsCol[ChannelRow](),
-		videotable.CountCol[ChannelRow]("Subs"),
+		videotable.SubsCol[ChannelRow](),
 		videotable.TitleFlexCol[ChannelRow](),
 		videotable.ChLatestDurationCol[ChannelRow](),
 		videotable.ChLatestViewsCol[ChannelRow](),
 		videotable.ChLatestDateCol[ChannelRow](),
 	}
 	chVidCols := []videotable.ColumnDef[videotable.VideoData]{
-		videotable.VideoNumCol(), videotable.VideoIndicatorCol(), videotable.VideoTitleCol(),
-		videotable.VideoDurationCol(), videotable.VideoCountCol(), videotable.VideoDateCol(),
+		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
+		videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Channels{
 		backend:            backend,
@@ -128,7 +127,7 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 		sortMode:           chSortDate,
 		spinner:            spinner.New(),
 		editInput:          textinput.New(),
-		chTable:            videotable.NewTable(chCols),
+		chNav:              videotable.NewTableNav(videotable.NewTable(chCols), circular, 2),
 		chVidNav:           videotable.NewTableNav(videotable.NewVideoTable(chVidCols), circular, 4),
 		chCols:             chCols,
 		chVidCols:          chVidCols,
@@ -147,15 +146,21 @@ func (t Channels) Init() tea.Cmd {
 	return tea.Batch(t.chsLoadCmd(), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
 }
 
+// rebuildSorted recomputes and caches the sorted channel slice.
+// Call whenever subs, chLatest, or sortMode changes.
+func (t *Channels) rebuildSorted() {
+	t.sortedChs = t.sortChannelSlice(t.subs.Channels())
+}
+
 func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
-		t.chTable = t.chTable.WithTargetWidth(m.Width).WithTargetHeight(m.Height - 2)
-		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+		t.chNav.Resize(m.Width, m.Height)
+		t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 		t.chVidNav.Resize(m.Width, m.Height-2)
-		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
+		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux), t.chVidCols))
 
 	case spinner.TickMsg:
 		if t.loading || t.chVidsLoading || t.chVidsRefresh {
@@ -168,11 +173,12 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.subs = channels.New(m.chans)
 		t.chLatest = m.latest
 		t.loading = false
-		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+		t.rebuildSorted()
+		t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 
 	case videotable.AuxDataMsg:
 		t.aux = m
-		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
+		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux), t.chVidCols))
 
 	case tuipkg.RefreshPositionsMsg:
 		return t, videotable.LoadAuxDataCmd(t.backend)
@@ -182,7 +188,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = true
-			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux), t.chVidCols))
 			return t, t.chVideosFetchCmd()
 		}
 
@@ -191,7 +197,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.chVideos = m.videos
 			t.chVidsLoading = false
 			t.chVidsRefresh = false
-			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux, nil), t.chVidCols))
+			t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux), t.chVidCols))
 		}
 
 	case tea.KeyPressMsg:
@@ -223,23 +229,22 @@ func (t Channels) viewContent(header string, _ int) string {
 		case t.subs.Len() == 0:
 			body = styles.Dim.Render("No channels found.")
 		default:
-			body = t.chTable.View()
+			body = t.chNav.View()
 		}
 		if t.editMode != chEditNone {
 			body = t.appendEditInput(body)
 		}
 		parts := []string{header, body}
-		if s := gotoLineView(t.numBuf); s != "" {
+		if s := t.chNav.NumBufView(); s != "" {
 			parts = append(parts, s)
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
-	sorted := t.sortedChannels()
 	chName := ""
-	idx := t.chTable.GetHighlightedRowIndex()
-	if idx < len(sorted) {
-		chName = sorted[idx].DisplayName()
+	idx := t.chNav.Index()
+	if idx < len(t.sortedChs) {
+		chName = t.sortedChs[idx].DisplayName()
 	}
 	subHeaderText := "← " + chName
 	if t.chVidsRefresh {
@@ -265,6 +270,7 @@ func (t Channels) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if t.sortChordActive {
 		t.sortChordActive = false
 		sk := keys.Sort
+		changed := true
 		switch {
 		case key.Matches(msg, sk.Date):
 			t.sortMode = chSortDate
@@ -278,78 +284,34 @@ func (t Channels) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.sortMode = chSortSubs
 		case key.Matches(msg, sk.Tags):
 			t.sortMode = chSortTags
+		default:
+			changed = false
 		}
-		t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
-		return t, nil
-	}
-
-	if consumed, doTop := handleGotoPrefix(&t.gotoTopActive, t.keys, msg); consumed {
-		if doTop {
-			t.numBuf = ""
-			if t.pane == 1 {
-				t.chVidNav.GotoRow(0)
-			} else {
-				t.chTable = t.chTable.WithHighlightedRow(0)
-			}
+		if changed {
+			t.rebuildSorted()
+			t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 		}
 		return t, nil
 	}
 
-	if checkGotoNum(&t.numBuf, msg) {
-		return t, nil
-	}
-	numBuf := t.numBuf
-	t.numBuf = ""
-
-	if key.Matches(msg, keys.GotoLine) {
-		if t.pane == 1 {
-			n := len(t.chVideos)
-			if numBuf != "" {
-				if row := gotoRowIndex(numBuf); row >= 0 {
-					t.chVidNav.GotoRow(row)
-				}
-			} else if n > 0 {
-				t.chVidNav.GotoRow(n - 1)
-			}
-		} else {
-			n := len(t.sortedChannels())
-			if numBuf != "" {
-				if row := gotoRowIndex(numBuf); row >= 0 {
-					t.chTable = t.chTable.WithHighlightedRow(row)
-				}
-			} else if n > 0 {
-				t.chTable = t.chTable.WithHighlightedRow(n - 1)
-			}
-		}
-		return t, nil
-	}
-
-	return t.handleKeyFlat(msg, numBuf)
+	return t.handleKeyFlat(msg)
 }
 
-func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, tea.Cmd) {
+func (t Channels) handleKeyFlat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if t.pane == 0 {
-		sorted := t.sortedChannels()
-		n := len(sorted)
-		idx := t.chTable.GetHighlightedRowIndex()
+		n := len(t.sortedChs)
+
+		if t.chNav.HandleNav(msg, keys, n) {
+			return t, nil
+		}
+
+		idx := t.chNav.Index()
 		switch {
-		case key.Matches(msg, keys.Up):
-			if idx > 0 {
-				t.chTable = t.chTable.WithHighlightedRow(idx - 1)
-			} else if t.circular && n > 0 {
-				t.chTable = t.chTable.WithHighlightedRow(n - 1)
-			}
-		case key.Matches(msg, keys.Down):
-			if idx < n-1 {
-				t.chTable = t.chTable.WithHighlightedRow(idx + 1)
-			} else if t.circular && n > 0 {
-				t.chTable = t.chTable.WithHighlightedRow(0)
-			}
 		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 			if idx < n {
-				ch := sorted[idx]
+				ch := t.sortedChs[idx]
 				t.pane = 1
 				if ch.ID == t.activeChID && len(t.chVideos) > 0 {
 					t.chVidsLoading = false
@@ -367,7 +329,7 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 			}
 		case key.Matches(msg, keys.RenameChannel):
 			if idx < n {
-				ch := sorted[idx]
+				ch := t.sortedChs[idx]
 				t.editInput.SetValue(ch.DisplayName())
 				t.editInput.Placeholder = "alias (empty to clear)…"
 				t.editInput.Focus()
@@ -376,7 +338,7 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 			}
 		case key.Matches(msg, keys.TagChannel):
 			if idx < n {
-				ch := sorted[idx]
+				ch := t.sortedChs[idx]
 				t.editInput.SetValue(strings.Join(ch.Tags, ", "))
 				t.editInput.Placeholder = "comma-separated tags…"
 				t.editInput.Focus()
@@ -385,15 +347,15 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 			}
 		case key.Matches(msg, keys.Unsubscribe):
 			if idx < n {
-				ch := sorted[idx]
+				ch := t.sortedChs[idx]
 				t.subs.Remove(ch)
-				t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+				t.rebuildSorted()
+				t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 				return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 			}
 		case key.Matches(msg, keys.SortChord):
 			t.sortChordActive = true
 		}
-		_ = numBuf
 		return t, nil
 	}
 
@@ -416,13 +378,13 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg, numBuf string) (tea.Model, 
 			t.chVidNav.GotoRow(n - 1)
 		}
 	case key.Matches(msg, keys.Unsubscribe):
-		sorted := t.sortedChannels()
-		chIdx := t.chTable.GetHighlightedRowIndex()
-		if chIdx < len(sorted) {
-			ch := sorted[chIdx]
+		chIdx := t.chNav.Index()
+		if chIdx < len(t.sortedChs) {
+			ch := t.sortedChs[chIdx]
 			t.subs.Remove(ch)
 			t.pane = 0
-			t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+			t.rebuildSorted()
+			t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 			return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
 		}
 	default:
@@ -444,13 +406,13 @@ func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return t, nil
 	case key.Matches(msg, keys.DrillDown):
 		val := strings.TrimSpace(t.editInput.Value())
-		sorted := t.sortedChannels()
-		idx := t.chTable.GetHighlightedRowIndex()
-		if idx < len(sorted) {
-			ch := sorted[idx]
+		idx := t.chNav.Index()
+		if idx < len(t.sortedChs) {
+			ch := t.sortedChs[idx]
 			if t.editMode == chEditAlias {
 				t.subs.SetAlias(ch.ID, val)
-				t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+				t.rebuildSorted()
+				t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 				t.editMode = chEditNone
 				t.editInput.Blur()
 				if val == "" {
@@ -460,7 +422,8 @@ func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			tags := parseTags(val)
 			t.subs.SetTags(ch.ID, tags)
-			t.chTable = t.chTable.WithRows(t.toChannelRows(t.sortedChannels()))
+			t.rebuildSorted()
+			t.chNav.SetRows(t.toChannelRows(t.sortedChs))
 			t.editMode = chEditNone
 			t.editInput.Blur()
 			return t, t.chSetTagsCmd(ch.ID, tags)
@@ -473,10 +436,6 @@ func (t Channels) handleEditInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		t.editInput, cmd = t.editInput.Update(msg)
 		return t, cmd
 	}
-}
-
-func (t Channels) sortedChannels() []domain.Channel {
-	return t.sortChannelSlice(t.subs.Channels())
 }
 
 func (t Channels) sortChannelSlice(chs []domain.Channel) []domain.Channel {

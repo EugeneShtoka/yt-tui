@@ -1,6 +1,7 @@
 package videotable
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
@@ -54,8 +55,8 @@ func ChLatestDurationCol[T HasLatestVideo]() ColumnDef[T] {
 func ChLatestViewsCol[T HasLatestVideo]() ColumnDef[T] {
 	w := render.ColViews
 	return ColumnDef[T]{
-		Col:  etable.NewColumn(KeyCount, calign("Views", w+1), w+1),
-		Cell: func(item T, _ int) any { return ralign(render.Views(item.GetLatestVideo().GetCount()), w+1) },
+		Col:  etable.NewColumn(KeyChViews, calign("Views", w+1), w+1),
+		Cell: func(item T, _ int) any { return fmt.Sprintf("%*s ", w, render.Views(item.GetLatestVideo().GetCount())) },
 	}
 }
 

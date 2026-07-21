@@ -15,7 +15,7 @@ type VideoData struct {
 }
 
 // Enrich builds a VideoData from a Video plus live state.
-func Enrich(v domain.Video, aux AuxData, aliases map[string]string) VideoData {
+func Enrich(v domain.Video, aux AuxData) VideoData {
 	vd := VideoData{Video: v}
 	if posMs, ok := aux.Positions[v.ID]; ok {
 		vd.LastPositionSecs = int(posMs / 1000)
@@ -24,17 +24,15 @@ func Enrich(v domain.Video, aux AuxData, aliases map[string]string) VideoData {
 	if st, ok := aux.LocalStatus[v.ID]; ok {
 		vd.LocalStatus = st
 	}
-	if aliases != nil {
-		vd.ChannelAlias = aliases[v.ChannelID]
-	}
+	vd.ChannelAlias = aux.Aliases[v.ChannelID]
 	return vd
 }
 
 // EnrichAll builds a []VideoData slice from a []domain.Video.
-func EnrichAll(videos []domain.Video, aux AuxData, aliases map[string]string) []VideoData {
+func EnrichAll(videos []domain.Video, aux AuxData) []VideoData {
 	out := make([]VideoData, len(videos))
 	for i, v := range videos {
-		out[i] = Enrich(v, aux, aliases)
+		out[i] = Enrich(v, aux)
 	}
 	return out
 }

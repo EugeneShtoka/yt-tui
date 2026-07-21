@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"charm.land/lipgloss/v2"
+	runewidth "github.com/mattn/go-runewidth"
+
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	etable "github.com/evertras/bubble-table/table"
@@ -31,6 +33,7 @@ const (
 	KeyChName  = "chname"
 	KeyChTags  = "chtags"
 	KeyChSubs  = "chsubs"
+	KeyChViews = "chviews"
 	KeyChTitle = "chtitle"
 
 	KeyDlStatus = "dlstatus"
@@ -100,19 +103,13 @@ func AudioTitleFlexCol[T HasAudioTitle]() ColumnDef[T] {
 	}
 }
 
-// ChannelCol renders the channel name with alias resolution.
-// aliases is a live map[channelID]alias — looked up at cell render time.
-func ChannelCol[T HasChannelInfo](aliases map[string]string) ColumnDef[T] {
+// ChannelCol renders the channel name. Alias resolution is handled at enrich time
+// (VideoData.ChannelAlias, HistoryRow.displayChannel), so GetChannelName() already
+// returns the display-ready value.
+func ChannelCol[T HasChannelInfo]() ColumnDef[T] {
 	return ColumnDef[T]{
-		Col: etable.NewColumn(KeyChannel, "Channel", render.ColChannel),
-		Cell: func(item T, _ int) any {
-			if aliases != nil {
-				if a := aliases[item.GetChannelID()]; a != "" {
-					return a
-				}
-			}
-			return item.GetChannelName()
-		},
+		Col:  etable.NewColumn(KeyChannel, "Channel", render.ColChannel),
+		Cell: func(item T, _ int) any { return item.GetChannelName() },
 	}
 }
 
@@ -132,12 +129,18 @@ func DurationCol[T HasDuration]() ColumnDef[T] {
 	}
 }
 
-// CountCol renders a right-aligned large integer (views, subscribers, etc.).
-// header is the column title (e.g. "Views", "Subs").
-func CountCol[T HasCount](header string) ColumnDef[T] {
+func ViewsCol[T HasCount]() ColumnDef[T] {
 	w := render.ColViews
 	return ColumnDef[T]{
-		Col:  etable.NewColumn(KeyCount, calign(header, w+1), w+1),
+		Col:  etable.NewColumn(KeyCount, calign("Views", w+1), w+1),
+		Cell: func(item T, _ int) any { return fmt.Sprintf("%*s ", w, render.Views(item.GetCount())) },
+	}
+}
+
+func SubsCol[T HasCount]() ColumnDef[T] {
+	w := render.ColViews
+	return ColumnDef[T]{
+		Col:  etable.NewColumn(KeyChSubs, calign("Subs", w+1), w+1),
 		Cell: func(item T, _ int) any { return fmt.Sprintf("%*s ", w, render.Views(item.GetCount())) },
 	}
 }
@@ -158,23 +161,6 @@ func StyledLabelCol[T HasLabel](header string, width int, style lipgloss.Style) 
 	}
 }
 
-// ── VideoData columns (pre-enriched video rows) ─────────────────────────────
-// These compose the generic factories for the common video-feed layout.
-// Tabs that show domain.Video data call EnrichAll first, then pick from these.
-
-func VideoNumCol() ColumnDef[VideoData]       { return NumCol[VideoData]() }
-func VideoIndicatorCol() ColumnDef[VideoData] { return IndicatorCol[VideoData]() }
-func VideoTitleCol() ColumnDef[VideoData]     { return TitleFlexCol[VideoData]() }
-func VideoDurationCol() ColumnDef[VideoData]  { return DurationCol[VideoData]() }
-func VideoCountCol() ColumnDef[VideoData]     { return CountCol[VideoData]("Views") }
-func VideoDateCol() ColumnDef[VideoData]      { return DateCol[VideoData]() }
-
-// VideoChannelCol builds a channel column. Alias resolution is baked into VideoData
-// at enrichment time via EnrichAll, so no map is needed here.
-func VideoChannelCol() ColumnDef[VideoData] {
-	return ChannelCol[VideoData](nil)
-}
-
 // VideoTitleStyler returns a per-row Dim style for faded VideoData rows.
 func VideoTitleStyler(vd VideoData) *lipgloss.Style {
 	if isFadedVD(vd) {
@@ -190,7 +176,7 @@ func ralign(s string, w int) string {
 
 // calign center-aligns a string within width w (left-biased on odd remainder).
 func calign(s string, w int) string {
-	n := len(s)
+	n := runewidth.StringWidth(s)
 	if n >= w {
 		return s
 	}
