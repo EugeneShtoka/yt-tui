@@ -11,6 +11,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/device/player"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/command"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/component"
@@ -38,6 +39,14 @@ type playerStartedMsg struct {
 	text    string
 }
 
+// selectionDebounceMsg is a root-internal debounce timer result.
+type selectionDebounceMsg struct {
+	token int
+	video domain.Video
+}
+
+const selectionDebounceDelay = 150 * time.Millisecond
+
 // Root is the top-level BubbleTea model.
 // It owns focus, size, global key routing, and the tab/overlay stack.
 type Root struct {
@@ -57,8 +66,9 @@ type Root struct {
 
 	overlays []ovpkg.Overlay
 
-	tabChordActive bool
-	tabChordKeys   map[string]tuipkg.TabID
+	tabChordActive         bool
+	tabChordKeys           map[string]tuipkg.TabID
+	selectionDebounceToken int
 }
 
 // New constructs the Root with the current tab set.
@@ -225,6 +235,12 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.statusBar = sb.(component.StatusBar)
 		return r, cmd
 
+	case selectionDebounceMsg:
+		if m.token == r.selectionDebounceToken && len(r.overlays) > 0 {
+			return r.updateTopOverlay(tuipkg.VideoSelectedMsg{Video: m.video})
+		}
+		return r, nil
+
 	default:
 		// Broadcast to all tabs so that background responses (e.g. subLoadedMsg,
 		// chsLoadedMsg) reach their owner tab regardless of which tab is active.
@@ -306,8 +322,15 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 
 func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	switch m.Kind {
-	case tuipkg.OverlayVideoDetail:
-		vd, cmd := ovpkg.NewVideoDetail(r.backend, r.keys, m.Video, r.cfg.CloseOnLinkOpen, r.cfg.CircularNav)
+	case tuipkg.OverlayVideoDetail, tuipkg.OverlayVideoDetailLinks, tuipkg.OverlayVideoDetailChapters:
+		initView := ovpkg.InitialViewPanel
+		switch m.Kind {
+		case tuipkg.OverlayVideoDetailLinks:
+			initView = ovpkg.InitialViewLinks
+		case tuipkg.OverlayVideoDetailChapters:
+			initView = ovpkg.InitialViewChapters
+		}
+		vd, cmd := ovpkg.NewVideoDetail(r.backend, r.keys, m.Video, r.cfg.CloseOnLinkOpen, r.cfg.CircularNav, initView)
 		r.overlays = append(r.overlays, vd)
 		// Use the returned Root so the overlay receives its size via OverlaySizeMsg.
 		var resizeCmd tea.Cmd
@@ -336,20 +359,57 @@ func (r Root) handlePopOverlay() (Root, tea.Cmd) {
 
 func (r Root) handleKey(msg tea.KeyPressMsg) (Root, tea.Cmd) {
 	if len(r.overlays) > 0 {
-		return r.updateTopOverlay(msg)
+		top := r.overlays[len(r.overlays)-1]
+
+		if key.Matches(msg, r.keys.FocusSwitch) {
+			return r.updateTopOverlay(ovpkg.FocusSwitchMsg{})
+		}
+
+		if key.Matches(msg, r.keys.Tab) || key.Matches(msg, r.keys.ShiftTab) {
+			dir := 1
+			if key.Matches(msg, r.keys.ShiftTab) {
+				dir = -1
+			}
+			if r.cfg.CloseInfoOnTabSwitch {
+				var popCmd tea.Cmd
+				r, popCmd = r.handlePopOverlay()
+				var cycleCmd tea.Cmd
+				r, cycleCmd = r.cycleTab(dir)
+				return r, tea.Batch(popCmd, cycleCmd)
+			}
+			var cycleCmd tea.Cmd
+			r, cycleCmd = r.cycleTab(dir)
+			var debounceCmd tea.Cmd
+			r, debounceCmd = r.withSelectionDebounce()
+			return r, tea.Batch(cycleCmd, debounceCmd)
+		}
+
+		if key.Matches(msg, r.keys.TabChord) {
+			r.tabChordActive = true
+			return r, nil
+		}
+
+		if top.HasFocus() {
+			return r.updateTopOverlay(msg)
+		}
+
+		var tabCmd tea.Cmd
+		r, tabCmd = r.updateActiveTab(msg)
+		var debounceCmd tea.Cmd
+		r, debounceCmd = r.withSelectionDebounce()
+		return r, tea.Batch(tabCmd, debounceCmd)
 	}
+
 	if r.activeTab().InterceptsInput() {
 		return r.updateActiveTab(msg)
 	}
-
 	if r.tabChordActive {
 		r.tabChordActive = false
 		if tabID, ok := r.tabChordKeys[msg.String()]; ok {
 			return r.handleNavigate(tuipkg.NavigateMsg{Tab: tabID})
 		}
-		return r, nil // unrecognized chord key — discard
+		return r, nil
 	}
-
 	switch {
 	case key.Matches(msg, r.keys.Quit):
 		return r, tea.Quit
@@ -361,7 +421,6 @@ func (r Root) handleKey(msg tea.KeyPressMsg) (Root, tea.Cmd) {
 		r.tabChordActive = true
 		return r, nil
 	}
-
 	return r.updateActiveTab(msg)
 }
 
@@ -495,6 +554,19 @@ func (r Root) playerWaitCmd(id string, sess *player.Session) tea.Cmd {
 		}
 		return tuipkg.RefreshPositionsMsg{}
 	}
+}
+
+func (r Root) withSelectionDebounce() (Root, tea.Cmd) {
+	v, ok := r.activeTab().SelectedVideo()
+	if !ok {
+		return r, nil
+	}
+	r.selectionDebounceToken++
+	token := r.selectionDebounceToken
+	cmd := tea.Tick(selectionDebounceDelay, func(_ time.Time) tea.Msg {
+		return selectionDebounceMsg{token: token, video: v}
+	})
+	return r, cmd
 }
 
 func (r Root) overlayWidthReduction() int {

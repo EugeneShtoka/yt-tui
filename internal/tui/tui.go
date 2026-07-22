@@ -32,6 +32,8 @@ type Tab interface {
 	// InterceptsInput returns true when the tab has a text input focused and
 	// Root should bypass global key bindings (quit, tab-switch, etc.).
 	InterceptsInput() bool
+	// SelectedVideo returns the video under the cursor, or false if none.
+	SelectedVideo() (domain.Video, bool)
 }
 
 // OverlayKind identifies which overlay to open.
@@ -39,6 +41,8 @@ type OverlayKind int
 
 const (
 	OverlayVideoDetail OverlayKind = iota
+	OverlayVideoDetailLinks
+	OverlayVideoDetailChapters
 	OverlayAddToPlaylist
 )
 
@@ -131,3 +135,6 @@ type DownloadItemsChangedMsg struct{}
 // RefreshPositionsMsg tells all tabs to reload playback positions and watched
 // status from the DB. Root dispatches this when the player exits.
 type RefreshPositionsMsg struct{}
+
+// VideoSelectedMsg is emitted by Root (debounced) to overlays when the tab cursor moves.
+type VideoSelectedMsg struct{ Video domain.Video }

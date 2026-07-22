@@ -90,6 +90,19 @@ func NewLocal(backend api.Backend, keys keymap.KeyMap, circular bool) Local {
 func (t Local) ID() tuipkg.TabID      { return tuipkg.TabLocal }
 func (t Local) Title() string         { return "Local" }
 func (t Local) InterceptsInput() bool { return false }
+func (t Local) SelectedVideo() (domain.Video, bool) {
+	idx := t.nav.Index()
+	if idx < 0 || idx >= len(t.videos) {
+		return domain.Video{}, false
+	}
+	lv := t.videos[idx]
+	return domain.Video{
+		ID:      lv.ID,
+		Title:   lv.Title,
+		Channel: lv.Channel,
+		URL:     "https://www.youtube.com/watch?v=" + lv.ID,
+	}, true
+}
 func (t Local) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.Delete, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

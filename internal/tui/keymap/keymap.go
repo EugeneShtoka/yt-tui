@@ -58,6 +58,7 @@ type KeyMap struct {
 	OpenChapters  key.Binding
 	TabChord      key.Binding
 	SortChord     key.Binding
+	FocusSwitch   key.Binding
 	Sort          SortKeyMap
 }
 
@@ -113,6 +114,7 @@ func Build(kb config.KeyBindings) KeyMap {
 		OpenChapters:  b(kb.OpenChapters, "chapters"),
 		TabChord:      b(kb.TabChord, "go to tab"),
 		SortChord:     b(kb.SortChord, "sort"),
+		FocusSwitch:   b(kb.FocusSwitch, "switch focus"),
 		Sort: SortKeyMap{
 			Date:        key.NewBinding(key.WithKeys(kb.SortKeys.Date), key.WithHelp(kb.SortKeys.Date, "date")),
 			Views:       key.NewBinding(key.WithKeys(kb.SortKeys.Views), key.WithHelp(kb.SortKeys.Views, "views")),

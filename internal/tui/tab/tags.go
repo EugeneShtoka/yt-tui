@@ -132,9 +132,19 @@ func NewTags(backend api.Backend, keys keymap.KeyMap, circular bool) Tags {
 	}
 }
 
-func (t Tags) ID() tuipkg.TabID         { return tuipkg.TabTags }
-func (t Tags) Title() string            { return "Tags" }
-func (t Tags) InterceptsInput() bool    { return false }
+func (t Tags) ID() tuipkg.TabID      { return tuipkg.TabTags }
+func (t Tags) Title() string         { return "Tags" }
+func (t Tags) InterceptsInput() bool { return false }
+func (t Tags) SelectedVideo() (domain.Video, bool) {
+	if t.pane == 1 {
+		vids := t.tagVideosFor(t.tagSel)
+		idx := t.tagVidNav.Index()
+		if idx >= 0 && idx < len(vids) {
+			return vids[idx], true
+		}
+	}
+	return domain.Video{}, false
+}
 func (t Tags) ShortHelp() []key.Binding { return []key.Binding{t.keys.DrillDown} }
 
 func (t Tags) Init() tea.Cmd {

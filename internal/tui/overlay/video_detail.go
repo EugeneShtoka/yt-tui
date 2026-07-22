@@ -40,11 +40,21 @@ const (
 	vdChapters                   // chapters modal over panel
 )
 
+// InitialView controls which sub-panel a VideoDetail overlay opens in after loading.
+type InitialView int
+
+const (
+	InitialViewPanel InitialView = iota
+	InitialViewLinks
+	InitialViewChapters
+)
+
 // ── private messages ──────────────────────────────────────────────────────────
 
 type vdDetailsMsg struct {
 	details domain.VideoDetails
 	err     error
+	token   int
 }
 
 // ── VideoDetail ───────────────────────────────────────────────────────────────
@@ -55,9 +65,12 @@ type VideoDetail struct {
 	keys         keymap.KeyMap
 	closeOnLinks bool // cfg.CloseOnLinkOpen
 
-	video   *domain.VideoDetails
-	loading bool
-	spinner spinner.Model
+	video      *domain.VideoDetails
+	fetchVideo domain.Video // the video currently being fetched / displayed
+	focused    bool
+	fetchToken int
+	loading    bool
+	spinner    spinner.Model
 
 	descLines []string
 	descVS    int
@@ -71,15 +84,16 @@ type VideoDetail struct {
 	contentW int // terminal columns left of the panel (for Kitty col position)
 	kittyRow int // 1-indexed terminal row where panel interior starts
 
-	subState   vdSubState
-	linkSel    int
-	chapterSel int
-	circular   bool
+	subState    vdSubState
+	initialView InitialView
+	linkSel     int
+	chapterSel  int
+	circular    bool
 }
 
 // NewVideoDetail creates a VideoDetail overlay that immediately starts loading
-// details for the given video.
-func NewVideoDetail(backend api.Backend, keys keymap.KeyMap, v domain.Video, closeOnLinks, circular bool) (VideoDetail, tea.Cmd) {
+// details for the given video. initialView controls which sub-panel opens after loading.
+func NewVideoDetail(backend api.Backend, keys keymap.KeyMap, v domain.Video, closeOnLinks, circular bool, initialView InitialView) (VideoDetail, tea.Cmd) {
 	sp := spinner.New()
 	vd := VideoDetail{
 		backend:      backend,
@@ -88,14 +102,21 @@ func NewVideoDetail(backend api.Backend, keys keymap.KeyMap, v domain.Video, clo
 		loading:      true,
 		spinner:      sp,
 		circular:     circular,
+		initialView:  initialView,
 	}
-	return vd, tea.Batch(vd.fetchCmd(v.URL), sp.Tick)
+	return vd, tea.Batch(vd.fetchCmd(v), sp.Tick)
 }
 
 // ── overlay.Overlay interface ─────────────────────────────────────────────────
 
 func (vd VideoDetail) InterceptsInput() bool { return false }
-func (vd VideoDetail) WidthReduction() int   { return panelW }
+func (vd VideoDetail) WidthReduction() int {
+	if vd.initialView != InitialViewPanel {
+		return 0 // direct modal mode — no side panel
+	}
+	return panelW
+}
+func (vd VideoDetail) HasFocus() bool { return vd.focused }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 
@@ -113,30 +134,71 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case vdDetailsMsg:
+		if m.token != vd.fetchToken {
+			return vd, nil // stale fetch — video changed while fetching
+		}
+		firstLoad := vd.video == nil
 		vd.loading = false
 		if m.err != nil {
-			return vd, tea.Batch(
-				func() tea.Msg { return PopOverlayMsg{} },
-				func() tea.Msg { return tuipkg.StatusMsg{Text: "video details: " + m.err.Error(), IsErr: true} },
-			)
+			if firstLoad {
+				return vd, tea.Batch(
+					func() tea.Msg { return PopOverlayMsg{} },
+					func() tea.Msg { return tuipkg.StatusMsg{Text: "video details: " + m.err.Error(), IsErr: true} },
+				)
+			}
+			return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "video details: " + m.err.Error(), IsErr: true} }
 		}
 		details := m.details
+		prevThumbURL := ""
+		if vd.video != nil {
+			prevThumbURL = vd.video.ThumbnailURL
+		}
 		vd.video = &details
 		vd.descLines = wordWrap(details.Description, panelW-2)
+		vd.chapters = nil
 		if len(details.Chapters) > 0 {
 			chapters, _ := media.ProcessChapters(details.Chapters)
 			vd.chapters = &chapters
 		}
-		// Save to cache.
+		if vd.subState != vdLinks {
+			vd.links = nil // re-extract from fresh description on next openLinks()
+		}
 		ctx := context.Background()
 		_ = vd.backend.SaveVideoDetailsCache(ctx, details.ID, details.Description, details.ThumbnailURL, details.Subscribers)
 		if vd.chapters != nil {
 			_ = vd.backend.SaveVideoChapters(ctx, details.ID, *vd.chapters)
 		}
-		// Start thumbnail fetch.
-		if details.ThumbnailURL != "" {
-			return vd, LoadThumbnailCmd(details.ThumbnailURL)
+		var cmds []tea.Cmd
+		if details.ThumbnailURL != "" && vd.initialView == InitialViewPanel && details.ThumbnailURL != prevThumbURL {
+			cmds = append(cmds, LoadThumbnailCmd(details.ThumbnailURL))
 		}
+		if firstLoad {
+			var initCmd tea.Cmd
+			switch vd.initialView {
+			case InitialViewChapters:
+				vd, initCmd = vd.openChapters()
+			case InitialViewLinks:
+				vd, initCmd = vd.openLinks()
+			}
+			if vd.initialView != InitialViewPanel && vd.subState == vdPanel {
+				cmds = append(cmds, func() tea.Msg { return PopOverlayMsg{} })
+			}
+			cmds = append(cmds, initCmd)
+		}
+		return vd, tea.Batch(cmds...)
+
+	case FocusSwitchMsg:
+		if vd.subState == vdPanel {
+			vd.focused = !vd.focused
+		}
+		return vd, nil
+
+	case tuipkg.VideoSelectedMsg:
+		if vd.video != nil && vd.video.ID == m.Video.ID {
+			return vd, nil // same video, no-op
+		}
+		vd.fetchToken++
+		return vd, vd.fetchCmd(m.Video)
 
 	case OverlaySizeMsg:
 		vd.contentW = m.ContentW
@@ -244,28 +306,44 @@ func (vd VideoDetail) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		vd.descVS = len(vd.descLines)
 
 	case key.Matches(msg, keys.OpenLinks):
-		if vd.video != nil {
-			if vd.links == nil {
-				urls := media.ExtractLinks(vd.video.Description)
-				vd.links = &urls
-				_ = vd.backend.SaveVideoLinks(context.Background(), vd.video.ID, urls)
-			}
-			if len(*vd.links) == 0 {
-				return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "no links in description"} }
-			}
-			vd.subState = vdLinks
-			vd.linkSel = 0
-		}
+		return vd.openLinks()
 
 	case key.Matches(msg, keys.OpenChapters):
-		if vd.chapters != nil && len(*vd.chapters) > 0 {
-			vd.subState = vdChapters
-			vd.chapterSel = 0
-		} else {
-			return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "no chapters available"} }
+		return vd.openChapters()
+
+	case key.Matches(msg, keys.Refresh):
+		if vd.focused && vd.video != nil {
+			vd.fetchToken++
+			return vd, vd.refreshCmd()
 		}
 	}
 	return vd, nil
+}
+
+func (vd VideoDetail) openLinks() (VideoDetail, tea.Cmd) {
+	if vd.video == nil {
+		return vd, nil
+	}
+	if vd.links == nil {
+		urls := media.ExtractLinks(vd.video.Description)
+		vd.links = &urls
+		_ = vd.backend.SaveVideoLinks(context.Background(), vd.video.ID, urls)
+	}
+	if len(*vd.links) == 0 {
+		return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "no links in description"} }
+	}
+	vd.subState = vdLinks
+	vd.linkSel = 0
+	return vd, nil
+}
+
+func (vd VideoDetail) openChapters() (VideoDetail, tea.Cmd) {
+	if vd.chapters != nil && len(*vd.chapters) > 0 {
+		vd.subState = vdChapters
+		vd.chapterSel = 0
+		return vd, nil
+	}
+	return vd, func() tea.Msg { return tuipkg.StatusMsg{Text: "no chapters available"} }
 }
 
 func (vd VideoDetail) handleLinksKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -374,7 +452,11 @@ func (vd VideoDetail) moveSelector(sel, n int, msg tea.KeyPressMsg) (newSel int,
 
 func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	innerW := panelW - 2
-	accent := lipgloss.NewStyle().Foreground(styles.ColorAccent)
+	borderColor := styles.ColorAccent
+	if !vd.focused {
+		borderColor = lipgloss.Color("#555555")
+	}
+	accent := lipgloss.NewStyle().Foreground(borderColor)
 	norm := func(s string) string { return styles.Normal.Width(innerW).Render(s) }
 
 	innerH := panelH - 2
@@ -573,10 +655,21 @@ func (vd VideoDetail) thumbDimensions() (w, h int) {
 	return thumbW, thumbH
 }
 
-func (vd VideoDetail) fetchCmd(videoURL string) tea.Cmd {
+func (vd VideoDetail) fetchCmd(v domain.Video) tea.Cmd {
+	vd.fetchVideo = v
+	token := vd.fetchToken
 	return func() tea.Msg {
-		details, err := vd.backend.VideoDetails(context.Background(), videoURL)
-		return vdDetailsMsg{details: details, err: err}
+		details, err := vd.backend.VideoDetails(context.Background(), v.URL)
+		return vdDetailsMsg{details: details, err: err, token: token}
+	}
+}
+
+func (vd VideoDetail) refreshCmd() tea.Cmd {
+	v := vd.fetchVideo
+	token := vd.fetchToken
+	return func() tea.Msg {
+		details, err := vd.backend.VideoDetails(context.Background(), v.URL)
+		return vdDetailsMsg{details: details, err: err, token: token}
 	}
 }
 

@@ -23,10 +23,15 @@ type Overlay interface {
 	// WidthReduction is columns reserved on the right edge (0 for centered modals;
 	// non-zero for the video-detail side panel).
 	WidthReduction() int
+	// HasFocus reports whether the overlay is currently capturing keyboard input.
+	HasFocus() bool
 }
 
 // PopOverlayMsg is emitted by an overlay when it wants Root to close it.
 type PopOverlayMsg struct{}
+
+// FocusSwitchMsg is sent by Root to the top overlay to toggle its focus state.
+type FocusSwitchMsg struct{}
 
 // placeOverlayBox renders content inside a rounded bordered box and centers it
 // over behind, composing the two strings by overwriting matching character cells.

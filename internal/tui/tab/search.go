@@ -246,6 +246,15 @@ func (t Search) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.CopyURL, t.keys.VideoInfo, t.keys.DrillDown}
 }
 func (t Search) InterceptsInput() bool { return t.input.Focused() }
+func (t Search) SelectedVideo() (domain.Video, bool) {
+	if t.drill.ch != nil {
+		return t.drill.currentVideo()
+	}
+	if t.onVideos {
+		return t.srchCurrentVideo()
+	}
+	return domain.Video{}, false
+}
 
 func (t Search) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, t.spinner.Tick, t.srchLoadRecentCmd(), videotable.LoadAuxDataCmd(t.backend))

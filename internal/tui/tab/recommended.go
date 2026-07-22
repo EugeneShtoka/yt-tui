@@ -55,6 +55,9 @@ func NewRecommended(backend api.Backend, keys keymap.KeyMap, circular bool) Reco
 func (t Recommended) ID() tuipkg.TabID      { return tuipkg.TabRecommended }
 func (t Recommended) Title() string         { return "Recommended" }
 func (t Recommended) InterceptsInput() bool { return false }
+func (t Recommended) SelectedVideo() (domain.Video, bool) {
+	return t.feed.At(t.nav.Index())
+}
 func (t Recommended) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.HideVideo, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

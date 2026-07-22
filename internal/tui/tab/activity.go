@@ -49,6 +49,9 @@ func (t Activity) ID() tuipkg.TabID         { return tuipkg.TabActivity }
 func (t Activity) Title() string            { return "Activity" }
 func (t Activity) ShortHelp() []key.Binding { return []key.Binding{t.keys.DrillDown, t.keys.Refresh} }
 func (t Activity) InterceptsInput() bool    { return false }
+func (t Activity) SelectedVideo() (domain.Video, bool) {
+	return domain.Video{}, false
+}
 
 func (t Activity) Init() tea.Cmd { return t.actLoadCmd() }
 

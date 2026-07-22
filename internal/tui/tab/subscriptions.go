@@ -55,6 +55,9 @@ func NewSubscriptions(backend api.Backend, keys keymap.KeyMap, circular bool) Su
 func (t Subscriptions) ID() tuipkg.TabID      { return tuipkg.TabSubscriptions }
 func (t Subscriptions) Title() string         { return "Subscriptions" }
 func (t Subscriptions) InterceptsInput() bool { return false }
+func (t Subscriptions) SelectedVideo() (domain.Video, bool) {
+	return t.feed.At(t.nav.Index())
+}
 func (t Subscriptions) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Download, t.keys.Unsubscribe, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}
 }

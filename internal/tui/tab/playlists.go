@@ -124,6 +124,17 @@ func NewPlaylists(backend api.Backend, keys keymap.KeyMap, circular bool) Playli
 
 func (t Playlists) ID() tuipkg.TabID { return tuipkg.TabPlaylists }
 func (t Playlists) Title() string    { return "Playlists" }
+func (t Playlists) SelectedVideo() (domain.Video, bool) {
+	if t.pane == 1 {
+		plKey := t.selectedPlaylistKey()
+		vids := t.vidCache[plKey]
+		idx := t.vidNav.Index()
+		if idx >= 0 && idx < len(vids) {
+			return vids[idx], true
+		}
+	}
+	return domain.Video{}, false
+}
 func (t Playlists) ShortHelp() []key.Binding {
 	if t.pane == 1 {
 		return []key.Binding{t.keys.Play, t.keys.Download, t.keys.CopyURL, t.keys.VideoInfo, t.keys.SortChord}

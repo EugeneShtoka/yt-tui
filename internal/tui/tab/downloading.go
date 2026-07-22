@@ -79,6 +79,9 @@ func (t Downloading) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.Delete, t.keys.CopyURL}
 }
 func (t Downloading) InterceptsInput() bool { return false }
+func (t Downloading) SelectedVideo() (domain.Video, bool) {
+	return domain.Video{}, false
+}
 
 func (t Downloading) Init() tea.Cmd {
 	return tea.Batch(t.fetchItemsCmd(), t.subscribeEventsCmd(), t.spinner.Tick)

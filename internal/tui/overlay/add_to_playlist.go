@@ -70,6 +70,7 @@ func NewAddToPlaylist(backend api.Backend, keys keymap.KeyMap, video domain.Vide
 
 func (atp AddToPlaylist) InterceptsInput() bool { return atp.createMode }
 func (atp AddToPlaylist) WidthReduction() int   { return 0 }
+func (atp AddToPlaylist) HasFocus() bool        { return true }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
 

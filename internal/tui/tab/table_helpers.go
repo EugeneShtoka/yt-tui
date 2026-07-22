@@ -8,8 +8,8 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 )
 
-// HandleVideoAction dispatches the 8 universal pure-message video actions:
-// Play, PlayAudio, Download, DownloadAudio, CopyURL, VideoInfo, AddList, HideChannel.
+// HandleVideoAction dispatches the 10 universal pure-message video actions:
+// Play, PlayAudio, Download, DownloadAudio, CopyURL, VideoInfo, OpenLinks, OpenChapters, AddList, HideChannel.
 // Returns (cmd, true) if handled; (nil, false) if the key did not match.
 // Tabs call this after navigation; unmatched keys fall through to tab-specific handling.
 func HandleVideoAction(msg tea.KeyPressMsg, v domain.Video, keys keymap.KeyMap) (tea.Cmd, bool) {
@@ -26,6 +26,10 @@ func HandleVideoAction(msg tea.KeyPressMsg, v domain.Video, keys keymap.KeyMap) 
 		return func() tea.Msg { return tuipkg.CopyURLMsg{URL: v.URL} }, true
 	case key.Matches(msg, keys.VideoInfo):
 		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayVideoDetail, Video: v} }, true
+	case key.Matches(msg, keys.OpenLinks):
+		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayVideoDetailLinks, Video: v} }, true
+	case key.Matches(msg, keys.OpenChapters):
+		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayVideoDetailChapters, Video: v} }, true
 	case key.Matches(msg, keys.AddList):
 		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayAddToPlaylist, Video: v} }, true
 	case key.Matches(msg, keys.HideChannel):

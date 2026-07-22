@@ -69,6 +69,7 @@ type KeyBindings struct {
 	Refresh      string `toml:"refresh"`       // re-query / latest fetch
 	ForceRefresh string `toml:"force_refresh"` // full fetch for all channels
 	VideoInfo    string `toml:"video_info"`    // open video details popup
+	FocusSwitch  string `toml:"focus_switch"`  // toggle focus between tab and info panel
 
 	Up         string `toml:"up"`          // move cursor up (always includes ↑ arrow)
 	Down       string `toml:"down"`        // move cursor down (always includes ↓ arrow)
@@ -116,6 +117,7 @@ func defaultKeyBindings() KeyBindings {
 		Refresh:      "r",
 		ForceRefresh: "R",
 		VideoInfo:    "i",
+		FocusSwitch:  "f",
 
 		Up:         "k,up",
 		Down:       "j,down",
@@ -216,17 +218,18 @@ type DaemonConfig struct {
 // binary, visual theme, tab layout, UI preferences, and key bindings.
 // These fields are irrelevant on a headless daemon host.
 type ClientConfig struct {
-	DaemonToken     string      `toml:"daemon_token,omitempty"`
-	TLSCACert       string      `toml:"tls_ca_cert,omitempty"`
-	Player          string      `toml:"player"`
-	PlayerBackend   string      `toml:"player_backend"`
-	Theme           string      `toml:"theme,omitempty"`
-	Tabs            []string    `toml:"tabs"`
-	HintMode        string      `toml:"hint_mode"`       // "full" | "minimal" | "none"
-	DurationFormat  string      `toml:"duration_format"` // see render.DurFmt constants
-	CloseOnLinkOpen bool        `toml:"close_on_link_open"`
-	CircularNav     bool        `toml:"circular_nav"`
-	Keybindings     KeyBindings `toml:"keybindings"`
+	DaemonToken          string      `toml:"daemon_token,omitempty"`
+	TLSCACert            string      `toml:"tls_ca_cert,omitempty"`
+	Player               string      `toml:"player"`
+	PlayerBackend        string      `toml:"player_backend"`
+	Theme                string      `toml:"theme,omitempty"`
+	Tabs                 []string    `toml:"tabs"`
+	HintMode             string      `toml:"hint_mode"`       // "full" | "minimal" | "none"
+	DurationFormat       string      `toml:"duration_format"` // see render.DurFmt constants
+	CloseOnLinkOpen      bool        `toml:"close_on_link_open"`
+	CloseInfoOnTabSwitch bool        `toml:"close_info_on_tab_switch"` // close the info panel when switching tabs
+	CircularNav          bool        `toml:"circular_nav"`
+	Keybindings          KeyBindings `toml:"keybindings"`
 }
 
 // Config is the unified configuration used in single-binary (InProc) mode.
@@ -271,13 +274,14 @@ func defaultConfig() *Config {
 			SubtitleLangs:         []string{"en.*"},
 		},
 		ClientConfig: ClientConfig{
-			Player:          "mpv",
-			PlayerBackend:   "mpris",
-			Tabs:            DefaultTabs,
-			HintMode:        "full",
-			DurationFormat:  "hh:mm:ss",
-			CloseOnLinkOpen: true,
-			Keybindings:     defaultKeyBindings(),
+			Player:               "mpv",
+			PlayerBackend:        "mpris",
+			Tabs:                 DefaultTabs,
+			HintMode:             "full",
+			DurationFormat:       "hh:mm:ss",
+			CloseOnLinkOpen:      true,
+			CloseInfoOnTabSwitch: true,
+			Keybindings:          defaultKeyBindings(),
 		},
 	}
 }

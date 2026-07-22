@@ -136,6 +136,12 @@ func NewChannels(backend api.Backend, keys keymap.KeyMap, circular bool, channel
 
 func (t Channels) ID() tuipkg.TabID { return tuipkg.TabChannels }
 func (t Channels) Title() string    { return "Channels" }
+func (t Channels) SelectedVideo() (domain.Video, bool) {
+	if t.pane == 1 {
+		return t.chVidAt(t.chVidNav.Index())
+	}
+	return domain.Video{}, false
+}
 func (t Channels) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.SortChord}
 }

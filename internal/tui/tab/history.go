@@ -151,6 +151,21 @@ func NewHistory(backend historyBackend, keys keymap.KeyMap, circular bool) Histo
 func (t History) ID() tuipkg.TabID      { return tuipkg.TabHistory }
 func (t History) Title() string         { return "History" }
 func (t History) InterceptsInput() bool { return false }
+func (t History) SelectedVideo() (domain.Video, bool) {
+	idx := t.nav.Index()
+	if idx < 0 || idx >= len(t.entries) {
+		return domain.Video{}, false
+	}
+	e := t.entries[idx]
+	if e.EventType == "search" {
+		return domain.Video{}, false
+	}
+	return domain.Video{
+		ID:    e.VideoID,
+		Title: e.Title,
+		URL:   "https://www.youtube.com/watch?v=" + e.VideoID,
+	}, true
+}
 func (t History) ShortHelp() []key.Binding {
 	return []key.Binding{t.keys.Play, t.keys.DrillDown, t.keys.Delete, t.keys.CopyURL, t.keys.SortChord}
 }

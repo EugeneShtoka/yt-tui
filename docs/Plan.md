@@ -1,6 +1,6 @@
 # Plan
 
-1. [x] Video thumbnail is not shown in the video detail overlay.
+1. [ ] Video thumbnail is not shown in the video detail overlay.
 2. [ ] Open chapters/links works only from video detail overlay.
 3. [ ] Playlists are not saved locally - they should be saved in the database, and when opened - showed immediately, and in the background, loaded from yt, and if different - update both UI and DB.
 4. [ ] Add sort by tags to Channels tab.
