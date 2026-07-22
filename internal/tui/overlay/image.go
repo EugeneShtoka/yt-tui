@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
+	_ "golang.org/x/image/webp"
 )
 
 // ThumbnailLoadedMsg carries the decoded thumbnail image from a background fetch.

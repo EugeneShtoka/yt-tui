@@ -346,11 +346,11 @@ if m.vidDetailOverlay {
 Layout within the bordered box (width = min(m.width-4, 90), height = min(contentH-4, 40)):
 
 ```
-┌── Video Details ──────────────────────────────────────────────────┐
+┌── Video Details ───────────────────────────────────────────────────┐
 │                                                                    │
 │  [thumbnail]  Title: Full Video Title Here                         │
-│  [  30×15  ]  Channel: Channel Name  (1.2M subscribers)           │
-│  [   cols  ]  Duration: 12:34   Views: 4.5M   Date: 12/06/2024   │
+│  [  30×15  ]  Channel: Channel Name  (1.2M subscribers)            │
+│  [   cols  ]  Duration: 12:34   Views: 4.5M   Date: 12/06/2024     │
 │               URL: https://youtube.com/watch?v=...                 │
 │                                                                    │
 │  Description                                                       │

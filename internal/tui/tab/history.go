@@ -7,7 +7,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/feed"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
@@ -17,6 +16,13 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 	etable "github.com/evertras/bubble-table/table"
 )
+
+type historyBackend interface {
+	videotable.AuxBackend
+	HistoryVideos(ctx context.Context, limit int) ([]domain.HistoryEntry, error)
+	VideoHistory(ctx context.Context, videoID string) ([]domain.HistoryEntry, error)
+	DeleteVideoCompletely(ctx context.Context, videoID string) error
+}
 
 type histLoadedMsg struct{ entries []domain.HistoryEntry }
 type histDetailLoadedMsg struct {
@@ -72,7 +78,7 @@ func enrichHistoryRows(entries []domain.HistoryEntry, aux videotable.AuxData) []
 }
 
 type History struct {
-	backend  api.Backend
+	backend  historyBackend
 	keys     keymap.KeyMap
 	circular bool
 
@@ -93,7 +99,7 @@ type History struct {
 	sortChordActive bool
 }
 
-func NewHistory(backend api.Backend, keys keymap.KeyMap, circular bool) History {
+func NewHistory(backend historyBackend, keys keymap.KeyMap, circular bool) History {
 	hCols := []videotable.ColumnDef[HistoryRow]{
 		videotable.NumCol[HistoryRow](),
 		videotable.IndicatorCol[HistoryRow](),

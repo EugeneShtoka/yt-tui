@@ -23,6 +23,14 @@ import (
 
 const panelW = 52
 
+// OverlaySizeMsg is sent by Root to overlays during resize so they can
+// compute terminal-absolute positions (e.g. for Kitty image placement).
+type OverlaySizeMsg struct {
+	ContentW int // terminal columns available left of the overlay panel
+	ContentH int // terminal rows available for content
+	KittyRow int // 1-indexed terminal row where the panel interior begins
+}
+
 // vdSubState is the sub-state of the VideoDetail overlay.
 type vdSubState int
 
@@ -59,6 +67,9 @@ type VideoDetail struct {
 	thumb         image.Image
 	thumbB64      string
 	thumbRendered string
+
+	contentW int // terminal columns left of the panel (for Kitty col position)
+	kittyRow int // 1-indexed terminal row where panel interior starts
 
 	subState   vdSubState
 	linkSel    int
@@ -127,6 +138,11 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return vd, LoadThumbnailCmd(details.ThumbnailURL)
 		}
 
+	case OverlaySizeMsg:
+		vd.contentW = m.ContentW
+		vd.kittyRow = m.KittyRow
+		return vd, vd.kittyCmd()
+
 	case ThumbnailLoadedMsg:
 		vd.thumb = m.Img
 		if m.Img != nil {
@@ -137,11 +153,23 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				vd.thumbRendered = renderThumbnailHalfBlock(m.Img, panelW-2, thumbH)
 			}
 		}
+		return vd, vd.kittyCmd()
 
 	case tea.KeyPressMsg:
 		return vd.handleKey(m)
 	}
 	return vd, nil
+}
+
+// kittyCmd returns tea.Raw(kittyImageSeq) when a Kitty image should be placed,
+// or nil when conditions are not met.
+func (vd VideoDetail) kittyCmd() tea.Cmd {
+	if !kittyCapable() || vd.thumbB64 == "" || vd.contentW == 0 || vd.subState != vdPanel {
+		return nil
+	}
+	thumbW, thumbH := vd.thumbDimensions()
+	seq := kittyImageSeq(vd.thumbB64, vd.kittyRow, vd.contentW+2, thumbW, thumbH)
+	return tea.Raw(seq)
 }
 
 // Render composes the side panel to the right of behind.
@@ -171,18 +199,10 @@ func (vd VideoDetail) Render(behind string, width, height int) (string, string) 
 		composed = vd.renderChaptersModal(composed, width)
 	}
 
-	// Kitty thumbnail: placed after the frame so BubbleTea's differential renderer
-	// doesn't skip it. Row 2 (1-indexed, skips tab bar) + column after content.
-	var kittySeq string
-	if kittyCapable() && vd.thumbB64 != "" && vd.subState == vdPanel {
-		thumbW, th := vd.thumbDimensions()
-		row := 2
-		col := width - panelW + 2
-		kittySeq = kittyImageSeq(vd.thumbB64, row, col, thumbW, th)
-	} else if kittyCapable() {
-		kittySeq = kittyDeleteSeq()
-	}
-	return composed, kittySeq
+	// Kitty image placement is handled via tea.Raw commands in Update/kittyCmd,
+	// not via embedded escape sequences in the rendered string (bubbletea v2's
+	// cell renderer drops APC sequences from Content).
+	return composed, ""
 }
 
 // ── key handling ──────────────────────────────────────────────────────────────
@@ -201,7 +221,11 @@ func (vd VideoDetail) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := vd.keys
 	switch {
 	case key.Matches(msg, keys.Escape), key.Matches(msg, keys.Left), key.Matches(msg, keys.Quit):
-		return vd, func() tea.Msg { return PopOverlayMsg{} }
+		closeCmds := []tea.Cmd{func() tea.Msg { return PopOverlayMsg{} }}
+		if kittyCapable() && vd.thumbB64 != "" {
+			closeCmds = append(closeCmds, tea.Raw(kittyDeleteSeq()))
+		}
+		return vd, tea.Batch(closeCmds...)
 
 	case key.Matches(msg, keys.Down):
 		vd.descVS++

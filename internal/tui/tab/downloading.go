@@ -10,12 +10,20 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 )
+
+type downloadingBackend interface {
+	DownloadItems(ctx context.Context) ([]api.DownloadItem, error)
+	Events(ctx context.Context) (<-chan api.Event, error)
+	CancelDownload(ctx context.Context, videoID string) error
+	HasLocalVideo(ctx context.Context, videoID string) (domain.LocalVideo, bool)
+}
 
 type dlItemsMsg struct{ items []api.DownloadItem }
 type dlEventsReadyMsg struct{ ch <-chan api.Event }
@@ -30,7 +38,7 @@ var (
 )
 
 type Downloading struct {
-	backend  api.Backend
+	backend  downloadingBackend
 	keys     keymap.KeyMap
 	circular bool
 
@@ -45,7 +53,7 @@ type Downloading struct {
 	loading bool
 }
 
-func NewDownloading(backend api.Backend, keys keymap.KeyMap, circular bool) Downloading {
+func NewDownloading(backend downloadingBackend, keys keymap.KeyMap, circular bool) Downloading {
 	cols := []videotable.ColumnDef[api.DownloadItem]{
 		videotable.NumCol[api.DownloadItem](),
 		videotable.BlankIndicatorCol[api.DownloadItem](),

@@ -112,7 +112,7 @@ func Build(kb config.KeyBindings) KeyMap {
 		OpenLinks:     b(kb.OpenLinks, "open links"),
 		OpenChapters:  b(kb.OpenChapters, "chapters"),
 		TabChord:      b(kb.TabChord, "go to tab"),
-		SortChord:     b(kb.SortChord, "sort…"),
+		SortChord:     b(kb.SortChord, "sort"),
 		Sort: SortKeyMap{
 			Date:        key.NewBinding(key.WithKeys(kb.SortKeys.Date), key.WithHelp(kb.SortKeys.Date, "date")),
 			Views:       key.NewBinding(key.WithKeys(kb.SortKeys.Views), key.WithHelp(kb.SortKeys.Views, "views")),

@@ -295,23 +295,6 @@ func (d *DB) migrate() error {
 	if err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
-	// Columns added after initial schema; safe to ignore "duplicate column" errors.
-	for _, col := range []string{
-		`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE video_details_cache ADD COLUMN links TEXT`,
-		`ALTER TABLE video_details_cache ADD COLUMN chapters TEXT`,
-		`ALTER TABLE video_details_cache ADD COLUMN sb_segments TEXT`,
-		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE subscribed_channels ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE subscribed_channels ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE subscribed_channels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0`,
-	} {
-		if _, err = d.sql.ExecContext(ctx, col); err != nil && !isColumnExists(err) {
-			return fmt.Errorf("migrate alter: %w", err)
-		}
-	}
 	// Tables added after initial schema.
 	for _, stmt := range []string{
 		`CREATE TABLE IF NOT EXISTS subscribed_channels (
@@ -369,6 +352,24 @@ func (d *DB) migrate() error {
 	} {
 		if _, err = d.sql.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("migrate create table: %w", err)
+		}
+	}
+	// Columns added after initial schema; safe to ignore "duplicate column" errors.
+	// These must run after all CREATE TABLE statements so the tables exist on fresh installs.
+	for _, col := range []string{
+		`ALTER TABLE local_videos ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE video_details_cache ADD COLUMN links TEXT`,
+		`ALTER TABLE video_details_cache ADD COLUMN chapters TEXT`,
+		`ALTER TABLE video_details_cache ADD COLUMN sb_segments TEXT`,
+		`ALTER TABLE subscribed_channels ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN subscribers INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE subscribed_channels ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE subscribed_channels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err = d.sql.ExecContext(ctx, col); err != nil && !isColumnExists(err) {
+			return fmt.Errorf("migrate alter: %w", err)
 		}
 	}
 	return nil

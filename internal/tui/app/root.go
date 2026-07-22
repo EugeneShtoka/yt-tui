@@ -255,20 +255,15 @@ func (r Root) View() tea.View {
 
 	content := r.activeTab().View().Content
 
-	var kittySeq string
 	for _, o := range r.overlays {
-		var kseq string
-		content, kseq = o.Render(content, r.width, contentH)
-		if kseq != "" {
-			kittySeq = kseq
-		}
+		content, _ = o.Render(content, r.width, contentH)
 	}
 
 	if actual := lipgloss.Height(content); actual < contentH {
 		content += strings.Repeat("\n", contentH-actual)
 	}
 
-	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status) + kittySeq)
+	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status))
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
@@ -293,6 +288,19 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 		r.tabs[i] = updated.(tuipkg.Tab)
 		cmds = append(cmds, cmd)
 	}
+
+	// Forward size info to overlays so they can compute Kitty image positions.
+	ovMsg := ovpkg.OverlaySizeMsg{
+		ContentW: contentW,
+		ContentH: contentH,
+		KittyRow: tabBarH + 2, // 1-indexed: past tab bar + top panel border
+	}
+	for i, o := range r.overlays {
+		updated, cmd := o.Update(ovMsg)
+		r.overlays[i] = updated.(ovpkg.Overlay)
+		cmds = append(cmds, cmd)
+	}
+
 	return r, tea.Batch(cmds...)
 }
 
@@ -301,7 +309,9 @@ func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	case tuipkg.OverlayVideoDetail:
 		vd, cmd := ovpkg.NewVideoDetail(r.backend, r.keys, m.Video, r.cfg.CloseOnLinkOpen, r.cfg.CircularNav)
 		r.overlays = append(r.overlays, vd)
-		_, resizeCmd := r.handleResize(r.width, r.height)
+		// Use the returned Root so the overlay receives its size via OverlaySizeMsg.
+		var resizeCmd tea.Cmd
+		r, resizeCmd = r.handleResize(r.width, r.height)
 		return r, tea.Batch(cmd, resizeCmd)
 	case tuipkg.OverlayAddToPlaylist:
 		atp, cmd := ovpkg.NewAddToPlaylist(r.backend, r.keys, m.Video, r.cfg.CircularNav)
