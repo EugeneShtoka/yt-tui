@@ -280,7 +280,7 @@ func (t *Search) applyResultHeights() {
 		t.chNav.SetTargetHeight(chH)
 		t.vidNav.SetTargetHeight(vidH)
 	} else {
-		avail -= 2
+		avail -= 3
 		if avail < 1 {
 			avail = 1
 		}

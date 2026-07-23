@@ -119,9 +119,10 @@ func (n *TableNav) GotoRow(idx int) {
 }
 
 // Resize updates table dimensions. overhead rows are reserved for headers above.
+// +1 compensates for evertras reserving a bottom-border line that WithOuterBorder(false) never renders.
 func (n *TableNav) Resize(w, h int) {
 	n.height = h
-	n.tbl = n.tbl.WithTargetWidth(w).WithTargetHeight(h - n.overhead)
+	n.tbl = n.tbl.WithTargetWidth(w).WithTargetHeight(h - n.overhead + 1)
 }
 
 // Index returns the 0-based highlighted row index.
@@ -160,8 +161,9 @@ func (n *TableNav) SetWidth(w int) {
 // SetTargetHeight sets the rendered table height and adjusts the internal
 // total height so page-step equals h (for split-pane use where height is
 // not simply totalHeight-overhead).
+// +1 compensates for evertras reserving a bottom-border line that WithOuterBorder(false) never renders.
 func (n *TableNav) SetTargetHeight(h int) {
-	n.tbl = n.tbl.WithTargetHeight(h)
+	n.tbl = n.tbl.WithTargetHeight(h + 1)
 	n.height = h + n.overhead
 }
 

@@ -140,6 +140,12 @@ func (t Channels) SelectedVideo() (domain.Video, bool) {
 	if t.pane == 1 {
 		return t.chVidAt(t.chVidNav.Index())
 	}
+	idx := t.chNav.Index()
+	if idx < len(t.sortedChs) {
+		if v := t.chLatest[t.sortedChs[idx].ID]; v.ID != "" {
+			return v, true
+		}
+	}
 	return domain.Video{}, false
 }
 func (t Channels) ShortHelp() []key.Binding {
@@ -165,7 +171,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.width, t.height = m.Width, m.Height
 		t.chNav.Resize(m.Width, m.Height)
 		t.chNav.SetRows(t.toChannelRows(t.sortedChs))
-		t.chVidNav.Resize(m.Width, m.Height-2)
+		t.chVidNav.Resize(m.Width, m.Height)
 		t.chVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.chVideos, t.aux), t.chVidCols))
 
 	case spinner.TickMsg:
@@ -361,6 +367,15 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, keys.SortChord):
 			t.sortChordActive = true
+		default:
+			idx := t.chNav.Index()
+			if idx < len(t.sortedChs) {
+				if v := t.chLatest[t.sortedChs[idx].ID]; v.ID != "" {
+					if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+						return t, cmd
+					}
+				}
+			}
 		}
 		return t, nil
 	}

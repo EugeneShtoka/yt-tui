@@ -2,8 +2,10 @@ package render
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
+	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
 )
 
@@ -180,6 +182,60 @@ func formatDate(yyyymmdd string, f DateFmt) string {
 	default: // DateFmtDMY
 		return d + "/" + m + "/" + y
 	}
+}
+
+// ClampLine forces s onto a single physical line of exactly w display columns,
+// measured with charmbracelet/x/ansi — the width authority lipgloss and the
+// terminal renderer use. It strips stray control characters (a carriage return
+// or backspace in a video title snaps the terminal cursor and corrupts the row),
+// collapses embedded newlines, truncates overflow, and pads short lines, so
+// composed layout blocks can never word-wrap onto an extra line or misalign
+// against their neighbors (which pushes borders off their column and shifts
+// subsequent rows).
+func ClampLine(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	s = Sanitize(s)
+	s = ansi.Truncate(s, w, "")
+	if pad := w - ansi.StringWidth(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
+}
+
+// Sanitize removes zero-width C0/C1 control characters that desync the terminal
+// cursor (e.g. CR, BS, VT) while preserving ESC so ANSI color/SGR sequences
+// survive. Newlines and tabs become spaces, collapsing the text to one line.
+// Returns s unchanged when it holds no such characters (the common case).
+// Apply to any untrusted single-line text (titles, link labels, chapter names)
+// before measuring or composing it into a layout.
+func Sanitize(s string) string {
+	if !strings.ContainsFunc(s, isBadControl) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\t':
+			b.WriteByte(' ')
+		case isBadControl(r):
+			// drop CR, BS, and other cursor-moving controls
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// isBadControl reports whether r is a control character that must not reach the
+// terminal verbatim. ESC (0x1B) is excluded because it introduces ANSI escapes.
+func isBadControl(r rune) bool {
+	if r == 0x1b {
+		return false
+	}
+	return r == '\n' || r == '\t' || r < 0x20 || (r >= 0x7f && r <= 0x9f)
 }
 
 func Truncate(s string, n int) string {

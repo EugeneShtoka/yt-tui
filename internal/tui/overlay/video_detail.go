@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -56,6 +57,8 @@ type vdDetailsMsg struct {
 	err     error
 	token   int
 }
+
+type kittyRefreshMsg struct{}
 
 // ── VideoDetail ───────────────────────────────────────────────────────────────
 
@@ -154,7 +157,7 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevThumbURL = vd.video.ThumbnailURL
 		}
 		vd.video = &details
-		vd.descLines = wordWrap(details.Description, panelW-2)
+		vd.descLines = wordWrap(shortenURLs(details.Description, panelW-2), panelW-2)
 		vd.chapters = nil
 		if len(details.Chapters) > 0 {
 			chapters, _ := media.ProcessChapters(details.Chapters)
@@ -191,19 +194,35 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if vd.subState == vdPanel {
 			vd.focused = !vd.focused
 		}
-		return vd, nil
+		return vd, vd.kittyAfterFrameCmd()
+
+	case VideoClearMsg:
+		var cmds []tea.Cmd
+		if kittyCapable() && vd.thumbB64 != "" {
+			cmds = append(cmds, tea.Raw(kittyDeleteSeq()))
+		}
+		vd.loading = false
+		vd.video = nil
+		vd.thumb = nil
+		vd.thumbB64 = ""
+		vd.thumbRendered = ""
+		return vd, tea.Batch(cmds...)
+
+	case kittyRefreshMsg:
+		return vd, vd.kittyCmd()
 
 	case tuipkg.VideoSelectedMsg:
 		if vd.video != nil && vd.video.ID == m.Video.ID {
 			return vd, nil // same video, no-op
 		}
+		vd.loading = true
 		vd.fetchToken++
-		return vd, vd.fetchCmd(m.Video)
+		return vd, tea.Batch(vd.fetchCmd(m.Video), vd.spinner.Tick)
 
 	case OverlaySizeMsg:
 		vd.contentW = m.ContentW
 		vd.kittyRow = m.KittyRow
-		return vd, vd.kittyCmd()
+		return vd, vd.kittyAfterFrameCmd()
 
 	case ThumbnailLoadedMsg:
 		vd.thumb = m.Img
@@ -215,7 +234,7 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				vd.thumbRendered = renderThumbnailHalfBlock(m.Img, panelW-2, thumbH)
 			}
 		}
-		return vd, vd.kittyCmd()
+		return vd, vd.kittyAfterFrameCmd()
 
 	case tea.KeyPressMsg:
 		return vd.handleKey(m)
@@ -234,6 +253,20 @@ func (vd VideoDetail) kittyCmd() tea.Cmd {
 	return tea.Raw(seq)
 }
 
+// kittyAfterFrameCmd schedules a kittyRefreshMsg after one renderer frame cycle
+// (~25 ms) so the Kitty image is placed after the changed frame has been flushed.
+// The renderer goroutine flushes p.outputBuf before the frame diff, so placing
+// the image immediately would have it overwritten by the re-render; the delay
+// ensures viewEquals=true on the tick when the image is placed.
+func (vd VideoDetail) kittyAfterFrameCmd() tea.Cmd {
+	if !kittyCapable() || vd.thumbB64 == "" || vd.contentW == 0 || vd.subState != vdPanel {
+		return nil
+	}
+	return tea.Tick(25*time.Millisecond, func(_ time.Time) tea.Msg {
+		return kittyRefreshMsg{}
+	})
+}
+
 // Render composes the side panel to the right of behind.
 // Returns (composedView, kittySeq); kittySeq is non-empty only on Kitty terminals.
 func (vd VideoDetail) Render(behind string, width, height int) (string, string) {
@@ -248,7 +281,7 @@ func (vd VideoDetail) Render(behind string, width, height int) (string, string) 
 
 	behindLines := strings.Split(behind, "\n")
 	for i, line := range behindLines {
-		behindLines[i] = lipgloss.NewStyle().MaxWidth(leftW).Width(leftW).Render(line)
+		behindLines[i] = render.ClampLine(line, leftW)
 	}
 	croppedBehind := strings.Join(behindLines, "\n")
 
@@ -564,7 +597,7 @@ func (vd VideoDetail) renderPanel(panelW, panelH, thumbH int) string {
 	rows := make([]string, 0, panelH)
 	rows = append(rows, top)
 	for _, l := range lines {
-		rows = append(rows, accent.Render("│")+l+accent.Render("│"))
+		rows = append(rows, accent.Render("│")+render.ClampLine(l, innerW)+accent.Render("│"))
 	}
 	rows = append(rows, bot)
 	return strings.Join(rows, "\n")
@@ -583,7 +616,7 @@ func (vd VideoDetail) renderLinksModal(behind string, width int) string {
 		if text == "" {
 			text = lnk.URL
 		}
-		text = render.Truncate(text, innerW-len(num)-2)
+		text = render.Truncate(render.Sanitize(text), innerW-len(num)-2)
 		row := num + text
 		if i == vd.linkSel {
 			lines = append(lines, styles.Selected.Render("▶ "+row))
@@ -592,7 +625,7 @@ func (vd VideoDetail) renderLinksModal(behind string, width int) string {
 		}
 	}
 	if len(links) > 0 {
-		lines = append(lines, "", styles.Help.Render(render.Truncate(links[vd.linkSel].URL, innerW)))
+		lines = append(lines, "", styles.Help.Render(render.Truncate(render.Sanitize(links[vd.linkSel].URL), innerW)))
 	}
 	actionHint := "enter: open  y: copy"
 	closeHint := vd.keys.Escape.Help().Key + ": close"
@@ -613,7 +646,7 @@ func (vd VideoDetail) renderChaptersModal(behind string, width int) string {
 	lines := []string{styles.Bold.Render("Chapters"), ""}
 	for i, ch := range chapters {
 		ts := fmtChapterTime(ch.OriginalStart)
-		label := fmt.Sprintf("%-7s  %s", ts, render.Truncate(ch.Title, innerW-11))
+		label := fmt.Sprintf("%-7s  %s", ts, render.Truncate(render.Sanitize(ch.Title), innerW-11))
 		if i == vd.chapterSel {
 			lines = append(lines, styles.Selected.Render("▶ "+label))
 		} else {
@@ -688,6 +721,11 @@ func wordWrap(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
 	}
+	// Descriptions often use CRLF (or lone CR) line endings. Normalise them to
+	// LF so a stray carriage return never survives into a rendered line, where
+	// it would snap the terminal cursor to column 0 and corrupt the row.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
 	var result []string
 	for _, para := range strings.Split(text, "\n") {
 		if lipgloss.Width(para) <= width {
@@ -749,4 +787,40 @@ func runeWidth(r rune) int {
 		return 1
 	}
 	return lipgloss.Width(string(r))
+}
+
+// shortenURLs replaces URLs longer than maxLen in text with "domain/…" form.
+// This prevents long hyperlinks in video descriptions from overflowing the panel.
+func shortenURLs(text string, maxLen int) string {
+	paras := strings.Split(text, "\n")
+	for i, para := range paras {
+		words := strings.Fields(para)
+		changed := false
+		for j, w := range words {
+			if len(w) > maxLen && (strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://")) {
+				words[j] = abbreviateURL(w)
+				changed = true
+			}
+		}
+		if changed {
+			paras[i] = strings.Join(words, " ")
+		}
+	}
+	return strings.Join(paras, "\n")
+}
+
+func abbreviateURL(u string) string {
+	rest := u
+	if i := strings.Index(u, "://"); i >= 0 {
+		rest = u[i+3:]
+	}
+	rest = strings.TrimPrefix(rest, "www.")
+	domain := rest
+	if j := strings.IndexAny(rest, "/?#"); j >= 0 {
+		domain = rest[:j]
+	}
+	if domain == "" {
+		return u
+	}
+	return domain + "/…"
 }

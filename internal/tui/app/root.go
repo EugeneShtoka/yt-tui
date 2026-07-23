@@ -279,6 +279,15 @@ func (r Root) View() tea.View {
 		content += strings.Repeat("\n", contentH-actual)
 	}
 
+	// Final safety net: clamp every content line to exactly the terminal width so
+	// no overlay/modal/tab can emit an over-wide line that wraps in the terminal
+	// and shifts every row below it.
+	contentLines := strings.Split(content, "\n")
+	for i, l := range contentLines {
+		contentLines[i] = render.ClampLine(l, r.width)
+	}
+	content = strings.Join(contentLines, "\n")
+
 	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, tabBar, content, status))
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
@@ -290,7 +299,7 @@ func (r Root) View() tea.View {
 func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 	r.width, r.height = w, h
 	r.tabBar = r.tabBar.WithWidth(w)
-	r.statusBar = r.statusBar.WithWidth(w)
+	r.statusBar = r.statusBar.WithWidth(w).WithHints(r.tabHints())
 
 	tabBarH := lipgloss.Height(r.tabBar.Render())
 	statusH := lipgloss.Height(r.statusBar.Render())
@@ -323,6 +332,11 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	switch m.Kind {
 	case tuipkg.OverlayVideoDetail, tuipkg.OverlayVideoDetailLinks, tuipkg.OverlayVideoDetailChapters:
+		if n := len(r.overlays); n > 0 {
+			if _, ok := r.overlays[n-1].(ovpkg.VideoDetail); ok {
+				return r.handlePopOverlay()
+			}
+		}
 		initView := ovpkg.InitialViewPanel
 		switch m.Kind {
 		case tuipkg.OverlayVideoDetailLinks:
@@ -358,70 +372,101 @@ func (r Root) handlePopOverlay() (Root, tea.Cmd) {
 }
 
 func (r Root) handleKey(msg tea.KeyPressMsg) (Root, tea.Cmd) {
+	// Chord completion is universal — resolve before re-matching TabChord.
+	if r.tabChordActive {
+		r.tabChordActive = false
+		if tabID, ok := r.tabChordKeys[msg.String()]; ok {
+			return r.handleTabNavigate(tabID)
+		}
+		return r, nil
+	}
+
 	if len(r.overlays) > 0 {
 		top := r.overlays[len(r.overlays)-1]
 
 		if key.Matches(msg, r.keys.FocusSwitch) {
 			return r.updateTopOverlay(ovpkg.FocusSwitchMsg{})
 		}
-
 		if key.Matches(msg, r.keys.Tab) || key.Matches(msg, r.keys.ShiftTab) {
 			dir := 1
 			if key.Matches(msg, r.keys.ShiftTab) {
 				dir = -1
 			}
-			if r.cfg.CloseInfoOnTabSwitch {
-				var popCmd tea.Cmd
-				r, popCmd = r.handlePopOverlay()
-				var cycleCmd tea.Cmd
-				r, cycleCmd = r.cycleTab(dir)
-				return r, tea.Batch(popCmd, cycleCmd)
-			}
-			var cycleCmd tea.Cmd
-			r, cycleCmd = r.cycleTab(dir)
-			var debounceCmd tea.Cmd
-			r, debounceCmd = r.withSelectionDebounce()
-			return r, tea.Batch(cycleCmd, debounceCmd)
+			return r.handleTabCycle(dir)
 		}
-
 		if key.Matches(msg, r.keys.TabChord) {
 			r.tabChordActive = true
 			return r, nil
 		}
-
+		if key.Matches(msg, r.keys.Escape) || key.Matches(msg, r.keys.Quit) {
+			return r.updateTopOverlay(msg)
+		}
 		if top.HasFocus() {
 			return r.updateTopOverlay(msg)
 		}
-
+		prevID := ""
+		if v, ok := r.activeTab().SelectedVideo(); ok {
+			prevID = v.ID
+		}
 		var tabCmd tea.Cmd
 		r, tabCmd = r.updateActiveTab(msg)
+		var clearCmd tea.Cmd
+		if v, ok := r.activeTab().SelectedVideo(); ok && v.ID != prevID {
+			r, clearCmd = r.updateTopOverlay(ovpkg.VideoClearMsg{})
+		}
 		var debounceCmd tea.Cmd
 		r, debounceCmd = r.withSelectionDebounce()
-		return r, tea.Batch(tabCmd, debounceCmd)
+		return r, tea.Batch(tabCmd, clearCmd, debounceCmd)
 	}
 
 	if r.activeTab().InterceptsInput() {
 		return r.updateActiveTab(msg)
 	}
-	if r.tabChordActive {
-		r.tabChordActive = false
-		if tabID, ok := r.tabChordKeys[msg.String()]; ok {
-			return r.handleNavigate(tuipkg.NavigateMsg{Tab: tabID})
-		}
-		return r, nil
-	}
 	switch {
 	case key.Matches(msg, r.keys.Quit):
 		return r, tea.Quit
 	case key.Matches(msg, r.keys.Tab):
-		return r.cycleTab(+1)
+		return r.handleTabCycle(+1)
 	case key.Matches(msg, r.keys.ShiftTab):
-		return r.cycleTab(-1)
+		return r.handleTabCycle(-1)
 	case key.Matches(msg, r.keys.TabChord):
 		r.tabChordActive = true
 		return r, nil
 	}
 	return r.updateActiveTab(msg)
+}
+
+func (r Root) handleTabCycle(dir int) (Root, tea.Cmd) {
+	if len(r.overlays) == 0 {
+		return r.cycleTab(dir)
+	}
+	if r.cfg.CloseInfoOnTabSwitch {
+		var popCmd tea.Cmd
+		r, popCmd = r.handlePopOverlay()
+		var cycleCmd tea.Cmd
+		r, cycleCmd = r.cycleTab(dir)
+		return r, tea.Batch(popCmd, cycleCmd)
+	}
+	var cycleCmd tea.Cmd
+	r, cycleCmd = r.cycleTab(dir)
+	var clearCmd tea.Cmd
+	r, clearCmd = r.updateTopOverlay(ovpkg.VideoClearMsg{})
+	var debounceCmd tea.Cmd
+	r, debounceCmd = r.withSelectionDebounce()
+	return r, tea.Batch(cycleCmd, clearCmd, debounceCmd)
+}
+
+func (r Root) handleTabNavigate(tabID tuipkg.TabID) (Root, tea.Cmd) {
+	var navCmd tea.Cmd
+	r, navCmd = r.handleNavigate(tuipkg.NavigateMsg{Tab: tabID})
+	if len(r.overlays) == 0 {
+		return r, navCmd
+	}
+	var clearCmd tea.Cmd
+	r, clearCmd = r.updateTopOverlay(ovpkg.VideoClearMsg{})
+	var debounceCmd tea.Cmd
+	r, debounceCmd = r.withSelectionDebounce()
+	return r, tea.Batch(navCmd, clearCmd, debounceCmd)
 }
 
 func (r Root) handleNavigate(m tuipkg.NavigateMsg) (Root, tea.Cmd) {

@@ -22,11 +22,16 @@ import (
 
 // TagRow is the cell input type for the tag list table.
 type TagRow struct {
-	Tag   string
-	Count int
+	Tag                string
+	Count              int
+	Latest             domain.Video
+	LatestPositionSecs int
 }
 
-func (r TagRow) GetTitle() string { return fmt.Sprintf("%s (%d)", r.Tag, r.Count) }
+func (r TagRow) GetTitle() string { return r.Latest.Title }
+func (r TagRow) GetLatestVideo() videotable.VideoData {
+	return videotable.VideoData{Video: r.Latest, LastPositionSecs: r.LatestPositionSecs}
+}
 
 type tagsDataMsg struct {
 	chans     []domain.Channel
@@ -98,8 +103,9 @@ type Tags struct {
 
 	aux videotable.AuxData
 
-	pane   int
-	tagSel string
+	pane          int
+	tagSel        string
+	sortedTagRows []TagRow // cached rows, rebuilt on mutation
 
 	// tag list table — uses TableNav
 	tagNav  videotable.TableNav
@@ -114,7 +120,14 @@ func NewTags(backend api.Backend, keys keymap.KeyMap, circular bool) Tags {
 	tagCols := []videotable.ColumnDef[TagRow]{
 		videotable.NumCol[TagRow](),
 		videotable.BlankIndicatorCol[TagRow](),
+		{
+			Col:  etable.NewColumn(videotable.KeyTagLabel, "Tag", videotable.ColChName),
+			Cell: func(item TagRow, _ int) any { return fmt.Sprintf("%s (%d)", item.Tag, item.Count) },
+		},
 		videotable.TitleFlexCol[TagRow](),
+		videotable.ChLatestDurationCol[TagRow](),
+		videotable.ChLatestViewsCol[TagRow](),
+		videotable.ChLatestDateCol[TagRow](),
 	}
 	tagVidCols := []videotable.ColumnDef[videotable.VideoData]{
 		videotable.NumCol[videotable.VideoData](), videotable.IndicatorCol[videotable.VideoData](), videotable.TitleFlexCol[videotable.VideoData](),
@@ -142,6 +155,13 @@ func (t Tags) SelectedVideo() (domain.Video, bool) {
 		if idx >= 0 && idx < len(vids) {
 			return vids[idx], true
 		}
+		return domain.Video{}, false
+	}
+	idx := t.tagNav.Index()
+	if idx < len(t.sortedTagRows) {
+		if v := t.sortedTagRows[idx].Latest; v.ID != "" {
+			return v, true
+		}
 	}
 	return domain.Video{}, false
 }
@@ -158,8 +178,8 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipkg.ContentSizeMsg:
 		t.width, t.height = m.Width, m.Height
 		t.tagNav.Resize(m.Width, m.Height)
-		t.tagNav.SetRows(t.toTagRows())
-		t.tagVidNav.Resize(m.Width, m.Height-2)
+		t.rebuildTagRows()
+		t.tagVidNav.Resize(m.Width, m.Height)
 		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux), t.tagVidCols))
 
 	case spinner.TickMsg:
@@ -173,10 +193,11 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.subs = channels.New(m.chans)
 		t.subVideos = m.subVideos
 		t.loading = false
-		t.tagNav.SetRows(t.toTagRows())
+		t.rebuildTagRows()
 
 	case videotable.AuxDataMsg:
 		t.aux = m
+		t.rebuildTagRows()
 		t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(t.tagVideosFor(t.tagSel), t.aux), t.tagVidCols))
 
 	case tuipkg.RefreshPositionsMsg:
@@ -221,8 +242,7 @@ func (t Tags) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 
 	if t.pane == 0 {
-		items := allTagsFrom(t.subs)
-		n := len(items)
+		n := len(t.sortedTagRows)
 
 		if t.tagNav.HandleNav(msg, keys, n) {
 			return t, nil
@@ -232,11 +252,19 @@ func (t Tags) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 			if idx < n {
-				t.tagSel = items[idx]
+				t.tagSel = t.sortedTagRows[idx].Tag
 				vids := t.tagVideosFor(t.tagSel)
 				t.tagVidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.tagVidCols))
 				t.tagVidNav.GotoRow(0)
 				t.pane = 1
+			}
+		default:
+			if idx < n {
+				if v := t.sortedTagRows[idx].Latest; v.ID != "" {
+					if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+						return t, cmd
+					}
+				}
 			}
 		}
 		return t, nil
@@ -276,13 +304,26 @@ func (t Tags) tagVideosFor(tagSel string) []domain.Video {
 	return tagVideosFrom(t.subs, t.subVideos, tagSel)
 }
 
-func (t Tags) toTagRows() []etable.Row {
+// rebuildTagRows recomputes and caches the sorted tag slice.
+// Call whenever subs, subVideos, or aux changes.
+func (t *Tags) rebuildTagRows() {
 	items := allTagsFrom(t.subs)
 	rows := make([]TagRow, len(items))
 	for i, tag := range items {
-		rows[i] = TagRow{Tag: tag, Count: len(channelsInTagFrom(t.subs, tag))}
+		vids := t.tagVideosFor(tag)
+		var latest domain.Video
+		if len(vids) > 0 {
+			latest = vids[0]
+		}
+		rows[i] = TagRow{
+			Tag:                tag,
+			Count:              len(channelsInTagFrom(t.subs, tag)),
+			Latest:             latest,
+			LatestPositionSecs: int(t.aux.Positions[latest.ID] / 1000),
+		}
 	}
-	return videotable.BuildRows(rows, t.tagCols)
+	t.sortedTagRows = rows
+	t.tagNav.SetRows(videotable.BuildRows(rows, t.tagCols))
 }
 
 func (t Tags) tagsDataLoadCmd() tea.Cmd {

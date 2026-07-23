@@ -37,10 +37,15 @@ type plYTLoadedMsg struct {
 	err        error
 	background bool
 }
+type plVideosCachedMsg struct {
+	playlistID string
+	videos     []domain.Video
+}
 type plVideosLoadedMsg struct {
 	playlistID string
 	videos     []domain.Video
 	err        error
+	background bool
 }
 type plYTCreatedMsg struct {
 	name string
@@ -75,10 +80,12 @@ type Playlists struct {
 	ytPlLoading    bool
 	ytPlLoaded     bool
 
-	vidCache        map[string][]domain.Video
-	vidLoading      bool
-	vidSort         int
-	sortChordActive bool
+	vidCache         map[string][]domain.Video
+	vidLoading       bool
+	vidRefreshing    bool
+	activePlaylistID string
+	vidSort          int
+	sortChordActive  bool
 
 	aux videotable.AuxData
 
@@ -144,7 +151,7 @@ func (t Playlists) ShortHelp() []key.Binding {
 func (t Playlists) InterceptsInput() bool { return t.createStage == plCreateNameInput }
 
 func (t Playlists) Init() tea.Cmd {
-	return tea.Batch(t.localLoadCmd(), t.ytLoadCmd(false), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
+	return tea.Batch(t.localLoadCmd(), t.ytCachedLoadCmd(), t.ytRefreshCmd(), videotable.LoadAuxDataCmd(t.backend), t.spinner.Tick)
 }
 
 func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -154,10 +161,10 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.width, t.height = m.Width, m.Height
 		t.plNav.Resize(m.Width, t.plTableHeight())
 		t.plNav.SetRows(t.toPlaylistRows())
-		t.vidNav.Resize(m.Width, m.Height-4)
+		t.vidNav.Resize(m.Width, m.Height)
 
 	case spinner.TickMsg:
-		if t.ytPlLoading || t.vidLoading {
+		if t.ytPlLoading || t.vidLoading || t.vidRefreshing {
 			var cmd tea.Cmd
 			t.spinner, cmd = t.spinner.Update(m)
 			return t, cmd
@@ -182,10 +189,24 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		t.plNav.SetRows(t.toPlaylistRows())
 
+	case plVideosCachedMsg:
+		if m.playlistID == t.activePlaylistID {
+			t.vidLoading = false
+			t.vidRefreshing = true
+			vids := m.videos
+			feed.SortVideos(vids, t.vidSort)
+			t.vidCache[m.playlistID] = vids
+			t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.vidCols))
+			return t, tea.Batch(t.ytVideosRefreshCmd(m.playlistID), t.spinner.Tick)
+		}
+
 	case plVideosLoadedMsg:
-		t.vidLoading = false
+		if m.playlistID == t.activePlaylistID {
+			t.vidLoading = false
+			t.vidRefreshing = false
+		}
 		if m.err != nil {
-			if len(t.vidCache[m.playlistID]) == 0 {
+			if m.playlistID == t.activePlaylistID && len(t.vidCache[m.playlistID]) == 0 {
 				return t, errMsg("playlist: " + m.err.Error())
 			}
 			return t, nil
@@ -193,7 +214,9 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vids := m.videos
 		feed.SortVideos(vids, t.vidSort)
 		t.vidCache[m.playlistID] = vids
-		t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.vidCols))
+		if m.playlistID == t.activePlaylistID {
+			t.vidNav.SetRows(videotable.BuildVideoRows(videotable.EnrichAll(vids, t.aux), t.vidCols))
+		}
 
 	case videotable.AuxDataMsg:
 		t.aux = m
@@ -236,8 +259,6 @@ func (t Playlists) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (t Playlists) View() tea.View {
 	header := styles.SectionTitle.Render("Playlists")
-	headerH := lipgloss.Height(header)
-	_ = headerH
 
 	switch t.createStage {
 	case plCreateTypeSelect:
@@ -263,7 +284,11 @@ func (t Playlists) View() tea.View {
 
 	cursor := t.plNav.Index()
 	if t.pane == 1 && cursor < t.plCount() {
-		subHeader := styles.SectionTitle.Render("← " + t.selectedPlaylistName())
+		subHeaderText := "← " + t.selectedPlaylistName()
+		if t.vidRefreshing {
+			subHeaderText += "  " + styles.Dim.Render(t.spinner.View()+" refreshing…")
+		}
+		subHeader := styles.SectionTitle.Render(subHeaderText)
 		plKey := t.selectedPlaylistKey()
 		vids := t.vidCache[plKey]
 		var body string
@@ -334,11 +359,16 @@ func (t Playlists) handleListPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			plKey := t.selectedPlaylistKey()
 			t.pane = 1
 			t.vidNav.GotoRow(0)
+			t.activePlaylistID = plKey
 			if t.ytPlLoaded && idx < len(t.ytPlaylists) {
-				if _, ok := t.vidCache[plKey]; !ok {
-					t.vidLoading = true
+				if cached, ok := t.vidCache[plKey]; ok && len(cached) > 0 {
+					t.vidRefreshing = true
+					t.vidLoading = false
+					return t, tea.Batch(t.ytVideosRefreshCmd(plKey), t.spinner.Tick)
 				}
-				return t, t.ytVideosCmd(plKey)
+				t.vidLoading = true
+				t.vidRefreshing = false
+				return t, tea.Batch(t.ytVideosDrilldownCmd(plKey), t.spinner.Tick)
 			}
 			localID := plLocalID(plKey)
 			return t, t.localVideosCmd(localID)
@@ -358,7 +388,7 @@ func (t Playlists) handleListPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.Refresh):
 		t.ytPlLoading = true
-		return t, t.ytLoadCmd(true)
+		return t, t.ytRefreshCmd()
 	case key.Matches(msg, keys.Delete):
 		return t.deleteSelected()
 	case key.Matches(msg, keys.Escape):
@@ -585,17 +615,17 @@ func (t Playlists) toPlaylistRows() []etable.Row {
 func (t Playlists) plTableHeight() int {
 	switch t.createStage {
 	case plCreateTypeSelect:
-		if h := t.height - 2 - 4; h >= 1 {
+		if h := t.height - 6; h >= 1 {
 			return h
 		}
 		return 1
 	case plCreateNameInput:
-		if h := t.height - 2 - 3; h >= 1 {
+		if h := t.height - 3; h >= 1 {
 			return h
 		}
 		return 1
 	default:
-		if h := t.height - 2; h >= 1 {
+		if h := t.height; h >= 1 {
 			return h
 		}
 		return 1
@@ -695,18 +725,53 @@ func (t Playlists) localLoadCmd() tea.Cmd {
 	}
 }
 
-func (t Playlists) ytLoadCmd(background bool) tea.Cmd {
-	t.ytPlLoading = true
+func (t Playlists) ytCachedLoadCmd() tea.Cmd {
 	return func() tea.Msg {
-		pls, err := t.backend.YTPlaylists(context.Background())
-		return plYTLoadedMsg{playlists: pls, err: err, background: background}
+		pls, err := t.backend.GetYTPlaylists(context.Background())
+		if err != nil || len(pls) == 0 {
+			return nil
+		}
+		return plYTLoadedMsg{playlists: pls, background: false}
 	}
 }
 
-func (t Playlists) ytVideosCmd(playlistID string) tea.Cmd {
+func (t Playlists) ytRefreshCmd() tea.Cmd {
 	return func() tea.Msg {
-		vids, err := t.backend.YTPlaylistVideos(context.Background(), playlistID)
-		return plVideosLoadedMsg{playlistID: playlistID, videos: vids, err: err}
+		ctx := context.Background()
+		pls, err := t.backend.YTPlaylists(ctx)
+		if err != nil {
+			return plYTLoadedMsg{err: err, background: true}
+		}
+		_ = t.backend.SaveYTPlaylists(ctx, pls)
+		return plYTLoadedMsg{playlists: pls, background: true}
+	}
+}
+
+func (t Playlists) ytVideosDrilldownCmd(playlistID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		cached, err := t.backend.GetYTPlaylistVideos(ctx, playlistID)
+		if err == nil && len(cached) > 0 {
+			return plVideosCachedMsg{playlistID: playlistID, videos: cached}
+		}
+		vids, err := t.backend.YTPlaylistVideos(ctx, playlistID)
+		if err != nil {
+			return plVideosLoadedMsg{playlistID: playlistID, err: err}
+		}
+		_ = t.backend.SaveYTPlaylistVideos(ctx, playlistID, vids)
+		return plVideosLoadedMsg{playlistID: playlistID, videos: vids}
+	}
+}
+
+func (t Playlists) ytVideosRefreshCmd(playlistID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		vids, err := t.backend.YTPlaylistVideos(ctx, playlistID)
+		if err != nil {
+			return plVideosLoadedMsg{playlistID: playlistID, err: err, background: true}
+		}
+		_ = t.backend.SaveYTPlaylistVideos(ctx, playlistID, vids)
+		return plVideosLoadedMsg{playlistID: playlistID, videos: vids, background: true}
 	}
 }
 

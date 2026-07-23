@@ -33,6 +33,10 @@ type PopOverlayMsg struct{}
 // FocusSwitchMsg is sent by Root to the top overlay to toggle its focus state.
 type FocusSwitchMsg struct{}
 
+// VideoClearMsg is sent by Root when the tab selection changes, so the overlay
+// can immediately reset to a loading state before the debounce fetch fires.
+type VideoClearMsg struct{}
+
 // placeOverlayBox renders content inside a rounded bordered box and centers it
 // over behind, composing the two strings by overwriting matching character cells.
 func placeOverlayBox(behind, content string, totalWidth, boxWidth int) string {
