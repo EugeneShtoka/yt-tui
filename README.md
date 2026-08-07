@@ -361,6 +361,7 @@ player           = "mpv"
 player_backend   = "mpris"         # "mpris" (resume tracking) | "simple"
 hint_mode        = "full"          # "full" | "minimal" | "none"
 duration_format  = "hh:mm:ss"
+date_format      = "dd/mm/yyyy"     # dd/mm/yyyy | mm/dd/yyyy | yyyy-mm-dd | dd-mm-yyyy
 transcript_width = "50%"           # popup width: columns ("80") or percent ("50%")
 circular_nav     = false
 # theme          = "theme.toml"    # path relative to config dir, or absolute
@@ -416,6 +417,7 @@ local = ["num", "title", "channel", "size", "date"]
 | `channel_strikes` | int | `2` | Hide-video strikes before a channel is auto-blocked |
 | `hint_mode` | string | `full` | Status-bar hint density (see below) |
 | `duration_format` | string | `hh:mm:ss` | Duration column format (see below) |
+| `date_format` | string | `dd/mm/yyyy` | Date column format (see below) |
 | `circular_nav` | bool | `false` | Wrap cursor from bottom to top |
 | `feed_mode` / `channels_view` / `tags_mode` | string | see example | Default source mode per tab family |
 
@@ -457,6 +459,18 @@ field when it is zero.
 | `mmm:ss` / `MMM:SS` | `65:30` / `065:30` | `45:30` / `045:30` |
 
 When a resume position exists the column shows `pos/total` (e.g. `3:15/1:05`).
+
+#### `date_format`
+
+Controls how dates render in all list views. All formats occupy 10 columns; an
+unrecognized value falls back to `dd/mm/yyyy`.
+
+| Format | Example |
+| --- | --- |
+| `dd/mm/yyyy` | `21/07/2026` |
+| `mm/dd/yyyy` | `07/21/2026` |
+| `yyyy-mm-dd` | `2026-07-21` |
+| `dd-mm-yyyy` | `21-07-2026` |
 
 ### Keybindings
 

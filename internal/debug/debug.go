@@ -30,9 +30,6 @@ func Init(path string) error {
 	return nil
 }
 
-// Enabled returns true when debug logging is active.
-func Enabled() bool { return logger != nil }
-
 // Log writes a formatted line with a millisecond-precision timestamp.
 func Log(format string, args ...interface{}) {
 	if logger == nil {

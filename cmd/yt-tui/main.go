@@ -87,6 +87,7 @@ func run() error {
 	}
 
 	render.SetDurFmt(render.DurFmt(cfg.DurationFormat))
+	render.SetDateFmt(render.DateFmt(cfg.DateFormat))
 
 	// Collect every non-fatal startup problem — config-validation issues from
 	// Load plus the runtime warnings that used to vanish to stderr (theme, TLS,
