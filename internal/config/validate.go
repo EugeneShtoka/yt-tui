@@ -62,6 +62,9 @@ func applyDerivedDefaults(cfg *Config, log *issueLog) {
 	if cfg.DurationFormat == "" {
 		cfg.DurationFormat = "hh:mm:ss"
 	}
+	if cfg.DateFormat == "" {
+		cfg.DateFormat = "dd/mm/yyyy"
+	}
 	if cfg.ChannelLatestCount <= 0 {
 		cfg.ChannelLatestCount = 3
 	}

@@ -65,15 +65,3 @@ func New(cfg *config.Config) (Backend, error) {
 	}
 	return b, nil
 }
-
-// Play launches a player without position tracking (compatibility shim).
-func Play(filePath string, cfg *config.Config) error {
-	b, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	if _, err := b.Launch("", filePath, "", 0); err != nil {
-		return fmt.Errorf("Play: %w", err)
-	}
-	return nil
-}

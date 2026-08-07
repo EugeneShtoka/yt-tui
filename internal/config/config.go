@@ -107,6 +107,7 @@ type ClientConfig struct {
 	Panels         []Panel `toml:"panels"`          // ordered, data-driven tab bar; empty falls back to DefaultPanels
 	HintMode       string  `toml:"hint_mode"`       // "full" | "minimal" | "none"
 	DurationFormat string  `toml:"duration_format"` // see render.DurFmt constants
+	DateFormat     string  `toml:"date_format"`     // see render.DateFmt constants
 	// TranscriptWidth sizes the transcript popup: an absolute column count ("80")
 	// or a percentage of the terminal width ("50%"). Defaults to "50%".
 	TranscriptWidth string `toml:"transcript_width"`
@@ -233,6 +234,7 @@ func defaultConfig() *Config {
 			Panels:                 append([]Panel(nil), DefaultPanels...),
 			HintMode:               "full",
 			DurationFormat:         "hh:mm:ss",
+			DateFormat:             "dd/mm/yyyy",
 			TranscriptWidth:        "50%",
 			CloseOnLinkOpen:        true,
 			FeedMode:               "recommended",
