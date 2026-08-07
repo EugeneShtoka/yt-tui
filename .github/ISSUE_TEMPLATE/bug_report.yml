@@ -1,0 +1,85 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please fill in as much as you
+        can — the version and environment fields save a lot of back-and-forth.
+
+        ⚠️ **Do not report security vulnerabilities here** — see
+        [SECURITY.md](https://github.com/EugeneShtoka/yt-tui/blob/main/SECURITY.md) for private reporting.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        Steps to reproduce:
+        1. ...
+        2. ...
+
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: input
+    id: yt-tui-version
+    attributes:
+      label: yt-tui version
+      description: Output of `yt-tui --version`.
+      placeholder: "v0.1.0 (or a commit hash for a source build)"
+    validations:
+      required: true
+
+  - type: input
+    id: yt-dlp-version
+    attributes:
+      label: yt-dlp version
+      description: Output of `yt-dlp --version`. Many issues trace back to an outdated yt-dlp — try `yt-dlp -U` first.
+      placeholder: "2026.08.01"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Are you running the single binary, or the client/daemon split?
+      options:
+        - Single binary (yt-tui only)
+        - Client + daemon (yt-tui + yt-tuid)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / distro
+      placeholder: "e.g. Arch Linux, macOS 15"
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: Terminal emulator and multiplexer, if any (relevant for rendering/keyboard/thumbnail issues).
+      placeholder: "e.g. WezTerm, kitty, Ghostty; tmux 3.x"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: |
+        Run with `yt-tui --debug` to write a log to
+        `~/.local/state/yt-tui/debug.log`, reproduce, and paste the relevant
+        portion here. **Redact any tokens or cookies.**
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,167 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  default: none
+  enable:
+    # Architecture
+    - depguard       # enforce layer boundaries (see rules below)
+    # Bugs
+    - govet          # shadow + copylocks + printf consistency
+    - staticcheck    # industry-leading bug + performance checker
+    - errcheck       # every error must be handled
+    - nilerr         # don't return nil when wrapping a non-nil error
+    - noctx          # http requests must carry a context
+    - wrapcheck      # errors from external packages must be wrapped with context
+    # api/inproc.go is exempted via file-level nolint (pass-through adapter by design).
+    # Code quality
+    - gocritic       # diagnostic + style + performance
+    - unconvert      # remove redundant type conversions
+    - misspell       # catch common typos in comments and strings
+    - unused         # dead code detection
+    - bodyclose      # HTTP response bodies must be closed
+    - ineffassign    # detect ineffective assignments
+    # Security
+    - gosec          # security checks (G202/G204/G304/G104 excluded below)
+    - funlen
+
+  settings:
+    govet:
+      enable:
+        - shadow     # catch variable shadowing — footgun in bubbletea update loops
+        - copylocks  # detect mutex copied by value
+
+    depguard:
+      rules:
+        # Foundation packages are import sinks — nothing internal flows in.
+        foundation-no-internal:
+          files:
+            - "**/internal/config/**"
+            - "**/internal/debug/**"
+            - "**/internal/sys/**"
+            - "**/internal/theme/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal"
+              desc: "foundation packages must not import other internal packages"
+
+        # Domain is pure business logic — no infrastructure, no I/O.
+        domain-no-infra:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "domain must not import db"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "domain must not import youtube (infrastructure adapter)"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/api"
+              desc: "domain must not import api"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "domain must not import downloader"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/player"
+              desc: "domain must not import player"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/backend"
+              desc: "domain must not import backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/tui"
+              desc: "domain must not import tui"
+
+        # Backend/service is the application service layer — orchestrates domain,
+        # but must not reach into infrastructure or presentation directly.
+        backend-no-infra:
+          files:
+            - "**/internal/backend/**"
+            # transport is the Connect adapter layer: it wraps api.Backend into
+            # gRPC/Connect handlers and must import both backend and api by design.
+            - "!**/internal/backend/transport/**"
+            # media serves downloaded files; imports api.Backend via LocalVideoStore.
+            - "!**/internal/backend/media/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "backend must not import db directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "backend must not import youtube directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "backend must not import downloader directly; inject via interface"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/tui"
+              desc: "backend must not import tui"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/api"
+              desc: "backend must not import api"
+
+        # Infrastructure packages must not import Bubble Tea.
+        # internal/youtube is excluded: it still returns tea.Cmd helpers that need
+        # to be migrated to the TUI layer (tracked in the audit as a future item).
+        no-bubbletea-in-infra:
+          files:
+            - "**/internal/downloader/**"
+            - "**/internal/db/**"
+            - "**/internal/domain/**"
+            - "**/internal/backend/**"
+            - "**/internal/device/**"
+          deny:
+            - pkg: "charm.land/bubbletea"
+              desc: "infrastructure packages must not import bubbletea; keep the TUI framework in internal/tui"
+
+        # TUI is the presentation layer — it talks to the world through api,
+        # never by reaching into infrastructure packages directly.
+        tui-no-infra:
+          files:
+            - "**/internal/tui/**"
+          deny:
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/db"
+              desc: "tui must not import db; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/youtube"
+              desc: "tui must not import youtube; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/downloader"
+              desc: "tui must not import downloader directly; use api/backend"
+            - pkg: "github.com/EugeneShtoka/yt-tui/internal/backend"
+              desc: "tui must not import backend/service directly; use api interface"
+
+    errcheck:
+      # Defer Close/Rollback are intentionally fire-and-forget cleanup paths.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (io.Closer).Close
+        - (*os.File).Close
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      # style tag produces too much churn; re-enable when the codebase stabilises.
+      disabled-checks:
+        - hugeParam          # bubbletea models are legitimately large value types
+
+    misspell:
+      locale: US
+
+    gosec:
+      excludes:
+        - G202  # SQL concat: structure/placeholders only, not user input
+        - G204  # subprocess: intentional tool launching (yt-dlp, mpv, editor)
+        - G304  # file include: legitimate config/debug file path ops
+        - G703  # path traversal (taint): the --config/data_dir paths are user-supplied by design
+        - G104  # unhandled errors: covered by errcheck exclusions (Close/Rollback)
+
+    funlen:
+      lines: 60        # Flag functions longer than 60 lines
+      statements: 40   # Flag functions longer than 40 statements
+
+  # v2 moved issue exclusions under linters.exclusions (was issues.exclude-rules).
+  exclusions:
+    # Generated protobuf files are excluded from every linter.
+    paths:
+      - "\\.pb\\.go"
+    rules:
+      # Test files: relax dead-code and security rules.
+      - path: "_test\\.go"
+        linters:
+          - unused
+          - gosec
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

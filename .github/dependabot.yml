@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Go module dependencies — batched into a single grouped PR (all update types,
+  # including majors) to avoid a flood of one-PR-per-dependency. CI still gates
+  # every bump, and majors land in the same PR for review rather than separately.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - major
+          - minor
+          - patch
+    commit-message:
+      prefix: chore # keeps dep bumps out of the release changelog (see .goreleaser.yaml)
+
+  # GitHub Actions used in the workflows — likewise batched into one grouped PR.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - major
+          - minor
+          - patch
+    commit-message:
+      prefix: ci

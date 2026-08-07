@@ -1,0 +1,26 @@
+[Unit]
+Description=yt-tui daemon
+After=network.target
+
+[Service]
+Type=simple
+User=yt-tui
+ExecStart=/usr/local/bin/yt-tuid \
+    --listen 0.0.0.0:7373 \
+    --tls-cert /etc/yt-tui/server.crt \
+    --tls-key  /etc/yt-tui/server.key
+Restart=on-failure
+RestartSec=5
+
+# Config file at ~/.config/yt-tui/config.toml under the service user;
+# set token, download_dir, and cookies_file there. Keys are flat (top-level) —
+# there is no [daemon] table. Example config.toml snippet:
+#
+#   token        = "change-me"          # openssl rand -hex 32
+#   download_dir = "/srv/yt-tui/videos"
+#   cookies_file = "/etc/yt-tui/cookies.txt"  # export from logged-in browser
+#   tls_cert     = "/etc/yt-tui/server.crt"
+#   tls_key      = "/etc/yt-tui/server.key"
+
+[Install]
+WantedBy=multi-user.target
