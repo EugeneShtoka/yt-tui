@@ -3,8 +3,7 @@
 /yt-tuid
 dist/
 
-# Local tooling (Repowise index + MCP server config; per-developer, not committed)
-/.repowise/
+# Local MCP server config (per-developer, not committed)
 /.mcp.json
 
 # Go test/coverage artifacts

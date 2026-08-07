@@ -43,13 +43,11 @@ hooks:
 	@echo "pre-commit secret scan enabled. Install gitleaks for full coverage:"
 	@echo "  https://github.com/gitleaks/gitleaks"
 
-# Generate a test-coverage report as lcov for Repowise. Go only emits its native
-# coverprofile, so scripts/cov2lcov.py converts it to coverage/lcov.info (which
-# `repowise coverage add` auto-discovers). Fold it into the health scores with:
-#   make coverage && repowise coverage add && repowise update
+# Test-coverage report: total summary to stdout + browsable HTML in coverage.html.
 coverage:
 	go test -coverprofile=coverage.out ./...
-	python3 scripts/cov2lcov.py
+	go tool cover -func=coverage.out | tail -1
+	go tool cover -html=coverage.out -o coverage.html
 
 # Run all quality gates locally before pushing.
 check: build test lint fmt vuln secrets
