@@ -94,8 +94,9 @@ func TestTranscriptChaptersRenderAndNavigate(t *testing.T) {
 
 	vd, cmd := NewVideoDetail(context.Background(), b, b, transcriptKeys(), v, VideoDetailOpts{InitialView: InitialViewTranscript, TranscriptWidth: "50%"})
 	model, _ := vd.Update(cmd().(vdTranscriptMsg))
-	// Establish the popup width so transcriptWrapped agrees on line indices.
-	model, _ = model.(VideoDetail).Update(OverlaySizeMsg{ContentW: width})
+	// Establish the popup width and height so transcriptWrapped agrees on line
+	// indices and the viewport is tall enough to show every chapter.
+	model, _ = model.(VideoDetail).Update(OverlaySizeMsg{ContentW: width, ContentH: height})
 	got := model.(VideoDetail)
 
 	out := got.Render(rectangularBehind(width, height), width, height)

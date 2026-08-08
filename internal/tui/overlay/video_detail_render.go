@@ -240,6 +240,28 @@ func (vd VideoDetail) transcriptWrapped() []string {
 	return render.WordWrap(vd.transcriptText, transcriptTextWidth(vd.transcriptWidth, vd.transcriptTermWidth()))
 }
 
+// transcriptViewportRows is how many wrapped transcript lines the popup shows at
+// once: the modal height (contentH, the same value Render receives) minus chrome,
+// floored so a tiny terminal still shows a few lines. Shared by the renderer and
+// the scroll clamp so G/j/k and the last page agree.
+func (vd VideoDetail) transcriptViewportRows() int {
+	rows := vd.contentH - modalChromeRows
+	if rows < 3 {
+		rows = 3
+	}
+	return rows
+}
+
+// transcriptMaxVS is the largest scroll offset that still fills the viewport —
+// scrolling stops once the last page shows. 0 when the whole transcript fits.
+func (vd VideoDetail) transcriptMaxVS() int {
+	maxVS := len(vd.transcriptWrapped()) - vd.transcriptViewportRows()
+	if maxVS < 0 {
+		maxVS = 0
+	}
+	return maxVS
+}
+
 // transcriptHeaderRows returns the indices of wrapped lines that begin a timed
 // chapter section ("## <timestamp> <title>"). Used by [/] navigation and to
 // decide whether to show the chapter hint — the flat-fallback "## Transcript"
@@ -270,20 +292,14 @@ func renderTranscriptLine(l string, innerW int) string {
 
 // renderTranscriptModal renders the scrollable transcript popup with a copy-all
 // hint. height bounds how many wrapped lines are shown at once.
-func (vd VideoDetail) renderTranscriptModal(behind string, width, height int) string {
+func (vd VideoDetail) renderTranscriptModal(behind string, width int) string {
 	boxW := transcriptBoxWidth(vd.transcriptWidth, width)
 	innerW := transcriptTextWidth(vd.transcriptWidth, width)
 	lines := render.WordWrap(vd.transcriptText, innerW)
 
-	maxRows := height - modalChromeRows
-	if maxRows < 3 {
-		maxRows = 3
-	}
+	maxRows := vd.transcriptViewportRows()
 	needsScroll := len(lines) > maxRows
-	maxVS := len(lines) - maxRows
-	if maxVS < 0 {
-		maxVS = 0
-	}
+	maxVS := vd.transcriptMaxVS()
 	vs := vd.transcriptVS
 	if vs > maxVS {
 		vs = maxVS
@@ -337,7 +353,7 @@ func (vd VideoDetail) Render(behind string, width, height int) string {
 		case vdChapters:
 			return vd.renderChaptersModal(behind, width)
 		case vdTranscript:
-			return vd.renderTranscriptModal(behind, width, height)
+			return vd.renderTranscriptModal(behind, width)
 		}
 		if vd.initialView == InitialViewTranscript {
 			// transcript fetch still in flight — show a small loading box
@@ -371,7 +387,7 @@ func (vd VideoDetail) Render(behind string, width, height int) string {
 	case vdChapters:
 		composed = vd.renderChaptersModal(composed, width)
 	case vdTranscript:
-		composed = vd.renderTranscriptModal(composed, width, height)
+		composed = vd.renderTranscriptModal(composed, width)
 	}
 	// A first-open transcript fetch is still in flight (subState is still vdPanel
 	// until it resolves) — show the loading popup over the panel.

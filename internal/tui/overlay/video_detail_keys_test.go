@@ -22,6 +22,7 @@ import (
 func vdStateKeys() keymap.KeyMap {
 	return keymap.Build(config.KeyBindings{
 		Close: "esc", Up: "k", Down: "j",
+		GotoPrefix: "g", GotoBottom: "G",
 		OpenLinks: "L", OpenChapters: "C", OpenTranscript: "T",
 		DrillDown: "enter", Play: "p", PlayAudio: "a", CopyURL: "y",
 	})
@@ -335,6 +336,9 @@ func TestChaptersOpenWithNoneStaysPanel(t *testing.T) {
 
 func TestTranscriptOpenScrollsAndDismisses(t *testing.T) {
 	vd := panelVD(false)
+	vd.transcriptWidth = "80"                    // absolute width → short lines don't wrap
+	vd.contentH = 11                             // viewportRows = 11 - modalChromeRows(8) = 3
+	vd.transcriptText = "l1\nl2\nl3\nl4\nl5\nl6" // 6 lines → maxVS = 6 - 3 = 3
 	m, _ := vd.Update(vdKey('T'))
 	if got := asVD(t, m).subState; got != vdTranscript {
 		t.Fatalf("after OpenTranscript subState = %d, want vdTranscript", got)
@@ -342,6 +346,22 @@ func TestTranscriptOpenScrollsAndDismisses(t *testing.T) {
 	m, _ = asVD(t, m).Update(vdKey('j')) // Down
 	if got := asVD(t, m).transcriptVS; got != 1 {
 		t.Errorf("after Down transcriptVS = %d, want 1", got)
+	}
+	// Down can't scroll past the last page (regression: it used to run away, which
+	// left j/k dead after G).
+	for i := 0; i < 10; i++ {
+		m, _ = asVD(t, m).Update(vdKey('j'))
+	}
+	if got := asVD(t, m).transcriptVS; got != 3 {
+		t.Errorf("Down past end transcriptVS = %d, want clamp at 3", got)
+	}
+	m, _ = asVD(t, m).Update(vdKey('g')) // gg → top
+	if got := asVD(t, m).transcriptVS; got != 0 {
+		t.Errorf("after gg transcriptVS = %d, want 0", got)
+	}
+	m, _ = asVD(t, m).Update(vdKey('G')) // G → bottom
+	if got := asVD(t, m).transcriptVS; got != 3 {
+		t.Errorf("after G transcriptVS = %d, want 3 (maxVS)", got)
 	}
 	m, _ = asVD(t, m).Update(vdEsc())
 	if got := asVD(t, m).subState; got != vdPanel {
