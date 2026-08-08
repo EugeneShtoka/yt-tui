@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -53,25 +54,17 @@ func (d *DB) ThumbnailEligibleIDs(ctx context.Context, perChannel int) (map[stri
 	if perChannel < 0 {
 		perChannel = 0
 	}
-	rows, err := d.sql.QueryContext(ctx, `
+	ids, err := queryMap(ctx, d.sql, `
 		SELECT video_id FROM feed_cache WHERE feed='recommended'
 		UNION
 		SELECT id FROM (`+newestSubscribedCTE+`) WHERE rn<=?
-	`, perChannel)
+	`, func(rows *sql.Rows) (string, bool, error) {
+		var id string
+		err := rows.Scan(&id)
+		return id, true, err
+	}, perChannel)
 	if err != nil {
 		return nil, fmt.Errorf("ThumbnailEligibleIDs: %w", err)
-	}
-	defer rows.Close()
-	ids := make(map[string]bool)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return ids, fmt.Errorf("ThumbnailEligibleIDs scan: %w", err)
-		}
-		ids[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return ids, fmt.Errorf("ThumbnailEligibleIDs rows: %w", err)
 	}
 	return ids, nil
 }
@@ -109,21 +102,13 @@ func (d *DB) SubscribedVideosWithoutDetails(ctx context.Context, limit int) ([]d
 
 // videoRefsWithoutDetails runs a query projecting (id, url) and collects VideoRefs.
 func (d *DB) videoRefsWithoutDetails(ctx context.Context, query, label string) ([]domain.VideoRef, error) {
-	rows, err := d.sql.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("%s query: %w", label, err)
-	}
-	defer rows.Close()
-	var refs []domain.VideoRef
-	for rows.Next() {
+	refs, err := queryList(ctx, d.sql, query, func(rows *sql.Rows) (domain.VideoRef, error) {
 		var r domain.VideoRef
-		if err := rows.Scan(&r.ID, &r.URL); err != nil {
-			return refs, fmt.Errorf("%s scan: %w", label, err)
-		}
-		refs = append(refs, r)
-	}
-	if err := rows.Err(); err != nil {
-		return refs, fmt.Errorf("%s rows: %w", label, err)
+		err := rows.Scan(&r.ID, &r.URL)
+		return r, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	return refs, nil
 }

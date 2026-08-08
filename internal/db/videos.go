@@ -44,9 +44,37 @@ func queryList[T any](ctx context.Context, qr querier, query string, scan func(*
 	return out, rows.Err() //nolint:wrapcheck // call sites wrap with their own context
 }
 
+// queryMap is the map-valued analog of queryList: it runs query and collects
+// every row through scan (which returns a key and value) into a map, centralizing
+// the same QueryContext → rows.Close → for rows.Next → rows.Err envelope. Errors
+// are returned unwrapped; each call site adds its own context.
+func queryMap[K comparable, V any](ctx context.Context, qr querier, query string, scan func(*sql.Rows) (K, V, error), args ...any) (map[K]V, error) {
+	rows, err := qr.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // call sites wrap with their own context
+	}
+	defer rows.Close()
+	out := make(map[K]V)
+	for rows.Next() {
+		k, v, err := scan(rows)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // call sites wrap with their own context
+		}
+		out[k] = v
+	}
+	return out, rows.Err() //nolint:wrapcheck // call sites wrap with their own context
+}
+
 // scanVideoRow adapts scanVideo (variadic) to the queryList scan signature for
 // the plain 8-column video projection with no leading columns.
 func scanVideoRow(rows *sql.Rows) (domain.Video, error) { return scanVideo(rows) }
+
+// scanString is the queryList scan for a single string column (id/name/query lists).
+func scanString(rows *sql.Rows) (string, error) {
+	var s string
+	err := rows.Scan(&s)
+	return s, err
+}
 
 // upsertVideoTx is the single video upsert used by every write path (UpsertVideo,
 // SaveChannelVideos, SaveFeedCache, SaveYTPlaylistVideos). Centralizing it means
@@ -138,7 +166,7 @@ func (d *DB) DeleteLocalVideo(ctx context.Context, id string) error {
 
 // LocalVideos returns all downloaded videos ordered by download date.
 func (d *DB) LocalVideos(ctx context.Context) ([]domain.LocalVideo, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT lv.id, v.title, v.channel, v.duration,
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
 		       lv.file_path, COALESCE(lv.file_size, 0), lv.download_type, lv.downloaded_at, lv.status,
@@ -146,13 +174,7 @@ func (d *DB) LocalVideos(ctx context.Context) ([]domain.LocalVideo, error) {
 		FROM local_videos lv
 		JOIN videos v ON v.id = lv.id
 		ORDER BY lv.downloaded_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("LocalVideos query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.LocalVideo
-	for rows.Next() {
+	`, func(rows *sql.Rows) (domain.LocalVideo, error) {
 		var lv domain.LocalVideo
 		var lastPlayed sql.NullTime
 		if err := rows.Scan(
@@ -161,37 +183,30 @@ func (d *DB) LocalVideos(ctx context.Context) ([]domain.LocalVideo, error) {
 			&lv.FilePath, &lv.FileSize, &lv.DownloadType, &lv.DownloadedAt,
 			&lv.Status, &lastPlayed, &lv.LastPositionMs,
 		); err != nil {
-			return nil, fmt.Errorf("LocalVideos scan: %w", err)
+			return lv, err
 		}
 		if lastPlayed.Valid {
 			lv.LastPlayed = lastPlayed.Time
 		}
-		result = append(result, lv)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("LocalVideos rows: %w", err)
+		return lv, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LocalVideos: %w", err)
 	}
 	return result, nil
 }
 
 // AllVideoPositions returns all saved positions as a map of videoID → position_ms.
 func (d *DB) AllVideoPositions(ctx context.Context) (map[string]int64, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`)
+	m, err := queryMap(ctx, d.sql, `SELECT video_id, position_ms FROM video_positions WHERE position_ms > 0`,
+		func(rows *sql.Rows) (string, int64, error) {
+			var id string
+			var ms int64
+			err := rows.Scan(&id, &ms)
+			return id, ms, err
+		})
 	if err != nil {
-		return nil, fmt.Errorf("AllVideoPositions query: %w", err)
-	}
-	defer rows.Close()
-	m := make(map[string]int64)
-	for rows.Next() {
-		var id string
-		var ms int64
-		if err := rows.Scan(&id, &ms); err != nil {
-			return m, fmt.Errorf("AllVideoPositions scan: %w", err)
-		}
-		m[id] = ms
-	}
-	if err := rows.Err(); err != nil {
-		return m, fmt.Errorf("AllVideoPositions rows: %w", err)
+		return nil, fmt.Errorf("AllVideoPositions: %w", err)
 	}
 	return m, nil
 }
@@ -236,25 +251,17 @@ func (d *DB) VideoPosition(ctx context.Context, videoID string) (int64, bool, er
 
 // WatchedVideoIDs returns the set of video IDs that have any play or stream history event.
 func (d *DB) WatchedVideoIDs(ctx context.Context) (map[string]bool, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	ids, err := queryMap(ctx, d.sql, `
 		SELECT DISTINCT video_id FROM history
 		WHERE event_type IN ('playVideo','playAudio','streamVideo','streamAudio')
 		AND video_id != ''
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("WatchedVideoIDs query: %w", err)
-	}
-	defer rows.Close()
-	ids := make(map[string]bool)
-	for rows.Next() {
+	`, func(rows *sql.Rows) (string, bool, error) {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			return ids, fmt.Errorf("WatchedVideoIDs scan: %w", err)
-		}
-		ids[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return ids, fmt.Errorf("WatchedVideoIDs rows: %w", err)
+		err := rows.Scan(&id)
+		return id, true, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("WatchedVideoIDs: %w", err)
 	}
 	return ids, nil
 }

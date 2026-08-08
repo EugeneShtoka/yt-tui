@@ -21,21 +21,9 @@ func (d *DB) Blocklist(ctx context.Context) (ids, names []string, err error) {
 
 // scanColumn runs a single-column query and collects the values into a slice.
 func (d *DB) scanColumn(ctx context.Context, query string) ([]string, error) {
-	rows, err := d.sql.QueryContext(ctx, query)
+	out, err := queryList(ctx, d.sql, query, scanString)
 	if err != nil {
-		return nil, fmt.Errorf("scanColumn query: %w", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, fmt.Errorf("scanColumn scan: %w", err)
-		}
-		out = append(out, v)
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("scanColumn rows: %w", err)
+		return nil, fmt.Errorf("scanColumn: %w", err)
 	}
 	return out, nil
 }
