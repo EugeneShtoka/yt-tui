@@ -38,6 +38,7 @@ type InProc struct {
 	port         *service.PortabilityService
 	enrichDone   chan struct{}  // closed when the StartBackgroundEnrichment goroutine exits; nil until started
 	transcriptWG sync.WaitGroup // tracks fire-and-forget transcript-note builds so shutdown can drain them
+	bgWG         sync.WaitGroup // tracks other detached maintenance goroutines (e.g. thumbnail recrop) so shutdown can drain them
 	// transcriptSF collapses concurrent transcript-note builds for the same video
 	// into one yt-dlp fetch. Opening a fresh video otherwise fires the interactive
 	// GetTranscript build and the background maybeSaveTranscript build at once —
@@ -90,7 +91,12 @@ func (p *InProc) StartBackgroundEnrichment(ctx context.Context) {
 	// time, so the (now crop-free) render path shows clean images. Marker-guarded,
 	// so it's a cheap no-op after the first sweep.
 	if p.thumbs != nil {
+		// Tracked on bgWG (not enrichDone) so it can run concurrently with the
+		// enrichment pass without delaying it, while still being drained by
+		// WaitEnrichment at shutdown (L-2).
+		p.bgWG.Add(1)
 		go func() {
+			defer p.bgWG.Done()
 			if n, err := p.thumbs.Recrop(); err != nil {
 				debug.Log("enrich: recrop: %v", err)
 			} else if n > 0 {
@@ -145,8 +151,9 @@ func (p *InProc) StartBackgroundEnrichment(ctx context.Context) {
 }
 
 // WaitEnrichment blocks until every background goroutine this InProc owns has
-// exited: the StartBackgroundEnrichment pass (if started) and any in-flight
-// fire-and-forget transcript-note builds spawned by VideoDetails. Callers cancel
+// exited: the StartBackgroundEnrichment pass (if started), any in-flight
+// fire-and-forget transcript-note builds spawned by VideoDetails, and the
+// one-time thumbnail recrop maintenance sweep. Callers cancel
 // the enrichment context first; this then waits out any live writer so a
 // subsequent database.Close() / transcript-store write cannot race it (the
 // single-binary shutdown ordering, H-1). Returns immediately when nothing runs.
@@ -155,6 +162,7 @@ func (p *InProc) WaitEnrichment() {
 		<-p.enrichDone
 	}
 	p.transcriptWG.Wait()
+	p.bgWG.Wait()
 }
 
 // backfillPace is the sleep between per-channel backfill fetches when no
