@@ -1,4 +1,4 @@
-.PHONY: build run run-daemon build-tui build-daemon test lint fmt fix vuln secrets hooks check coverage
+.PHONY: build run run-daemon build-tui build-daemon test lint fmt fix vuln secrets hooks check coverage coverage-check
 
 # Build both runnable binaries (./yt-tui and ./yt-tuid).
 build: build-tui build-daemon
@@ -48,6 +48,11 @@ coverage:
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 	go tool cover -html=coverage.out -o coverage.html
+
+# Enforce the coverage floors (overall + per-package); see scripts/coverage-gate.sh.
+coverage-check:
+	go test -coverprofile=coverage.out ./...
+	bash scripts/coverage-gate.sh coverage.out
 
 # Run all quality gates locally before pushing.
 check: build test lint fmt vuln secrets
