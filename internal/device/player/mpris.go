@@ -192,7 +192,7 @@ func (b *mprisBackend) queryPosition(busName string) (time.Duration, bool) {
 	if err != nil {
 		return 0, false
 	}
-	us, ok := v.Value().(int64)
+	us, ok := parsePositionUs(v.Value())
 	if !ok {
 		return 0, false
 	}
