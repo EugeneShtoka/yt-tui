@@ -16,6 +16,26 @@ type DB struct {
 	sql *sql.DB
 }
 
+// withTx runs fn inside a transaction, centralizing the BeginTx → defer Rollback
+// → Commit envelope every transactional writer used to hand-roll. It rolls back
+// on any error or panic and commits on success; label prefixes the begin/commit
+// error context, while fn wraps its own statement errors. (Tx.Rollback is a
+// best-effort no-op once Commit succeeds; errcheck excludes it.)
+func (d *DB) withTx(ctx context.Context, label string, fn func(tx *sql.Tx) error) error {
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("%s begin: %w", label, err)
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s commit: %w", label, err)
+	}
+	return nil
+}
+
 // placeholders returns a comma-separated run of n SQL "?" placeholders for an
 // IN (...) clause — "?,?,?" for n==3. Returns "" for n<=0 so callers guard the
 // empty case before building the query.
