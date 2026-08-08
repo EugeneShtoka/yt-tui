@@ -666,33 +666,3 @@ func TestSaveFeedCacheReplaces(t *testing.T) {
 		t.Errorf("SaveFeedCache replace: got %+v, want single 'new'", got)
 	}
 }
-
-// ── Watch later round-trips ───────────────────────────────────────────────────
-
-func TestWatchLaterAddRemove(t *testing.T) {
-	db := newTestDB(t)
-
-	if err := db.AddWatchLater(context.Background(), "vid1", "Some Title", "Some Channel", "https://example.com/vid1"); err != nil {
-		t.Fatalf("AddWatchLater: %v", err)
-	}
-
-	entries, err := db.WatchLater(context.Background())
-	if err != nil {
-		t.Fatalf("WatchLater: %v", err)
-	}
-	if len(entries) != 1 || entries[0].VideoID != "vid1" {
-		t.Errorf("WatchLater after add: %+v", entries)
-	}
-
-	if err = db.RemoveWatchLater(context.Background(), "vid1"); err != nil {
-		t.Fatalf("RemoveWatchLater: %v", err)
-	}
-
-	entries, err = db.WatchLater(context.Background())
-	if err != nil {
-		t.Fatalf("WatchLater after remove: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("WatchLater after remove: got %d, want 0", len(entries))
-	}
-}

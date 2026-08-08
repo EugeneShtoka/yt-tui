@@ -42,7 +42,6 @@ type ImportPlan struct {
 	MergedPlaylists int `json:"merged_playlists"` // names already present
 	PlaylistAdds    int `json:"playlist_adds"`    // video refs not yet in their playlist
 	Videos          int `json:"videos"`           // shared video-metadata rows to upsert
-	NewWatchLater   int `json:"new_watch_later"`  // watch-later ids absent locally
 	NewYTPlaylists  int `json:"new_yt_playlists"` // YT playlist refs absent locally
 
 	// Watch data — populated only when the bundle carries it AND the caller opts
@@ -61,7 +60,6 @@ type ImportResult struct {
 	PlaylistsTouched int `json:"playlists_touched"`
 	PlaylistAdds     int `json:"playlist_adds"`
 	VideosUpserted   int `json:"videos_upserted"`
-	WatchLaterAdded  int `json:"watch_later_added"`
 	YTPlaylists      int `json:"yt_playlists"`
 	HistoryAdded     int `json:"history_added"`
 	PositionsSet     int `json:"positions_set"`

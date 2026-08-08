@@ -38,18 +38,6 @@ func (p *InProc) RemoveFromPlaylist(ctx context.Context, playlistID int64, video
 	return p.db.RemoveFromPlaylist(ctx, playlistID, videoID)
 }
 
-func (p *InProc) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	return p.db.WatchLater(ctx)
-}
-
-func (p *InProc) AddWatchLater(ctx context.Context, id, title, channel, url string) error {
-	return p.db.AddWatchLater(ctx, id, title, channel, url)
-}
-
-func (p *InProc) RemoveWatchLater(ctx context.Context, id string) error {
-	return p.db.RemoveWatchLater(ctx, id)
-}
-
 func (p *InProc) YTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 	return p.yt.YTPlaylists(ctx)
 }
@@ -72,6 +60,46 @@ func (p *InProc) SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlayl
 
 func (p *InProc) SaveYTPlaylistVideos(ctx context.Context, playlistID string, videos []domain.Video) error {
 	return p.db.SaveYTPlaylistVideos(ctx, playlistID, videos)
+}
+
+// AddToWatchLater adds a video to Watch Later. With YT auth it hits YouTube's
+// "WL" playlist (the existing playlist-cache refresh then persists it locally);
+// without auth it falls back to the reserved local "Watch Later" playlist,
+// upserting the video row first so it rehydrates in list views.
+func (p *InProc) AddToWatchLater(ctx context.Context, v domain.Video) error {
+	if client := p.ytAPI.Load(); client != nil {
+		return client.AddToWatchLater(ctx, v.ID)
+	}
+	id, err := p.db.CreatePlaylist(ctx, domain.WatchLaterPlaylistName)
+	if err != nil {
+		return err
+	}
+	if err := p.db.UpsertVideo(ctx, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
+		return err
+	}
+	return p.db.AddToPlaylist(ctx, id, v.ID)
+}
+
+// RemoveFromWatchLater removes a video from Watch Later, mirroring
+// AddToWatchLater's store choice: YouTube's "WL" playlist with auth, else the
+// reserved local "Watch Later" playlist. CreatePlaylist is idempotent, so the
+// offline path resolves the reserved playlist's id without creating duplicates.
+func (p *InProc) RemoveFromWatchLater(ctx context.Context, videoID string) error {
+	if client := p.ytAPI.Load(); client != nil {
+		if err := client.RemoveFromWatchLater(ctx, videoID); err != nil {
+			return err
+		}
+		// Optimistic local removal: drop from the cached YT "WL" so the UI reflects
+		// the change immediately, before the next backfill sync rewrites the cache.
+		// Best-effort — a cache miss here is harmless.
+		_ = p.db.RemoveYTPlaylistVideo(ctx, domain.WatchLaterYTID, videoID)
+		return nil
+	}
+	id, err := p.db.CreatePlaylist(ctx, domain.WatchLaterPlaylistName)
+	if err != nil {
+		return err
+	}
+	return p.db.RemoveFromPlaylist(ctx, id, videoID)
 }
 
 // ── YouTube API mutations (require browser-cookie auth) ─────────────────────

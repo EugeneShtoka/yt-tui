@@ -89,19 +89,6 @@ func (s *PortabilityService) previewPlaylists(ctx context.Context, b portability
 }
 
 func (s *PortabilityService) previewRefs(ctx context.Context, b portability.Bundle, plan *portability.ImportPlan) error {
-	wl, err := s.repo.WatchLater(ctx)
-	if err != nil {
-		return fmt.Errorf("ImportPreview watch later: %w", err)
-	}
-	wlSet := make(map[string]bool, len(wl))
-	for i := range wl {
-		wlSet[wl[i].VideoID] = true
-	}
-	for _, w := range b.WatchLater {
-		if w.VideoID != "" && !wlSet[w.VideoID] {
-			plan.NewWatchLater++
-		}
-	}
 	yt, err := s.repo.GetYTPlaylists(ctx)
 	if err != nil {
 		return fmt.Errorf("ImportPreview yt playlists: %w", err)

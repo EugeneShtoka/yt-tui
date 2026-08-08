@@ -149,14 +149,6 @@ func TestActivityEntryRoundTrip(t *testing.T) {
 	}
 }
 
-func TestWatchLaterEntryRoundTrip(t *testing.T) {
-	ts := time.Unix(1_700_000_000, 0).UTC()
-	in := domain.WatchLaterEntry{VideoID: "v", Title: "T", Channel: "C", URL: "u", AddedAt: ts}
-	if got := ProtoToWatchLaterEntry(WatchLaterEntryToProto(in)); !reflect.DeepEqual(got, in) {
-		t.Errorf("WatchLaterEntry round-trip mismatch:\n got  %+v\n want %+v", got, in)
-	}
-}
-
 func TestPlaylistRoundTrip(t *testing.T) {
 	ts := time.Unix(1_700_000_000, 0).UTC()
 	in := domain.Playlist{ID: 5, Name: "P", CreatedAt: ts}

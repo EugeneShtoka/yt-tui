@@ -18,7 +18,6 @@ type PortabilityRepo interface {
 	Blocklist(ctx context.Context) (ids, names []string, err error)
 	Playlists(ctx context.Context) ([]domain.Playlist, error)
 	PlaylistVideos(ctx context.Context, playlistID int64) ([]domain.Video, error)
-	WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error)
 	GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error)
 	History(ctx context.Context, limit int) ([]domain.HistoryEntry, error)
 	AllVideoPositions(ctx context.Context) (map[string]int64, error)
@@ -27,8 +26,8 @@ type PortabilityRepo interface {
 // PortabilityWriter is the write port used by import to apply a bundle. Every
 // method maps 1:1 to an existing db.DB writer, so the service stays db-free and
 // no new persistence is invented purely for import. Reuse is the point: playlist
-// merge, watch-later, and YT-playlist writes go through the same upserts the app
-// uses everywhere else; only channel-full-row and timestamped-history needed new
+// merge and YT-playlist writes go through the same upserts the app uses
+// everywhere else; only channel-full-row and timestamped-history needed new
 // (import-specific) writers on the DB.
 type PortabilityWriter interface {
 	UpsertChannel(ctx context.Context, ch domain.Channel) error
@@ -36,7 +35,6 @@ type PortabilityWriter interface {
 	CreatePlaylist(ctx context.Context, name string) (int64, error)
 	AddToPlaylist(ctx context.Context, playlistID int64, videoID string) error
 	UpsertVideo(ctx context.Context, id, title, channel, channelID string, duration int, viewCount int64, uploadDate, url string) error
-	AddWatchLater(ctx context.Context, id, title, channel, url string) error
 	SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlaylist) error
 	AddHistoryEvent(ctx context.Context, videoID, eventType, details string, ts time.Time) error
 	SaveVideoPosition(ctx context.Context, videoID string, ms int64) error
@@ -73,9 +71,6 @@ func (s *PortabilityService) Export(ctx context.Context, opts portability.Export
 		return portability.Bundle{}, err
 	}
 	if err := s.exportPlaylists(ctx, &b); err != nil {
-		return portability.Bundle{}, err
-	}
-	if err := s.exportWatchLater(ctx, &b); err != nil {
 		return portability.Bundle{}, err
 	}
 	if err := s.exportYTPlaylists(ctx, &b); err != nil {
@@ -148,23 +143,6 @@ func (s *PortabilityService) exportPlaylists(ctx context.Context, b *portability
 			}
 		}
 		b.Playlists = append(b.Playlists, pe)
-	}
-	return nil
-}
-
-func (s *PortabilityService) exportWatchLater(ctx context.Context, b *portability.Bundle) error {
-	entries, err := s.repo.WatchLater(ctx)
-	if err != nil {
-		return fmt.Errorf("Export watch later: %w", err)
-	}
-	for i := range entries {
-		e := &entries[i]
-		b.WatchLater = append(b.WatchLater, portability.WatchLaterRef{
-			VideoID: e.VideoID,
-			Title:   e.Title,
-			Channel: e.Channel,
-			URL:     e.URL,
-		})
 	}
 	return nil
 }

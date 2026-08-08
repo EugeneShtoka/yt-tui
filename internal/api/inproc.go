@@ -15,6 +15,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 	"golang.org/x/sync/singleflight"
@@ -197,5 +198,22 @@ func (p *InProc) backfillSubscribed(ctx context.Context) {
 		debug.Log("enrich: backfill: %v", err)
 	} else if n > 0 {
 		debug.Log("enrich: backfilled %d channel(s)", n)
+	}
+	p.syncWatchLater(ctx)
+}
+
+// syncWatchLater refreshes the cached YouTube "WL" playlist so the local Watch
+// Later view tracks additions/removals made on YouTube (including on other
+// devices). Best-effort and part of the backfill cycle: a fetch failure (no
+// cookies, no network, WL unavailable) leaves the cache intact. A genuinely
+// empty WL legitimately clears the cache; a fetch error never does.
+func (p *InProc) syncWatchLater(ctx context.Context) {
+	vids, err := p.yt.PlaylistVideos(ctx, domain.WatchLaterYTID)
+	if err != nil {
+		debug.Log("enrich: sync watch later: %v", err)
+		return
+	}
+	if err := p.db.SaveYTPlaylistVideos(ctx, domain.WatchLaterYTID, vids); err != nil {
+		debug.Log("enrich: save watch later: %v", err)
 	}
 }

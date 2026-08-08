@@ -44,6 +44,7 @@ type KeyBindings struct {
 	PrevChapter    string `toml:"prev_chapter" json:"prev_chapter"`       // jump to previous chapter (inside the transcript popup)
 	AddToPlaylist  string `toml:"add_to_playlist" json:"add_to_playlist"`
 	NewPlaylist    string `toml:"new_playlist" json:"new_playlist"`
+	WatchLater     string `toml:"watch_later" json:"watch_later"` // add focused video to Watch Later (YT WL when authed, else a local list)
 	ToggleMode     string `toml:"toggle_mode" json:"toggle_mode"`
 	Subscribe      string `toml:"subscribe" json:"subscribe"`
 	Unsubscribe    string `toml:"unsubscribe" json:"unsubscribe"`
@@ -107,6 +108,7 @@ func defaultKeyBindings() KeyBindings { //nolint:funlen // flat default table: o
 		PrevChapter:    "[",
 		AddToPlaylist:  "a",
 		NewPlaylist:    "n",
+		WatchLater:     "w",
 		ToggleMode:     "m",
 		Subscribe:      "S",
 		Unsubscribe:    "u",

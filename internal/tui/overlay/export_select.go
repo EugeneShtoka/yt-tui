@@ -48,7 +48,7 @@ type exportWrittenMsg struct {
 const (
 	esRowChannels  = iota // toggle include Channels
 	esRowBlocklist        // toggle include BlockedNames
-	esRowPlaylists        // toggle include Playlists + WatchLater + YTPlaylists + Videos
+	esRowPlaylists        // toggle include Playlists + YTPlaylists + Videos
 	esRowWatch            // toggle include History + Positions
 	esRowConfig           // toggle include the portable config profile
 	esRowExport           // write the bundle
@@ -258,7 +258,6 @@ func (es ExportSelect) buildBundle() portability.Bundle {
 	}
 	if !es.sel.playlists {
 		b.Playlists = nil
-		b.WatchLater = nil
 		b.YTPlaylists = nil
 		b.Videos = nil
 	}
@@ -317,8 +316,8 @@ func (es ExportSelect) blocklistLabel() string {
 }
 
 func (es ExportSelect) playlistsLabel() string {
-	return fmt.Sprintf("Playlists (%d · %d watch-later · %d YT)",
-		len(es.bundle.Playlists), len(es.bundle.WatchLater), len(es.bundle.YTPlaylists))
+	return fmt.Sprintf("Playlists (%d · %d YT)",
+		len(es.bundle.Playlists), len(es.bundle.YTPlaylists))
 }
 
 func (es ExportSelect) watchLabel() string {

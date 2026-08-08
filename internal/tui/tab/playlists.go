@@ -567,6 +567,14 @@ func (t Playlists) removeCurrentVideo(plKey string, vids []domain.Video) (Playli
 			return plRemovedMsg{TabTarget: tuipkg.TabTarget{Tab: tuipkg.TabPlaylists}, err: t.backend.RemoveFromPlaylist(t.ctx, localID, vidID), plKey: plKey, video: vid}
 		}
 	}
+	// Watch Later routes through the dedicated backend verb (YouTube "WL" when
+	// authed, else the local fallback) so removal works offline instead of failing
+	// with ErrYTNotInitialized like a plain YT-playlist removal would.
+	if plKey == ytWatchLaterID {
+		return t, func() tea.Msg {
+			return plRemovedMsg{TabTarget: tuipkg.TabTarget{Tab: tuipkg.TabPlaylists}, err: t.backend.RemoveFromWatchLater(t.ctx, vidID), plKey: plKey, video: vid}
+		}
+	}
 	return t, func() tea.Msg {
 		return plRemovedMsg{TabTarget: tuipkg.TabTarget{Tab: tuipkg.TabPlaylists}, err: t.backend.RemoveFromYTPlaylist(t.ctx, plKey, vidID), plKey: plKey, video: vid}
 	}

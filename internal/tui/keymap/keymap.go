@@ -55,6 +55,7 @@ type KeyMap struct {
 	CommandPrompt  key.Binding
 	AddList        key.Binding
 	NewList        key.Binding
+	WatchLater     key.Binding
 	Refresh        key.Binding
 	ForceRefresh   key.Binding
 	Help           key.Binding
@@ -120,6 +121,7 @@ func Build(kb config.KeyBindings) KeyMap { //nolint:funlen // flat binding table
 		CommandPrompt:  b(kb.CommandPrompt, "command palette"),
 		AddList:        b(kb.AddToPlaylist, "add to playlist"),
 		NewList:        b(kb.NewPlaylist, "new playlist"),
+		WatchLater:     b(kb.WatchLater, "watch later"),
 		Refresh:        b(kb.Refresh, "refresh"),
 		ForceRefresh:   b(kb.ForceRefresh, "force refresh"),
 		Help:           b(kb.Help, "help"),

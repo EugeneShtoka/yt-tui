@@ -72,30 +72,18 @@ func (h *playlistHandler) RemoveFromPlaylist(ctx context.Context, req *connect.R
 	return connect.NewResponse(&v1.RemoveFromPlaylistResponse{}), nil
 }
 
-func (h *playlistHandler) WatchLater(ctx context.Context, _ *connect.Request[v1.WatchLaterRequest]) (*connect.Response[v1.WatchLaterResponse], error) {
-	entries, err := h.b.WatchLater(ctx)
-	if err != nil {
+func (h *playlistHandler) AddToWatchLater(ctx context.Context, req *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error) {
+	if err := h.b.AddToWatchLater(ctx, protoconv.ProtoToVideo(req.Msg.Video)); err != nil {
 		return nil, rpcErr(err)
 	}
-	pb := make([]*v1.WatchLaterEntry, len(entries))
-	for i := range entries {
-		pb[i] = protoconv.WatchLaterEntryToProto(entries[i])
-	}
-	return connect.NewResponse(&v1.WatchLaterResponse{Entries: pb}), nil
+	return connect.NewResponse(&v1.AddToWatchLaterResponse{}), nil
 }
 
-func (h *playlistHandler) AddWatchLater(ctx context.Context, req *connect.Request[v1.AddWatchLaterRequest]) (*connect.Response[v1.AddWatchLaterResponse], error) {
-	if err := h.b.AddWatchLater(ctx, req.Msg.Id, req.Msg.Title, req.Msg.Channel, req.Msg.Url); err != nil {
+func (h *playlistHandler) RemoveFromWatchLater(ctx context.Context, req *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error) {
+	if err := h.b.RemoveFromWatchLater(ctx, req.Msg.VideoId); err != nil {
 		return nil, rpcErr(err)
 	}
-	return connect.NewResponse(&v1.AddWatchLaterResponse{}), nil
-}
-
-func (h *playlistHandler) RemoveWatchLater(ctx context.Context, req *connect.Request[v1.RemoveWatchLaterRequest]) (*connect.Response[v1.RemoveWatchLaterResponse], error) {
-	if err := h.b.RemoveWatchLater(ctx, req.Msg.Id); err != nil {
-		return nil, rpcErr(err)
-	}
-	return connect.NewResponse(&v1.RemoveWatchLaterResponse{}), nil
+	return connect.NewResponse(&v1.RemoveFromWatchLaterResponse{}), nil
 }
 
 func (h *playlistHandler) YTPlaylists(ctx context.Context, _ *connect.Request[v1.YTPlaylistsRequest]) (*connect.Response[v1.YTPlaylistsResponse], error) {

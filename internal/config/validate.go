@@ -71,6 +71,10 @@ func applyDerivedDefaults(cfg *Config, log *issueLog) {
 	if cfg.ChannelRefreshMinutes <= 0 {
 		cfg.ChannelRefreshMinutes = 60
 	}
+	// 0 is a valid "disabled"; only an out-of-range value falls back to the default.
+	if cfg.WatchLaterAutoRemovePercent < 0 || cfg.WatchLaterAutoRemovePercent > 100 {
+		cfg.WatchLaterAutoRemovePercent = 90
+	}
 	if cfg.ChannelStrikes <= 0 {
 		cfg.ChannelStrikes = 2
 	}

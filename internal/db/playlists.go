@@ -58,6 +58,38 @@ func (d *DB) SaveYTPlaylistVideos(ctx context.Context, playlistID string, videos
 	})
 }
 
+// InWatchLater reports whether a video is currently in Watch Later, checking
+// both possible stores: the cached YouTube "WL" playlist and the reserved local
+// "Watch Later" playlist. ytWLID / localWLName are domain.WatchLaterYTID and
+// domain.WatchLaterPlaylistName (passed in to keep db free of that dependency
+// direction). Used by the watched-percent auto-remove to avoid firing a YouTube
+// removal for a video that isn't queued.
+func (d *DB) InWatchLater(ctx context.Context, videoID, ytWLID, localWLName string) (bool, error) {
+	var n int
+	err := d.sql.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM yt_playlist_videos WHERE playlist_id=? AND video_id=?)
+			+ (SELECT COUNT(*) FROM playlist_videos pv
+			   JOIN playlists p ON p.id = pv.playlist_id
+			   WHERE p.name=? AND pv.video_id=?)
+	`, ytWLID, videoID, localWLName, videoID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("InWatchLater: %w", err)
+	}
+	return n > 0, nil
+}
+
+// RemoveYTPlaylistVideo deletes a single video from a cached YT playlist. Used
+// for optimistic local removal (e.g. Watch Later) so the UI reflects a YouTube
+// mutation immediately, before the next backfill sync rewrites the cache.
+func (d *DB) RemoveYTPlaylistVideo(ctx context.Context, playlistID, videoID string) error {
+	if _, err := d.sql.ExecContext(ctx,
+		`DELETE FROM yt_playlist_videos WHERE playlist_id=? AND video_id=?`, playlistID, videoID); err != nil {
+		return fmt.Errorf("RemoveYTPlaylistVideo: %w", err)
+	}
+	return nil
+}
+
 // GetYTPlaylistVideos returns cached videos for a YT playlist in position order.
 func (d *DB) GetYTPlaylistVideos(ctx context.Context, playlistID string) ([]domain.Video, error) {
 	out, err := queryList(ctx, d.sql, `
@@ -158,40 +190,6 @@ func (d *DB) PlaylistVideos(ctx context.Context, playlistID int64) ([]domain.Vid
 	`, scanVideoRow, playlistID)
 	if err != nil {
 		return nil, fmt.Errorf("PlaylistVideos: %w", err)
-	}
-	return result, nil
-}
-
-// AddWatchLater adds a video to watch later.
-func (d *DB) AddWatchLater(ctx context.Context, id, title, channel, url string) error {
-	if _, err := d.sql.ExecContext(ctx, `
-		INSERT OR REPLACE INTO watch_later (video_id, title, channel, url) VALUES (?, ?, ?, ?)
-	`, id, title, channel, url); err != nil {
-		return fmt.Errorf("AddWatchLater: %w", err)
-	}
-	return nil
-}
-
-// RemoveWatchLater removes a video from watch later.
-func (d *DB) RemoveWatchLater(ctx context.Context, id string) error {
-	if _, err := d.sql.ExecContext(ctx, `DELETE FROM watch_later WHERE video_id=?`, id); err != nil {
-		return fmt.Errorf("RemoveWatchLater: %w", err)
-	}
-	return nil
-}
-
-// WatchLater returns all watch-later entries.
-func (d *DB) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	result, err := queryList(ctx, d.sql, `
-		SELECT video_id, title, channel, url, added_at
-		FROM watch_later ORDER BY added_at DESC
-	`, func(rows *sql.Rows) (domain.WatchLaterEntry, error) {
-		var e domain.WatchLaterEntry
-		err := rows.Scan(&e.VideoID, &e.Title, &e.Channel, &e.URL, &e.AddedAt)
-		return e, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("WatchLater: %w", err)
 	}
 	return result, nil
 }

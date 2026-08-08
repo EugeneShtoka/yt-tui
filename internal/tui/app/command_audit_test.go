@@ -51,8 +51,9 @@ func init() {
 		"LocalVideos", "AddLocalVideo", "DeleteLocalVideo",
 		// PlaylistBackend — playlist CRUD, all reached from the Playlists view.
 		"LocalPlaylists", "LocalPlaylistVideos", "PlaylistVideoIDs", "CreatePlaylist",
-		"DeletePlaylist", "AddToPlaylist", "RemoveFromPlaylist", "WatchLater",
-		"AddWatchLater", "RemoveWatchLater", "YTPlaylists", "YTPlaylistVideos",
+		"DeletePlaylist", "AddToPlaylist", "RemoveFromPlaylist",
+		"AddToWatchLater", "RemoveFromWatchLater",
+		"YTPlaylists", "YTPlaylistVideos",
 		"GetYTPlaylists", "GetYTPlaylistVideos", "SaveYTPlaylists", "SaveYTPlaylistVideos",
 		"InitYTClient", "CreateYTPlaylist", "DeleteYTPlaylist", "AddToYTPlaylist",
 		"RemoveFromYTPlaylist",

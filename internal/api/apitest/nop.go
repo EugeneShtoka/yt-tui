@@ -194,11 +194,8 @@ func (NopPlaylistBackend) AddToPlaylist(_ context.Context, _ int64, _ string) er
 func (NopPlaylistBackend) RemoveFromPlaylist(_ context.Context, _ int64, _ string) error {
 	return nil
 }
-func (NopPlaylistBackend) WatchLater(context.Context) ([]domain.WatchLaterEntry, error) {
-	return nil, nil
-}
-func (NopPlaylistBackend) AddWatchLater(_ context.Context, _, _, _, _ string) error { return nil }
-func (NopPlaylistBackend) RemoveWatchLater(_ context.Context, _ string) error       { return nil }
+func (NopPlaylistBackend) AddToWatchLater(_ context.Context, _ domain.Video) error  { return nil }
+func (NopPlaylistBackend) RemoveFromWatchLater(_ context.Context, _ string) error   { return nil }
 func (NopPlaylistBackend) YTPlaylists(context.Context) ([]domain.YTPlaylist, error) { return nil, nil }
 func (NopPlaylistBackend) YTPlaylistVideos(_ context.Context, _ string) ([]domain.Video, error) {
 	return nil, nil

@@ -220,6 +220,9 @@ func (r Root) dispatchPlayback(msg tea.Msg) (bool, tea.Model, tea.Cmd) {
 	case tuipkg.CopyTextMsg:
 		model, cmd := r.handleCopyText(m)
 		return true, model, cmd
+	case tuipkg.WatchLaterMsg:
+		model, cmd := r.handleWatchLater(m)
+		return true, model, cmd
 	}
 	return false, r, nil
 }
@@ -295,6 +298,10 @@ func (r Root) handleRefreshPositions(m tuipkg.RefreshPositionsMsg) (Root, tea.Cm
 
 func (r Root) handleEnqueue(m tuipkg.EnqueueMsg) (Root, tea.Cmd) {
 	return r, r.actions().enqueue(r.baseCtx(), m.Video, m.AudioOnly)
+}
+
+func (r Root) handleWatchLater(m tuipkg.WatchLaterMsg) (Root, tea.Cmd) {
+	return r, r.actions().watchLater(r.baseCtx(), m.Video)
 }
 
 func (r Root) handleEnqueueSucceeded(m tuipkg.EnqueueSucceededMsg) (Root, tea.Cmd) {

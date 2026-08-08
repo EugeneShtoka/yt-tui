@@ -126,16 +126,6 @@ func TestInProcPlaylistRoundTrip(t *testing.T) {
 		t.Fatalf("RemoveFromPlaylist: %v", err)
 	}
 
-	if err := p.AddWatchLater(ctx, "wl1", "Title", "Chan", "url"); err != nil {
-		t.Fatalf("AddWatchLater: %v", err)
-	}
-	if wl, err := p.WatchLater(ctx); err != nil || len(wl) != 1 {
-		t.Fatalf("WatchLater = %v (err %v), want 1", wl, err)
-	}
-	if err := p.RemoveWatchLater(ctx, "wl1"); err != nil {
-		t.Fatalf("RemoveWatchLater: %v", err)
-	}
-
 	if err := p.SaveYTPlaylists(ctx, []domain.YTPlaylist{{ID: "PL1", Title: "YT"}}); err != nil {
 		t.Fatalf("SaveYTPlaylists: %v", err)
 	}

@@ -940,82 +940,6 @@ func (x *Playlist) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-type WatchLaterEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	VideoId       string                 `protobuf:"bytes,1,opt,name=video_id,json=videoId,proto3" json:"video_id,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Channel       string                 `protobuf:"bytes,3,opt,name=channel,proto3" json:"channel,omitempty"`
-	Url           string                 `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
-	AddedAt       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=added_at,json=addedAt,proto3" json:"added_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WatchLaterEntry) Reset() {
-	*x = WatchLaterEntry{}
-	mi := &file_backend_v1_types_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WatchLaterEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WatchLaterEntry) ProtoMessage() {}
-
-func (x *WatchLaterEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_backend_v1_types_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WatchLaterEntry.ProtoReflect.Descriptor instead.
-func (*WatchLaterEntry) Descriptor() ([]byte, []int) {
-	return file_backend_v1_types_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *WatchLaterEntry) GetVideoId() string {
-	if x != nil {
-		return x.VideoId
-	}
-	return ""
-}
-
-func (x *WatchLaterEntry) GetTitle() string {
-	if x != nil {
-		return x.Title
-	}
-	return ""
-}
-
-func (x *WatchLaterEntry) GetChannel() string {
-	if x != nil {
-		return x.Channel
-	}
-	return ""
-}
-
-func (x *WatchLaterEntry) GetUrl() string {
-	if x != nil {
-		return x.Url
-	}
-	return ""
-}
-
-func (x *WatchLaterEntry) GetAddedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.AddedAt
-	}
-	return nil
-}
-
 type HistoryEntry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1035,7 +959,7 @@ type HistoryEntry struct {
 
 func (x *HistoryEntry) Reset() {
 	*x = HistoryEntry{}
-	mi := &file_backend_v1_types_proto_msgTypes[12]
+	mi := &file_backend_v1_types_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1047,7 +971,7 @@ func (x *HistoryEntry) String() string {
 func (*HistoryEntry) ProtoMessage() {}
 
 func (x *HistoryEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_backend_v1_types_proto_msgTypes[12]
+	mi := &file_backend_v1_types_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1060,7 +984,7 @@ func (x *HistoryEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HistoryEntry.ProtoReflect.Descriptor instead.
 func (*HistoryEntry) Descriptor() ([]byte, []int) {
-	return file_backend_v1_types_proto_rawDescGZIP(), []int{12}
+	return file_backend_v1_types_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HistoryEntry) GetId() int64 {
@@ -1159,7 +1083,7 @@ type ActivityEntry struct {
 
 func (x *ActivityEntry) Reset() {
 	*x = ActivityEntry{}
-	mi := &file_backend_v1_types_proto_msgTypes[13]
+	mi := &file_backend_v1_types_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1095,7 @@ func (x *ActivityEntry) String() string {
 func (*ActivityEntry) ProtoMessage() {}
 
 func (x *ActivityEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_backend_v1_types_proto_msgTypes[13]
+	mi := &file_backend_v1_types_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1108,7 @@ func (x *ActivityEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivityEntry.ProtoReflect.Descriptor instead.
 func (*ActivityEntry) Descriptor() ([]byte, []int) {
-	return file_backend_v1_types_proto_rawDescGZIP(), []int{13}
+	return file_backend_v1_types_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ActivityEntry) GetId() int64 {
@@ -1284,7 +1208,7 @@ type DownloadItem struct {
 
 func (x *DownloadItem) Reset() {
 	*x = DownloadItem{}
-	mi := &file_backend_v1_types_proto_msgTypes[14]
+	mi := &file_backend_v1_types_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1296,7 +1220,7 @@ func (x *DownloadItem) String() string {
 func (*DownloadItem) ProtoMessage() {}
 
 func (x *DownloadItem) ProtoReflect() protoreflect.Message {
-	mi := &file_backend_v1_types_proto_msgTypes[14]
+	mi := &file_backend_v1_types_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1309,7 +1233,7 @@ func (x *DownloadItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadItem.ProtoReflect.Descriptor instead.
 func (*DownloadItem) Descriptor() ([]byte, []int) {
-	return file_backend_v1_types_proto_rawDescGZIP(), []int{14}
+	return file_backend_v1_types_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DownloadItem) GetVideoId() string {
@@ -1407,7 +1331,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_backend_v1_types_proto_msgTypes[15]
+	mi := &file_backend_v1_types_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +1343,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_backend_v1_types_proto_msgTypes[15]
+	mi := &file_backend_v1_types_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +1356,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_backend_v1_types_proto_rawDescGZIP(), []int{15}
+	return file_backend_v1_types_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Event) GetKind() string {
@@ -1552,13 +1476,7 @@ const file_backend_v1_types_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x129\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xa5\x01\n" +
-	"\x0fWatchLaterEntry\x12\x19\n" +
-	"\bvideo_id\x18\x01 \x01(\tR\avideoId\x12\x14\n" +
-	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
-	"\achannel\x18\x03 \x01(\tR\achannel\x12\x10\n" +
-	"\x03url\x18\x04 \x01(\tR\x03url\x125\n" +
-	"\badded_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\aaddedAt\"\xd7\x02\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xd7\x02\n" +
 	"\fHistoryEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
 	"\bvideo_id\x18\x02 \x01(\tR\avideoId\x12\x14\n" +
@@ -1624,7 +1542,7 @@ func file_backend_v1_types_proto_rawDescGZIP() []byte {
 	return file_backend_v1_types_proto_rawDescData
 }
 
-var file_backend_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_backend_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_backend_v1_types_proto_goTypes = []any{
 	(*Video)(nil),                 // 0: backend.v1.Video
 	(*Channel)(nil),               // 1: backend.v1.Channel
@@ -1637,12 +1555,11 @@ var file_backend_v1_types_proto_goTypes = []any{
 	(*LocalVideo)(nil),            // 8: backend.v1.LocalVideo
 	(*YTPlaylist)(nil),            // 9: backend.v1.YTPlaylist
 	(*Playlist)(nil),              // 10: backend.v1.Playlist
-	(*WatchLaterEntry)(nil),       // 11: backend.v1.WatchLaterEntry
-	(*HistoryEntry)(nil),          // 12: backend.v1.HistoryEntry
-	(*ActivityEntry)(nil),         // 13: backend.v1.ActivityEntry
-	(*DownloadItem)(nil),          // 14: backend.v1.DownloadItem
-	(*Event)(nil),                 // 15: backend.v1.Event
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(*HistoryEntry)(nil),          // 11: backend.v1.HistoryEntry
+	(*ActivityEntry)(nil),         // 12: backend.v1.ActivityEntry
+	(*DownloadItem)(nil),          // 13: backend.v1.DownloadItem
+	(*Event)(nil),                 // 14: backend.v1.Event
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
 }
 var file_backend_v1_types_proto_depIdxs = []int32{
 	0,  // 0: backend.v1.VideoDetails.video:type_name -> backend.v1.Video
@@ -1651,17 +1568,16 @@ var file_backend_v1_types_proto_depIdxs = []int32{
 	4,  // 3: backend.v1.CachedDetails.links:type_name -> backend.v1.Link
 	5,  // 4: backend.v1.CachedDetails.chapters:type_name -> backend.v1.Chapter
 	6,  // 5: backend.v1.CachedDetails.sb_segments:type_name -> backend.v1.SBSegment
-	16, // 6: backend.v1.LocalVideo.downloaded_at:type_name -> google.protobuf.Timestamp
-	16, // 7: backend.v1.LocalVideo.last_played:type_name -> google.protobuf.Timestamp
-	16, // 8: backend.v1.Playlist.created_at:type_name -> google.protobuf.Timestamp
-	16, // 9: backend.v1.WatchLaterEntry.added_at:type_name -> google.protobuf.Timestamp
-	16, // 10: backend.v1.HistoryEntry.timestamp:type_name -> google.protobuf.Timestamp
-	16, // 11: backend.v1.ActivityEntry.timestamp:type_name -> google.protobuf.Timestamp
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	15, // 6: backend.v1.LocalVideo.downloaded_at:type_name -> google.protobuf.Timestamp
+	15, // 7: backend.v1.LocalVideo.last_played:type_name -> google.protobuf.Timestamp
+	15, // 8: backend.v1.Playlist.created_at:type_name -> google.protobuf.Timestamp
+	15, // 9: backend.v1.HistoryEntry.timestamp:type_name -> google.protobuf.Timestamp
+	15, // 10: backend.v1.ActivityEntry.timestamp:type_name -> google.protobuf.Timestamp
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_backend_v1_types_proto_init() }
@@ -1675,7 +1591,7 @@ func file_backend_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backend_v1_types_proto_rawDesc), len(file_backend_v1_types_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

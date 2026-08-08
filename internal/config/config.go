@@ -40,7 +40,10 @@ type DaemonConfig struct {
 	RecommendedMaxPages        int      `toml:"recommended_max_pages"`
 	ChannelLatestCount         int      `toml:"channel_latest_count"`
 	ChannelRefreshMinutes      int      `toml:"channel_refresh_minutes"` // skip auto-refresh of a channel's videos if refreshed within this many minutes; manual refresh always fetches
-	ChannelStrikes             int      `toml:"channel_strikes"`
+	// WatchLaterAutoRemovePercent auto-removes a video from Watch Later once it has
+	// been watched at least this % of its duration (0 disables). Clamped to 0..100.
+	WatchLaterAutoRemovePercent int `toml:"watch_later_auto_remove_percent"`
+	ChannelStrikes              int `toml:"channel_strikes"`
 	// EnrichmentDelaySeconds paces the background pass that fetches full details
 	// (exact upload date, description, chapters) for subscribed-channel videos
 	// via yt-dlp, correcting the approximate dates the flat listing yields. It is
@@ -207,24 +210,25 @@ var DefaultPanels = []Panel{
 func defaultConfig() *Config {
 	return &Config{
 		DaemonConfig: DaemonConfig{
-			DownloadDir:            filepath.Join(os.Getenv("HOME"), "Videos", "yt-tui"),
-			Browser:                "vivaldi+gnomekeyring",
-			YouTubeEnabled:         true,
-			MaxDownloads:           3,
-			SponsorBlock:           true,
-			SponsorBlockCats:       []string{"sponsor", "selfpromo", "interaction"},
-			AudioFormat:            "mp3",
-			RecommendedMaxAgeDays:  7,
-			RecommendedFetchCount:  150,
-			RecommendedMaxPages:    3,
-			ChannelLatestCount:     3,
-			ChannelRefreshMinutes:  60,
-			ChannelStrikes:         2,
-			EnrichmentDelaySeconds: 5,
-			ThumbnailsPerChannel:   30,
-			StripEmojis:            true,
-			Subtitles:              true,
-			SubtitleLangs:          []string{"en"},
+			DownloadDir:                 filepath.Join(os.Getenv("HOME"), "Videos", "yt-tui"),
+			Browser:                     "vivaldi+gnomekeyring",
+			YouTubeEnabled:              true,
+			MaxDownloads:                3,
+			SponsorBlock:                true,
+			SponsorBlockCats:            []string{"sponsor", "selfpromo", "interaction"},
+			AudioFormat:                 "mp3",
+			RecommendedMaxAgeDays:       7,
+			RecommendedFetchCount:       150,
+			RecommendedMaxPages:         3,
+			ChannelLatestCount:          3,
+			ChannelRefreshMinutes:       60,
+			WatchLaterAutoRemovePercent: 90,
+			ChannelStrikes:              2,
+			EnrichmentDelaySeconds:      5,
+			ThumbnailsPerChannel:        30,
+			StripEmojis:                 true,
+			Subtitles:                   true,
+			SubtitleLangs:               []string{"en"},
 		},
 		ClientConfig: ClientConfig{
 			Player:        "mpv",

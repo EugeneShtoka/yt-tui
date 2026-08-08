@@ -111,8 +111,8 @@ var exemptVerbs = map[string]string{
 	"HasLocalVideo":       "returns a single LocalVideo via the same mapper LocalVideos round-trips",
 	// Playlist
 	"AddToPlaylist":        exMutation,
+	"AddToWatchLater":      exMutation,
 	"AddToYTPlaylist":      exMutation,
-	"AddWatchLater":        exMutation,
 	"CreatePlaylist":       exMutation,
 	"CreateYTPlaylist":     exMutation,
 	"DeletePlaylist":       exMutation,
@@ -123,11 +123,10 @@ var exemptVerbs = map[string]string{
 	"LocalPlaylists":       exTimestamped,
 	"PlaylistVideoIDs":     exScalars,
 	"RemoveFromPlaylist":   exMutation,
+	"RemoveFromWatchLater": exMutation,
 	"RemoveFromYTPlaylist": exMutation,
-	"RemoveWatchLater":     exMutation,
 	"SaveYTPlaylistVideos": exMutation,
 	"SaveYTPlaylists":      exMutation,
-	"WatchLater":           exScalars,
 	"YTPlaylistVideos":     exVideoList,
 	"YTPlaylists":          exScalars,
 	// Portability

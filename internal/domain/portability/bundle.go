@@ -20,7 +20,6 @@ type Bundle struct {
 	Channels      []ChannelExport  `json:"channels,omitempty"`
 	BlockedNames  []string         `json:"blocked_names,omitempty"`
 	Playlists     []PlaylistExport `json:"playlists,omitempty"`
-	WatchLater    []WatchLaterRef  `json:"watch_later,omitempty"`
 	YTPlaylists   []YTPlaylistRef  `json:"yt_playlists,omitempty"`
 	// Videos is the deduplicated metadata for every video referenced by
 	// Playlists (by id), so the lists rehydrate on import without re-fetching.
@@ -59,16 +58,6 @@ type ChannelExport struct {
 type PlaylistExport struct {
 	Name     string   `json:"name"`
 	VideoIDs []string `json:"video_ids,omitempty"`
-}
-
-// WatchLaterRef mirrors the watch_later row. It carries its own denormalized
-// title/channel/url because watch-later entries are not guaranteed to have a
-// row in the shared videos table.
-type WatchLaterRef struct {
-	VideoID string `json:"video_id"`
-	Title   string `json:"title,omitempty"`
-	Channel string `json:"channel,omitempty"`
-	URL     string `json:"url,omitempty"`
 }
 
 // YTPlaylistRef is a YouTube playlist reference (id + title only). Contents are

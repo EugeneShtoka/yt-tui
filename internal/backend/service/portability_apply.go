@@ -43,7 +43,7 @@ func (s *PortabilityService) ImportApply(ctx context.Context, b portability.Bund
 	if err := s.applyPlaylists(ctx, b, known, &res); err != nil {
 		return res, err
 	}
-	if err := s.applyRefs(ctx, b, &res); err != nil {
+	if err := s.applyYTPlaylists(ctx, b, &res); err != nil {
 		return res, err
 	}
 	if opts.IncludeWatchData {
@@ -142,28 +142,6 @@ func (s *PortabilityService) applyPlaylists(ctx context.Context, b portability.B
 		}
 	}
 	return nil
-}
-
-func (s *PortabilityService) applyRefs(ctx context.Context, b portability.Bundle, res *portability.ImportResult) error {
-	wl, err := s.repo.WatchLater(ctx)
-	if err != nil {
-		return fmt.Errorf("ImportApply watch later: %w", err)
-	}
-	wlSet := make(map[string]bool, len(wl))
-	for i := range wl {
-		wlSet[wl[i].VideoID] = true
-	}
-	for _, w := range b.WatchLater {
-		if w.VideoID == "" || wlSet[w.VideoID] {
-			continue
-		}
-		if err := s.w.AddWatchLater(ctx, w.VideoID, w.Title, w.Channel, w.URL); err != nil {
-			return fmt.Errorf("ImportApply watch later %q: %w", w.VideoID, err)
-		}
-		wlSet[w.VideoID] = true
-		res.WatchLaterAdded++
-	}
-	return s.applyYTPlaylists(ctx, b, res)
 }
 
 // applyYTPlaylists merges the imported YT-playlist references with the existing
