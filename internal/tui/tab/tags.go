@@ -266,7 +266,7 @@ func (t Tags) View() tea.View {
 	header := styles.SectionTitle.Render(headerText)
 
 	if t.inDetail() {
-		return tea.NewView(t.renderDetail(header, t.tagSel, ""))
+		return tea.NewView(t.renderDetail(header, t.tagSel, "", t.vidNav.View()))
 	}
 
 	var body string
