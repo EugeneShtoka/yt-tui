@@ -34,108 +34,25 @@ type srchRecentLoadedMsg struct {
 
 // ── recentSearches sub-model ─────────────────────────────────────────────────
 
+// recentSearches is the Search tab's recent-query list: the queries plus an
+// embedded listCursor that owns the scroll/cursor math. The wrapper methods below
+// forward the current item count (len(queries)) to the cursor so existing call
+// sites keep passing only pageH.
 type recentSearches struct {
-	queries  []string
-	cursor   int
-	vs       int // viewport start
-	circular bool
+	listCursor
+	queries []string
 }
 
-func (r *recentSearches) move(delta, pageH int) {
-	n := len(r.queries)
-	if n <= 0 {
-		return
-	}
-	c := r.cursor + delta
-	if r.circular {
-		c = ((c % n) + n) % n
-	} else {
-		if c < 0 {
-			c = 0
-		}
-		if c >= n {
-			c = n - 1
-		}
-	}
-	r.syncViewport(c, pageH)
-}
-
+func (r *recentSearches) move(delta, pageH int) { r.listCursor.move(delta, len(r.queries), pageH) }
 func (r *recentSearches) page(direction, pageH int) {
-	n := len(r.queries)
-	if n <= 0 {
-		return
-	}
-	relPos := r.cursor - r.vs
-	newVS := r.vs + direction*pageH
-	if newVS < 0 {
-		newVS = 0
-	}
-	if newVS+pageH > n {
-		newVS = n - pageH
-		if newVS < 0 {
-			newVS = 0
-		}
-	}
-	c := newVS + relPos
-	if c < 0 {
-		c = 0
-	}
-	if c >= n {
-		c = n - 1
-	}
-	r.vs = newVS
-	r.cursor = c
+	r.listCursor.page(direction, len(r.queries), pageH)
 }
-
-func (r *recentSearches) jumpTo(idx, pageH int) {
-	n := len(r.queries)
-	if n <= 0 {
-		return
-	}
-	r.syncViewport(idx, pageH)
-}
-
-// syncViewport updates cursor and adjusts vs so cursor stays visible.
+func (r *recentSearches) jumpTo(idx, pageH int) { r.listCursor.jumpTo(idx, len(r.queries), pageH) }
 func (r *recentSearches) syncViewport(c, pageH int) {
-	n := len(r.queries)
-	if c < 0 {
-		c = 0
-	}
-	if c >= n {
-		c = n - 1
-	}
-	if pageH > 0 {
-		if c < r.vs {
-			r.vs = c
-		}
-		if c >= r.vs+pageH {
-			r.vs = c - pageH + 1
-		}
-		if r.vs < 0 {
-			r.vs = 0
-		}
-	}
-	r.cursor = c
+	r.listCursor.syncViewport(c, len(r.queries), pageH)
 }
-
 func (r *recentSearches) window(pageH int) (start, end int) {
-	n := len(r.queries)
-	if n == 0 || pageH <= 0 {
-		return 0, 0
-	}
-	if pageH >= n {
-		return 0, n
-	}
-	start = r.vs
-	end = start + pageH
-	if end > n {
-		end = n
-		start = end - pageH
-		if start < 0 {
-			start = 0
-		}
-	}
-	return start, end
+	return r.listCursor.window(len(r.queries), pageH)
 }
 
 // ── drill sub-model ───────────────────────────────────────────────────────────
@@ -252,7 +169,7 @@ func NewSearch(ctx context.Context, backend searchBackend, keys keymap.KeyMap, c
 		drill:    newDrillState(circular),
 		chCols:   chCols,
 		vidCols:  vidCols,
-		recent:   recentSearches{circular: circular},
+		recent:   recentSearches{listCursor: listCursor{circular: circular}},
 	}
 }
 
