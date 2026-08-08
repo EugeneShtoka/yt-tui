@@ -131,6 +131,7 @@ type VideoDetail struct {
 	thumbRendered string
 
 	contentW int // terminal columns left of the panel (for Kitty col position)
+	contentH int // terminal content rows (viewport height for modal scroll clamps)
 	kittyRow int // 1-indexed terminal row where panel interior starts
 
 	subState    vdSubState
@@ -297,6 +298,7 @@ func (vd VideoDetail) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case OverlaySizeMsg:
 		vd.contentW = m.ContentW
+		vd.contentH = m.ContentH
 		vd.kittyRow = m.KittyRow
 		return vd, vd.kittyAfterFrameCmd()
 

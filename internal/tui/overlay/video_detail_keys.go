@@ -25,7 +25,7 @@ func (vd VideoDetail) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (vd VideoDetail) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := vd.keys
-	if vs, ok := scrollKey(vd.descVS, len(vd.descLines), msg, keys); ok {
+	if vs, ok := scrollKey(vd.descVS, max(0, len(vd.descLines)-1), msg, keys); ok {
 		vd.descVS = vs
 		return vd, nil
 	}
@@ -218,12 +218,15 @@ func (vd VideoDetail) handleTranscriptKey(msg tea.KeyPressMsg) (tea.Model, tea.C
 	if key.Matches(msg, keys.Escape) || key.Matches(msg, keys.Quit) {
 		return vd.dismissModal()
 	}
-	if vs, ok := scrollKey(vd.transcriptVS, len(vd.transcriptWrapped()), msg, keys); ok {
+	if vs, ok := scrollKey(vd.transcriptVS, vd.transcriptMaxVS(), msg, keys); ok {
 		vd.transcriptVS = vs
 		return vd, nil
 	}
 	switch {
 	case key.Matches(msg, keys.NextChapter):
+		// Jump to the next chapter header's row. May land past maxVS when the
+		// whole transcript fits; the render clamps the display and the next scroll
+		// key snaps the offset back into range, so no dead zone results.
 		for _, r := range transcriptHeaderRows(vd.transcriptWrapped()) {
 			if r > vd.transcriptVS {
 				vd.transcriptVS = r

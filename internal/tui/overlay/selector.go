@@ -11,32 +11,40 @@ import (
 const scrollPageSize = 10
 
 // scrollKey applies a vertical-text-scroll key (Down/Up/PageDown/PageUp/
-// GotoBottom) to a scroll offset, returning the new offset and whether the key
-// was a scroll key. Down is unbounded (the renderer clamps); Up/PageUp floor at
-// 0; GotoBottom jumps to bottom. It is the single implementation behind the
-// VideoDetail description and transcript pagers, which carried byte-identical
-// copies (M-5).
-func scrollKey(offset, bottom int, msg tea.KeyPressMsg, keys keymap.KeyMap) (int, bool) {
+// GotoPrefix/GotoBottom) to a scroll offset, returning the new offset and whether
+// the key was a scroll key. maxOffset is the largest valid offset (the caller's
+// own last-line/last-page position); every result is clamped to [0, maxOffset]
+// so no key can park the offset past the viewport — a dead zone that made j/k
+// look frozen after G. GotoPrefix (gg) jumps to the top, GotoBottom (G) to the
+// bottom. Single implementation behind the VideoDetail description and transcript
+// pagers (M-5).
+func scrollKey(offset, maxOffset int, msg tea.KeyPressMsg, keys keymap.KeyMap) (int, bool) {
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
 	switch {
 	case key.Matches(msg, keys.Down):
-		return offset + 1, true
+		offset++
 	case key.Matches(msg, keys.Up):
-		if offset > 0 {
-			offset--
-		}
-		return offset, true
+		offset--
 	case key.Matches(msg, keys.PageDown):
-		return offset + scrollPageSize, true
+		offset += scrollPageSize
 	case key.Matches(msg, keys.PageUp):
 		offset -= scrollPageSize
-		if offset < 0 {
-			offset = 0
-		}
-		return offset, true
+	case key.Matches(msg, keys.GotoPrefix):
+		offset = 0
 	case key.Matches(msg, keys.GotoBottom):
-		return bottom, true
+		offset = maxOffset
+	default:
+		return offset, false
 	}
-	return offset, false
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	return offset, true
 }
 
 // moveVertical applies Up/Down (and, when gotoBottom is set, G/GotoBottom)
