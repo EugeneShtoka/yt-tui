@@ -93,43 +93,56 @@ func (atp AddToPlaylist) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case atpCreatedMsg:
-		if m.err != nil {
-			return atp, func() tea.Msg { return tuipkg.StatusMsg{Text: "create playlist: " + m.err.Error(), IsErr: true} }
-		}
-		// Add video to the freshly created playlist; the add command reports
-		// its own success/failure so a failed add isn't shown as success.
-		name, vid := m.name, atp.video.ID
-		ok := tuipkg.StatusMsg{Text: "Created '" + name + "' and added video"}
-		var addCmd tea.Cmd
-		switch {
-		case m.id != "":
-			id := m.id
-			addCmd = func() tea.Msg {
-				if err := atp.backend.AddToYTPlaylist(atp.ctx, id, vid); err != nil {
-					return tuipkg.StatusMsg{Text: "add to '" + name + "': " + err.Error(), IsErr: true}
-				}
-				return ok
-			}
-		case m.localID != 0:
-			lid := m.localID
-			addCmd = func() tea.Msg {
-				if err := atp.backend.AddToPlaylist(atp.ctx, lid, vid); err != nil {
-					return tuipkg.StatusMsg{Text: "add to '" + name + "': " + err.Error(), IsErr: true}
-				}
-				return ok
-			}
-		default:
-			addCmd = func() tea.Msg { return tuipkg.StatusMsg{Text: "Created '" + name + "'"} }
-		}
-		return atp, tea.Batch(
-			addCmd,
-			func() tea.Msg { return PopOverlayMsg{} },
-		)
+		return atp.onCreated(m)
 
 	case tea.KeyPressMsg:
 		return atp.handleKey(m)
 	}
 	return atp, nil
+}
+
+// onCreated handles the atpCreatedMsg result: on error it surfaces a status; on
+// success it adds the video to the freshly created playlist (the add command
+// reports its own success/failure so a failed add isn't shown as success) and
+// pops the overlay.
+func (atp AddToPlaylist) onCreated(m atpCreatedMsg) (tea.Model, tea.Cmd) {
+	if m.err != nil {
+		return atp, func() tea.Msg {
+			return tuipkg.StatusMsg{Text: "create playlist: " + m.err.Error(), IsErr: true}
+		}
+	}
+	return atp, tea.Batch(
+		atp.addToNewPlaylistCmd(m),
+		func() tea.Msg { return PopOverlayMsg{} },
+	)
+}
+
+// addToNewPlaylistCmd builds the command that adds the video to the just-created
+// playlist (YouTube or local), or a plain "created" status when there is no id
+// to add to.
+func (atp AddToPlaylist) addToNewPlaylistCmd(m atpCreatedMsg) tea.Cmd {
+	name, vid := m.name, atp.video.ID
+	ok := tuipkg.StatusMsg{Text: "Created '" + name + "' and added video"}
+	switch {
+	case m.id != "":
+		id := m.id
+		return func() tea.Msg {
+			if err := atp.backend.AddToYTPlaylist(atp.ctx, id, vid); err != nil {
+				return tuipkg.StatusMsg{Text: "add to '" + name + "': " + err.Error(), IsErr: true}
+			}
+			return ok
+		}
+	case m.localID != 0:
+		lid := m.localID
+		return func() tea.Msg {
+			if err := atp.backend.AddToPlaylist(atp.ctx, lid, vid); err != nil {
+				return tuipkg.StatusMsg{Text: "add to '" + name + "': " + err.Error(), IsErr: true}
+			}
+			return ok
+		}
+	default:
+		return func() tea.Msg { return tuipkg.StatusMsg{Text: "Created '" + name + "'"} }
+	}
 }
 
 func (atp AddToPlaylist) Render(behind string, width, _ int) string {
