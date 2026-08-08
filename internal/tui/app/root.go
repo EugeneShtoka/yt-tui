@@ -51,7 +51,7 @@ type Root struct {
 	tabs      []tuipkg.Tab
 	activeIdx int
 
-	overlays []ovpkg.Overlay
+	overlays overlayStack
 
 	// spinner is the single app-wide loading spinner. Root runs one tick loop
 	// and forwards each frame to the active tab and top overlay; individual
@@ -537,7 +537,7 @@ func (r Root) handleResize(w, h int) (Root, tea.Cmd) {
 	tabBarH := lipgloss.Height(r.tabBar.Render())
 	statusH := lipgloss.Height(r.statusBar.Render())
 	contentH := h - tabBarH - statusH
-	contentW := w - r.overlayWidthReduction()
+	contentW := w - r.overlays.widthReduction()
 
 	sizeMsg := tuipkg.ContentSizeMsg{Width: contentW, Height: contentH}
 	var cmds []tea.Cmd
@@ -576,25 +576,11 @@ func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	return r, nil
 }
 
-// topPanel returns the top overlay when it is the info side panel — the
-// stack-position + type check the overlay-open handlers share.
-func (r Root) topPanel() (ovpkg.VideoDetail, bool) {
-	n := len(r.overlays)
-	if n == 0 {
-		return ovpkg.VideoDetail{}, false
-	}
-	vd, ok := r.overlays[n-1].(ovpkg.VideoDetail)
-	if !ok || !vd.IsPanel() {
-		return ovpkg.VideoDetail{}, false
-	}
-	return vd, true
-}
-
 // openInfoPanel toggles the info side panel: pressing VideoInfo while the panel
 // is already the top overlay closes it; otherwise it opens the panel and hands
 // it its size via the resize that OverlaySizeMsg rides on.
 func (r Root) openInfoPanel(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
-	if _, ok := r.topPanel(); ok {
+	if _, ok := r.overlays.topPanel(); ok {
 		return r.handlePopOverlay()
 	}
 	vd, cmd := ovpkg.NewVideoDetail(r.baseCtx(), r.backend, r.media, r.keys, m.Video, ovpkg.VideoDetailOpts{
@@ -619,7 +605,7 @@ func (r Root) openVideoDetailModal(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 	case tuipkg.OverlayVideoDetailTranscript:
 		initView = ovpkg.InitialViewTranscript
 	}
-	if _, ok := r.topPanel(); ok {
+	if _, ok := r.overlays.topPanel(); ok {
 		return r.updateTopOverlay(ovpkg.OpenModalMsg{View: initView})
 	}
 	vd, cmd := ovpkg.NewVideoDetail(r.baseCtx(), r.backend, r.media, r.keys, m.Video, ovpkg.VideoDetailOpts{
@@ -634,23 +620,17 @@ func (r Root) openVideoDetailModal(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 // top overlay (pressing Help again while it is open is a no-op; the overlay's
 // own key handler closes it).
 func (r Root) handleOpenHelp() (Root, tea.Cmd) {
-	if n := len(r.overlays); n > 0 {
-		if _, ok := r.overlays[n-1].(ovpkg.Help); ok {
-			return r, nil
-		}
+	if r.overlays.topIsHelp() {
+		return r, nil
 	}
 	r.overlays = append(r.overlays, ovpkg.NewHelp(r.keys))
 	return r, nil
 }
 
 func (r Root) handlePopOverlay() (Root, tea.Cmd) {
-	n := len(r.overlays)
-	if n == 0 {
-		return r, nil
-	}
-	hadWidthReduction := r.overlays[n-1].WidthReduction() > 0
-	r.overlays = r.overlays[:n-1]
-	if hadWidthReduction {
+	if r.overlays.pop() {
+		// The popped overlay reserved width (the info panel); re-layout so the tab
+		// content reclaims it.
 		return r.handleResize(r.width, r.height)
 	}
 	return r, nil
@@ -959,35 +939,15 @@ func (r Root) tabHints() string {
 	return strings.Join(parts, "  ")
 }
 
+// updateTopOverlay / updatePanelOverlay are thin Root delegations to the overlay
+// stack, kept so their many callers keep the (Root, tea.Cmd) shape; the stack
+// mechanics live on overlayStack (H-2).
 func (r Root) updateTopOverlay(msg tea.Msg) (Root, tea.Cmd) {
-	n := len(r.overlays)
-	updated, cmd := r.overlays[n-1].Update(msg)
-	r.overlays[n-1] = updated.(ovpkg.Overlay)
-	return r, cmd
+	return r, r.overlays.updateTop(msg)
 }
 
-// updatePanelOverlay delivers msg to the open info side panel wherever it sits in
-// the overlay stack (it may be beneath a stacked modal), so the panel can track
-// the active tab even when it isn't the top overlay. No-op when no panel is open.
 func (r Root) updatePanelOverlay(msg tea.Msg) (Root, tea.Cmd) {
-	for i, o := range r.overlays {
-		if vd, ok := o.(ovpkg.VideoDetail); ok && vd.IsPanel() {
-			updated, cmd := o.Update(msg)
-			r.overlays[i] = updated.(ovpkg.Overlay)
-			return r, cmd
-		}
-	}
-	return r, nil
-}
-
-// hasInfoPanel reports whether the info side panel is currently open.
-func (r Root) hasInfoPanel() bool {
-	for _, o := range r.overlays {
-		if vd, ok := o.(ovpkg.VideoDetail); ok && vd.IsPanel() {
-			return true
-		}
-	}
-	return false
+	return r, r.overlays.updatePanel(msg)
 }
 
 // reconcileOverlaysAfterTabSwitch runs after the active tab changes with overlays
@@ -1000,20 +960,9 @@ func (r Root) reconcileOverlaysAfterTabSwitch() (Root, tea.Cmd) {
 	if len(r.overlays) == 0 {
 		return r, nil
 	}
-	hadPanel := r.hasInfoPanel()
-
-	// Cull every non-panel overlay. Centered modals reserve no width, so dropping
-	// them needs no re-layout; the panel (which does reserve width) is handled
-	// explicitly below.
-	kept := r.overlays[:0:0]
-	for _, o := range r.overlays {
-		if vd, ok := o.(ovpkg.VideoDetail); ok && vd.IsPanel() {
-			kept = append(kept, o)
-		}
-	}
-	r.overlays = kept
-
-	if !hadPanel {
+	// Cull every non-panel overlay (centered modals reserve no width, so dropping
+	// them needs no re-layout); the info panel, which does reserve width, stays.
+	if !r.overlays.cullNonPanel() {
 		return r, nil
 	}
 	// The info side panel stays open across tab switches and re-tracks the new
@@ -1059,13 +1008,4 @@ func (r Root) withSelectionDebounce() (Root, tea.Cmd) {
 		return selectionDebounceMsg{token: token, video: v}
 	})
 	return r, cmd
-}
-
-func (r Root) overlayWidthReduction() int {
-	for _, o := range r.overlays {
-		if red := o.WidthReduction(); red > 0 {
-			return red
-		}
-	}
-	return 0
 }

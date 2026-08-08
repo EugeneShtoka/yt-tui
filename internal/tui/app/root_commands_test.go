@@ -64,7 +64,7 @@ func TestCommandPromptDoesNotStack(t *testing.T) {
 
 func TestRunCommandQuitPopsBarAndQuits(t *testing.T) {
 	r, _ := newCommandRoot()
-	r.overlays = []ovpkg.Overlay{ovpkg.NewCommandBar(r.keys, r.cmds, nil)}
+	r.overlays = overlayStack{ovpkg.NewCommandBar(r.keys, r.cmds, nil)}
 
 	r2, cmd := r.handleRunCommand(tuipkg.RunCommandMsg{Input: "q"})
 	if len(r2.overlays) != 0 {
@@ -77,7 +77,7 @@ func TestRunCommandQuitPopsBarAndQuits(t *testing.T) {
 
 func TestRunCommandUnknownReportsError(t *testing.T) {
 	r, _ := newCommandRoot()
-	r.overlays = []ovpkg.Overlay{ovpkg.NewCommandBar(r.keys, r.cmds, nil)}
+	r.overlays = overlayStack{ovpkg.NewCommandBar(r.keys, r.cmds, nil)}
 
 	r2, cmd := r.handleRunCommand(tuipkg.RunCommandMsg{Input: "bogus arg"})
 	if len(r2.overlays) != 0 {
