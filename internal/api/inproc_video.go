@@ -68,17 +68,27 @@ func (p *InProc) maybeSaveTranscript(ctx context.Context, videoID, videoURL stri
 // the store for the next open. Returns false if the caller's ctx ends before the
 // shared build completes.
 func (p *InProc) buildTranscriptNoteShared(ctx context.Context, videoID, videoURL string) bool {
-	ch := p.transcriptSF.DoChan(videoID, func() (any, error) {
-		p.transcriptWG.Add(1)
+	// Register the build on transcriptWG synchronously here, before spawning the
+	// goroutine — a WaitGroup.Add must happen-before Wait, and singleflight's own
+	// DoChan worker runs on a goroutine we don't sequence, so adding inside it
+	// would race WaitEnrichment (H-1). The goroutine below carries the Done and
+	// blocks on the shared build to completion, so the counter covers the whole
+	// build even when this caller's ctx cancels first and we return early.
+	p.transcriptWG.Add(1)
+	done := make(chan bool, 1) // buffered: the goroutine must never block sending after an early return
+	go func() {
 		defer p.transcriptWG.Done()
-		return p.buildTranscriptNote(context.Background(), videoID, videoURL), nil
-	})
+		v, _, _ := p.transcriptSF.Do(videoID, func() (any, error) {
+			return p.buildTranscriptNote(context.Background(), videoID, videoURL), nil
+		})
+		built, _ := v.(bool)
+		done <- built
+	}()
 	select {
-	case res := <-ch:
-		built, _ := res.Val.(bool)
+	case built := <-done:
 		return built
 	case <-ctx.Done():
-		return false // caller gave up; the shared build continues in the background
+		return false // caller gave up; the tracked goroutine finishes the build in the background
 	}
 }
 

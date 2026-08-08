@@ -62,6 +62,43 @@ func TestWaitEnrichmentDrainsTranscriptBuilds(t *testing.T) {
 	}
 }
 
+// TestWaitEnrichmentDrainsBackgroundMaintenance guards L-2: WaitEnrichment must
+// also block on bgWG, the group tracking detached maintenance goroutines (the
+// thumbnail recrop sweep), so shutdown can't race the thumbnail store teardown.
+// If someone drops the bgWG.Wait() from WaitEnrichment this fails.
+func TestWaitEnrichmentDrainsBackgroundMaintenance(t *testing.T) {
+	p := &InProc{} // enrichDone nil → WaitEnrichment only has the WaitGroups to drain
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	p.bgWG.Add(1)
+	go func() {
+		defer p.bgWG.Done()
+		close(started)
+		<-release // hold the "recrop" open until the test releases it
+	}()
+	<-started
+
+	returned := make(chan struct{})
+	go func() {
+		p.WaitEnrichment()
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+		t.Fatal("WaitEnrichment returned before the in-flight maintenance goroutine finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitEnrichment did not return after the maintenance goroutine finished")
+	}
+}
+
 // TestWaitEnrichmentNoBackgroundWork returns immediately when nothing is running
 // (no enrichment started, no transcript builds) — the common no-op shutdown.
 func TestWaitEnrichmentNoBackgroundWork(t *testing.T) {
