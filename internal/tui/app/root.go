@@ -294,13 +294,7 @@ func (r Root) handleRefreshPositions(m tuipkg.RefreshPositionsMsg) (Root, tea.Cm
 }
 
 func (r Root) handleEnqueue(m tuipkg.EnqueueMsg) (Root, tea.Cmd) {
-	v, audio := m.Video, m.AudioOnly
-	return r, func() tea.Msg {
-		if err := r.backend.Enqueue(r.baseCtx(), v, audio); err != nil {
-			return tuipkg.StatusMsg{Text: "enqueue: " + err.Error(), IsErr: true}
-		}
-		return tuipkg.EnqueueSucceededMsg{Title: v.Title, AudioOnly: audio}
-	}
+	return r, r.actions().enqueue(r.baseCtx(), m.Video, m.AudioOnly)
 }
 
 func (r Root) handleEnqueueSucceeded(m tuipkg.EnqueueSucceededMsg) (Root, tea.Cmd) {
@@ -817,21 +811,11 @@ func (r Root) applyNavigate(i int, query string) (Root, tea.Cmd) {
 }
 
 func (r Root) handleHideChannel(m tuipkg.HideChannelMsg) (Root, tea.Cmd) {
-	ch := m.Channel
-	return r, func() tea.Msg {
-		if err := r.backend.HideRecVideo(r.baseCtx(), ch.ID); err != nil {
-			return tuipkg.StatusMsg{Text: "hide: " + err.Error(), IsErr: true}
-		}
-		return tuipkg.StatusMsg{Text: "Hidden: " + ch.Name}
-	}
+	return r, r.actions().hideChannel(r.baseCtx(), m.Channel)
 }
 
 func (r Root) handleUnsubscribe(m tuipkg.UnsubscribeMsg) (Root, tea.Cmd) {
-	ch := m.Channel
-	return r, func() tea.Msg {
-		err := r.backend.Unsubscribe(r.baseCtx(), ch)
-		return tuipkg.UnsubscribeResultMsg{Channel: ch, Err: err}
-	}
+	return r, r.actions().unsubscribe(r.baseCtx(), m.Channel)
 }
 
 // handleUnsubscribeResult broadcasts the result to every tab, so those that
@@ -851,17 +835,7 @@ func (r Root) handleUnsubscribeResult(m tuipkg.UnsubscribeResultMsg) (Root, tea.
 // handleBlockChannel runs the guarded block/unblock transition on the backend
 // and reports the outcome. The tab has already applied it optimistically.
 func (r Root) handleBlockChannel(m tuipkg.BlockChannelMsg) (Root, tea.Cmd) {
-	ch := m.Channel
-	block := m.Block
-	return r, func() tea.Msg {
-		var err error
-		if block {
-			err = r.backend.BlockChannel(r.baseCtx(), ch)
-		} else {
-			err = r.backend.UnblockChannel(r.baseCtx(), ch.ID)
-		}
-		return tuipkg.BlockChannelResultMsg{Channel: ch, Block: block, Err: err}
-	}
+	return r, r.actions().blockChannel(r.baseCtx(), m.Channel, m.Block)
 }
 
 // handleBlockChannelResult broadcasts the result so the Channels tab can revert
@@ -888,6 +862,11 @@ func (r Root) handleBlockChannelResult(m tuipkg.BlockChannelResultMsg) (Root, te
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func (r Root) activeTab() tuipkg.Tab { return r.tabs[r.activeIdx] }
+
+// actions returns the backend-mutation command factories bound to Root's backend
+// (H-2). Derived on demand rather than stored so a Root literal built in tests
+// without construction wiring still routes through the same code path.
+func (r Root) actions() backendActions { return backendActions{backend: r.backend} }
 
 // listBorderDimmed reports whether the active tab's table frame should render
 // dimmed — true exactly when a side info panel is open and holds focus, so the
