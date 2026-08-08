@@ -323,19 +323,15 @@ message AddToPlaylistResponse {}
 message RemoveFromPlaylistRequest { int64 playlist_id = 1; string video_id = 2; }
 message RemoveFromPlaylistResponse {}
 
-message WatchLaterRequest {}
-message WatchLaterResponse { repeated WatchLaterEntry entries = 1; }
+// Watch Later — adds/removes the focused video from Watch Later. The backend
+// decides the store: YouTube's "WL" playlist when the YT client is initialized,
+// otherwise a reserved local "Watch Later" playlist. Add carries the full Video
+// so the local path can persist metadata; remove needs only the id.
+message AddToWatchLaterRequest { Video video = 1; }
+message AddToWatchLaterResponse {}
 
-message AddWatchLaterRequest {
-  string id = 1;
-  string title = 2;
-  string channel = 3;
-  string url = 4;
-}
-message AddWatchLaterResponse {}
-
-message RemoveWatchLaterRequest { string id = 1; }
-message RemoveWatchLaterResponse {}
+message RemoveFromWatchLaterRequest { string video_id = 1; }
+message RemoveFromWatchLaterResponse {}
 
 // YTPlaylists / YTPlaylistVideos — live YouTube API fetch.
 message YTPlaylistsRequest {}
@@ -380,9 +376,9 @@ service PlaylistService {
   rpc DeletePlaylist(DeletePlaylistRequest) returns (DeletePlaylistResponse);
   rpc AddToPlaylist(AddToPlaylistRequest) returns (AddToPlaylistResponse);
   rpc RemoveFromPlaylist(RemoveFromPlaylistRequest) returns (RemoveFromPlaylistResponse);
-  rpc WatchLater(WatchLaterRequest) returns (WatchLaterResponse);
-  rpc AddWatchLater(AddWatchLaterRequest) returns (AddWatchLaterResponse);
-  rpc RemoveWatchLater(RemoveWatchLaterRequest) returns (RemoveWatchLaterResponse);
+  // Watch Later (YT "WL" when authed, else a local "Watch Later" playlist):
+  rpc AddToWatchLater(AddToWatchLaterRequest) returns (AddToWatchLaterResponse);
+  rpc RemoveFromWatchLater(RemoveFromWatchLaterRequest) returns (RemoveFromWatchLaterResponse);
   // Live YouTube API fetches:
   rpc YTPlaylists(YTPlaylistsRequest) returns (YTPlaylistsResponse);
   rpc YTPlaylistVideos(YTPlaylistVideosRequest) returns (YTPlaylistVideosResponse);

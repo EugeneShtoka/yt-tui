@@ -72,7 +72,7 @@ func (h Help) sections() []helpSection {
 		{"General", []key.Binding{k.Help, k.Quit, k.Escape, k.Filter, k.Refresh, k.ForceRefresh}},
 		{"Navigation", []key.Binding{k.Up, k.Down, k.Left, k.Right, k.PageUp, k.PageDown, k.GotoPrefix, k.GotoBottom, k.GotoLine, k.DrillDown}},
 		{"Tabs", []key.Binding{k.Tab, k.ShiftTab, k.TabChord, k.FocusSwitch}},
-		{"Video actions", []key.Binding{k.Play, k.PlayAudio, k.Download, k.DownloadAudio, k.CopyURL, k.VideoInfo, k.OpenLinks, k.OpenChapters, k.OpenTranscript, k.CopyTranscript, k.AddList, k.Delete, k.HideVideo}},
+		{"Video actions", []key.Binding{k.Play, k.PlayAudio, k.Download, k.DownloadAudio, k.CopyURL, k.VideoInfo, k.OpenLinks, k.OpenChapters, k.OpenTranscript, k.CopyTranscript, k.AddList, k.WatchLater, k.Delete, k.HideVideo}},
 		{"Channels & tags", []key.Binding{k.Subscribe, k.Unsubscribe, k.Block, k.HideChannel, k.RenameChannel, k.TagChannel}},
 		{"View & data", []key.Binding{k.PanelMode, k.ToggleMode, k.NewList, k.Export, k.Import, k.CommandPrompt}},
 		{"Sort  (press sort key, then…)", []key.Binding{k.Sort.Date, k.Sort.Views, k.Sort.Name, k.Sort.Channel, k.Sort.Duration, k.Sort.Subscribers, k.Sort.Tags, k.Sort.Size}},

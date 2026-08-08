@@ -17,7 +17,6 @@ type fakePortabilityRepo struct {
 	blockedNames []string
 	playlists    []domain.Playlist
 	playlistVids map[int64][]domain.Video
-	watchLater   []domain.WatchLaterEntry
 	ytPlaylists  []domain.YTPlaylist
 	history      []domain.HistoryEntry
 	positions    map[string]int64
@@ -34,9 +33,6 @@ func (f *fakePortabilityRepo) Playlists(ctx context.Context) ([]domain.Playlist,
 }
 func (f *fakePortabilityRepo) PlaylistVideos(ctx context.Context, id int64) ([]domain.Video, error) {
 	return f.playlistVids[id], nil
-}
-func (f *fakePortabilityRepo) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	return f.watchLater, nil
 }
 func (f *fakePortabilityRepo) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 	return f.ytPlaylists, nil
@@ -64,9 +60,6 @@ func seededRepo() *fakePortabilityRepo {
 				{ID: "v2", Title: "Two"},
 			},
 			2: {},
-		},
-		watchLater: []domain.WatchLaterEntry{
-			{VideoID: "wl1", Title: "Later", Channel: "C", URL: "wlurl"},
 		},
 		ytPlaylists: []domain.YTPlaylist{{ID: "PL1", Title: "My YT PL"}},
 		history: []domain.HistoryEntry{
@@ -140,9 +133,6 @@ func TestExportPlaylistsAndVideos(t *testing.T) {
 func TestExportRefsAndWatchDataGating(t *testing.T) {
 	b := exportSeeded(t, false)
 
-	if len(b.WatchLater) != 1 || b.WatchLater[0].VideoID != "wl1" || b.WatchLater[0].URL != "wlurl" {
-		t.Errorf("WatchLater mismatch: %+v", b.WatchLater)
-	}
 	if len(b.YTPlaylists) != 1 || b.YTPlaylists[0].ID != "PL1" || b.YTPlaylists[0].Title != "My YT PL" {
 		t.Errorf("YTPlaylists mismatch: %+v", b.YTPlaylists)
 	}

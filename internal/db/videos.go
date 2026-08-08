@@ -133,6 +133,20 @@ func (d *DB) UpdateVideoUploadDate(ctx context.Context, videoID, uploadDate stri
 	return nil
 }
 
+// VideoDuration returns a video's duration in seconds, or 0 if the row is absent
+// or has no duration. Used by the watched-percent auto-remove check.
+func (d *DB) VideoDuration(ctx context.Context, id string) (int, error) {
+	var dur int
+	err := d.sql.QueryRowContext(ctx, `SELECT COALESCE(duration,0) FROM videos WHERE id=?`, id).Scan(&dur)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("VideoDuration: %w", err)
+	}
+	return dur, nil
+}
+
 // AddLocalVideo records a downloaded video.
 func (d *DB) AddLocalVideo(ctx context.Context, v domain.LocalVideo) error {
 	if _, err := d.sql.ExecContext(ctx, `

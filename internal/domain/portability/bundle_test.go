@@ -25,7 +25,6 @@ func fullBundle() Bundle {
 		}},
 		BlockedNames: []string{"Spammer"},
 		Playlists:    []PlaylistExport{{Name: "Favs", VideoIDs: []string{"v1", "v2"}}},
-		WatchLater:   []WatchLaterRef{{VideoID: "v1", Title: "One", Channel: "Chan", URL: "u"}},
 		YTPlaylists:  []YTPlaylistRef{{ID: "PL1", Title: "My PL"}},
 		Videos: []VideoExport{{
 			ID: "v1", Title: "One", Channel: "Chan", ChannelID: "c1",
@@ -55,7 +54,7 @@ func TestBundleTopLevelKeyContract(t *testing.T) {
 	}
 	want := []string{
 		"schema_version", "channels", "blocked_names", "playlists",
-		"watch_later", "yt_playlists", "videos", "history", "positions", "config",
+		"yt_playlists", "videos", "history", "positions", "config",
 	}
 	got := make([]string, 0, len(m))
 	for k := range m {

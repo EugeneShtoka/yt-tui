@@ -16,6 +16,7 @@ type actionBackend interface {
 	Unsubscribe(ctx context.Context, ch domain.Channel) error
 	BlockChannel(ctx context.Context, ch domain.Channel) error
 	UnblockChannel(ctx context.Context, channelID string) error
+	AddToWatchLater(ctx context.Context, v domain.Video) error
 }
 
 // backendActions builds the fire-and-forget tea.Cmds for backend mutations that
@@ -34,6 +35,18 @@ func (a backendActions) enqueue(ctx context.Context, v domain.Video, audioOnly b
 			return tuipkg.StatusMsg{Text: "enqueue: " + err.Error(), IsErr: true}
 		}
 		return tuipkg.EnqueueSucceededMsg{Title: v.Title, AudioOnly: audioOnly}
+	}
+}
+
+// watchLater adds a video to Watch Later via the backend, which picks the store
+// (YouTube's "WL" playlist when authed, else a local "Watch Later" playlist) —
+// the TUI never talks to YouTube directly.
+func (a backendActions) watchLater(ctx context.Context, v domain.Video) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.backend.AddToWatchLater(ctx, v); err != nil {
+			return tuipkg.StatusMsg{Text: "watch later: " + err.Error(), IsErr: true}
+		}
+		return tuipkg.StatusMsg{Text: "Added to Watch Later: " + v.Title}
 	}
 }
 

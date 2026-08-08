@@ -63,28 +63,6 @@ func (r *Remote) RemoveFromPlaylist(ctx context.Context, playlistID int64, video
 	return err
 }
 
-func (r *Remote) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	resp, err := r.playlist.WatchLater(ctx, connect.NewRequest(&v1.WatchLaterRequest{}))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]domain.WatchLaterEntry, len(resp.Msg.Entries))
-	for i, pb := range resp.Msg.Entries {
-		out[i] = protoconv.ProtoToWatchLaterEntry(pb)
-	}
-	return out, nil
-}
-
-func (r *Remote) AddWatchLater(ctx context.Context, id, title, channel, url string) error {
-	_, err := r.playlist.AddWatchLater(ctx, connect.NewRequest(&v1.AddWatchLaterRequest{Id: id, Title: title, Channel: channel, Url: url}))
-	return err
-}
-
-func (r *Remote) RemoveWatchLater(ctx context.Context, id string) error {
-	_, err := r.playlist.RemoveWatchLater(ctx, connect.NewRequest(&v1.RemoveWatchLaterRequest{Id: id}))
-	return err
-}
-
 func (r *Remote) YTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 	resp, err := r.playlist.YTPlaylists(ctx, connect.NewRequest(&v1.YTPlaylistsRequest{}))
 	if err != nil {
@@ -128,6 +106,16 @@ func (r *Remote) SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlayl
 
 func (r *Remote) SaveYTPlaylistVideos(ctx context.Context, playlistID string, videos []domain.Video) error {
 	_, err := r.playlist.SaveYTPlaylistVideos(ctx, connect.NewRequest(&v1.SaveYTPlaylistVideosRequest{PlaylistId: playlistID, Videos: protoconv.VideosToProto(videos)}))
+	return err
+}
+
+func (r *Remote) AddToWatchLater(ctx context.Context, v domain.Video) error {
+	_, err := r.playlist.AddToWatchLater(ctx, connect.NewRequest(&v1.AddToWatchLaterRequest{Video: protoconv.VideoToProto(v)}))
+	return err
+}
+
+func (r *Remote) RemoveFromWatchLater(ctx context.Context, videoID string) error {
+	_, err := r.playlist.RemoveFromWatchLater(ctx, connect.NewRequest(&v1.RemoveFromWatchLaterRequest{VideoId: videoID}))
 	return err
 }
 

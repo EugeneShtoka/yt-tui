@@ -41,7 +41,6 @@ type recBackend struct {
 	retNewYTPlID    string
 	retHistory      []domain.HistoryEntry
 	retActivity     []domain.ActivityEntry
-	retWatchLater   []domain.WatchLaterEntry
 	retDownloads    []api.DownloadItem
 	retHidden       int
 	retPlayed       int
@@ -67,9 +66,6 @@ type recBackend struct {
 	gotAlias         string
 	gotStatus        domain.VideoStatus
 	gotPlaylistIDStr string
-	gotWLTitle       string
-	gotWLChannel     string
-	gotWLURL         string
 	// UpsertVideo scalar args
 	gotUpDuration int
 	gotUpViews    int64
@@ -225,13 +221,6 @@ func (b *recBackend) CreatePlaylist(_ context.Context, _ string) (int64, error) 
 }
 func (b *recBackend) CreateYTPlaylist(_ context.Context, _ string) (string, error) {
 	return b.retNewYTPlID, nil
-}
-func (b *recBackend) WatchLater(context.Context) ([]domain.WatchLaterEntry, error) {
-	return b.retWatchLater, nil
-}
-func (b *recBackend) AddWatchLater(_ context.Context, id, title, channel, url string) error {
-	b.gotVideoID, b.gotWLTitle, b.gotWLChannel, b.gotWLURL = id, title, channel, url
-	return nil
 }
 func (b *recBackend) YTPlaylists(context.Context) ([]domain.YTPlaylist, error) {
 	return b.retYTPlaylists, nil
@@ -893,28 +882,6 @@ func TestRoundTripActivityLog(t *testing.T) {
 	}
 }
 
-// TestRoundTripWatchLater guards the WatchLaterEntry read (incl. AddedAt time).
-func TestRoundTripWatchLater(t *testing.T) {
-	now := time.Now().UTC()
-	want := domain.WatchLaterEntry{VideoID: "v1", Title: "Later", Channel: "Chan", URL: "https://y/v1", AddedAt: now}
-	_, remote := newRoundTripSrv(t, &recBackend{retWatchLater: []domain.WatchLaterEntry{want}}, "")
-
-	got, err := remote.WatchLater(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("want 1, got %d", len(got))
-	}
-	e := got[0]
-	if e.VideoID != "v1" || e.Title != "Later" || e.Channel != "Chan" || e.URL != "https://y/v1" {
-		t.Errorf("watch-later mismatch: %+v", e)
-	}
-	if !e.AddedAt.Equal(now) {
-		t.Errorf("AddedAt: want %v, got %v", now, e.AddedAt)
-	}
-}
-
 // TestRoundTripDownloadItems guards the DownloadItem read: the float Progress,
 // the Status enum, and — the H-9 fix — the Err string being reconstructed into
 // an error client-side.
@@ -1187,19 +1154,6 @@ func TestRoundTripLogActivity(t *testing.T) {
 	}
 }
 
-// TestRoundTripAddWatchLater guards the four string args reaching the daemon.
-func TestRoundTripAddWatchLater(t *testing.T) {
-	b := &recBackend{}
-	_, remote := newRoundTripSrv(t, b, "")
-
-	if err := remote.AddWatchLater(context.Background(), "v1", "Title", "Chan", "https://y/v1"); err != nil {
-		t.Fatal(err)
-	}
-	if b.gotVideoID != "v1" || b.gotWLTitle != "Title" || b.gotWLChannel != "Chan" || b.gotWLURL != "https://y/v1" {
-		t.Errorf("watch-later args mismatch: id=%q title=%q ch=%q url=%q", b.gotVideoID, b.gotWLTitle, b.gotWLChannel, b.gotWLURL)
-	}
-}
-
 // TestRoundTripSetChannelTags guards the channelID + []string tags reaching the daemon.
 func TestRoundTripSetChannelTags(t *testing.T) {
 	b := &recBackend{}
@@ -1291,7 +1245,6 @@ func TestRoundTripSmoke(t *testing.T) {
 		{"PurgeFeedCacheMissingChannelID", func() error { return remote.PurgeFeedCacheMissingChannelID(ctx, "recommended") }},
 		{"RemoveFromYTPlaylist", func() error { return remote.RemoveFromYTPlaylist(ctx, "PL1", "v1") }},
 		{"RemoveSubscribedChannel", func() error { return remote.RemoveSubscribedChannel(ctx, "ch1") }},
-		{"RemoveWatchLater", func() error { return remote.RemoveWatchLater(ctx, "v1") }},
 		{"Unsubscribe", func() error { return remote.Unsubscribe(ctx, domain.Channel{ID: "ch1"}) }},
 		{"UnblockChannel", func() error { return remote.UnblockChannel(ctx, "ch1") }},
 		{"UpdateLastPosition", func() error { return remote.UpdateLastPosition(ctx, "v1", 5000) }},

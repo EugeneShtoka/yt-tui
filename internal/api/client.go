@@ -218,11 +218,14 @@ type LocalPlaylistBackend interface {
 	RemoveFromPlaylist(ctx context.Context, playlistID int64, videoID string) error
 }
 
-// WatchLaterBackend is the watch-later queue slice.
+// WatchLaterBackend is the Watch Later slice. The implementation chooses the
+// store: YouTube's "WL" playlist when the YT client is initialized, otherwise a
+// reserved local "Watch Later" playlist (domain.WatchLaterPlaylistName). Add
+// carries the full video so the local path can persist metadata; remove needs
+// only the id.
 type WatchLaterBackend interface {
-	WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error)
-	AddWatchLater(ctx context.Context, id, title, channel, url string) error
-	RemoveWatchLater(ctx context.Context, id string) error
+	AddToWatchLater(ctx context.Context, video domain.Video) error
+	RemoveFromWatchLater(ctx context.Context, videoID string) error
 }
 
 // YTPlaylistBackend is the remote YouTube-playlist slice: fetching, caching, and
@@ -241,8 +244,8 @@ type YTPlaylistBackend interface {
 	RemoveFromYTPlaylist(ctx context.Context, playlistID, videoID string) error
 }
 
-// PlaylistBackend composes the three orthogonal playlist slices (local,
-// watch-later, YouTube). They share no state and the TUI consumes them
+// PlaylistBackend composes the three orthogonal playlist slices (local, Watch
+// Later, and YouTube). They share no state and the TUI consumes them
 // independently, so a consumer can now depend on just the slice it uses (M-2).
 // The aggregate is retained because it maps 1:1 to a single RPC service
 // (backendv1connect.PlaylistServiceHandler) at the transport boundary.

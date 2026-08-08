@@ -181,14 +181,6 @@ func (d *DB) migrate() error { //nolint:funlen // flat DDL: one CREATE per table
 			PRIMARY KEY (playlist_id, video_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS watch_later (
-			video_id TEXT PRIMARY KEY,
-			title TEXT,
-			channel TEXT,
-			url TEXT,
-			added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-
 		CREATE TABLE IF NOT EXISTS feed_cache (
 			feed TEXT NOT NULL,
 			video_id TEXT NOT NULL,
@@ -246,6 +238,10 @@ var schemaStatements = []string{
 	// Superseded by idx_channel_videos_video: this duplicated the table's own
 	// PRIMARY KEY column-for-column, adding write overhead with no query benefit.
 	`DROP INDEX IF EXISTS idx_channel_videos_channel`,
+	// Vestigial flat watch-later queue: predated YT-playlist sync, only ever read
+	// by the export bundle, never surfaced in the live UI. Removed; reclaim it
+	// from existing DBs. (Watch Later now = YT "WL" playlist / a local playlist.)
+	`DROP TABLE IF EXISTS watch_later`,
 	`CREATE INDEX IF NOT EXISTS idx_channel_videos_video ON channel_videos(video_id)`,
 	`CREATE TABLE IF NOT EXISTS yt_playlists (
 		id         TEXT PRIMARY KEY,
@@ -307,7 +303,6 @@ func (d *DB) cleanEmojiTitles() error {
 	type tableCol struct{ table, idCol, titleCol string }
 	targets := []tableCol{
 		{"videos", "id", "title"},
-		{"watch_later", "video_id", "title"},
 		{"yt_playlists", "id", "title"},
 	}
 	for _, t := range targets {

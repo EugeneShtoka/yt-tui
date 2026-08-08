@@ -76,16 +76,6 @@ func PlaylistToProto(p domain.Playlist) *v1.Playlist {
 	}
 }
 
-func WatchLaterEntryToProto(e domain.WatchLaterEntry) *v1.WatchLaterEntry {
-	return &v1.WatchLaterEntry{
-		VideoId: e.VideoID,
-		Title:   e.Title,
-		Channel: e.Channel,
-		Url:     e.URL,
-		AddedAt: timestamppb.New(e.AddedAt),
-	}
-}
-
 func HistoryEntryToProto(e domain.HistoryEntry) *v1.HistoryEntry {
 	return &v1.HistoryEntry{
 		Id:         e.ID,
@@ -288,17 +278,6 @@ func ProtoToYTPlaylists(pbs []*v1.YTPlaylist) []domain.YTPlaylist {
 		}
 	}
 	return out
-}
-
-func ProtoToWatchLaterEntry(pb *v1.WatchLaterEntry) domain.WatchLaterEntry {
-	if pb == nil {
-		return domain.WatchLaterEntry{}
-	}
-	e := domain.WatchLaterEntry{VideoID: pb.VideoId, Title: pb.Title, Channel: pb.Channel, URL: pb.Url}
-	if pb.AddedAt != nil {
-		e.AddedAt = pb.AddedAt.AsTime()
-	}
-	return e
 }
 
 func ProtoToHistoryEntry(pb *v1.HistoryEntry) domain.HistoryEntry {

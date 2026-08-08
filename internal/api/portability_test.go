@@ -30,7 +30,6 @@ func TestInProcExportAgainstRealDB(t *testing.T) {
 	plID, plErr := database.CreatePlaylist(context.Background(), "Favorites")
 	must(plErr)
 	must(database.AddToPlaylist(context.Background(), plID, "v1"))
-	must(database.AddWatchLater(context.Background(), "wl1", "Later", "Chan", "wlurl"))
 	must(database.AddHistory(context.Background(), "v1", "playVideo", ""))
 	must(database.SaveVideoPosition(context.Background(), "v1", 42000))
 
@@ -61,9 +60,6 @@ func TestInProcExportAgainstRealDB(t *testing.T) {
 	if len(b.Videos) != 1 || b.Videos[0].ID != "v1" || b.Videos[0].Duration != 60 {
 		t.Errorf("Videos mismatch: %+v", b.Videos)
 	}
-	if len(b.WatchLater) != 1 || b.WatchLater[0].VideoID != "wl1" {
-		t.Errorf("WatchLater mismatch: %+v", b.WatchLater)
-	}
 	if len(b.History) != 1 || b.History[0].EventType != "playVideo" {
 		t.Errorf("History mismatch: %+v", b.History)
 	}
@@ -92,7 +88,6 @@ func seedPortabilityDB(t *testing.T, d *db.DB) {
 	plID, plErr := d.CreatePlaylist(context.Background(), "Favorites")
 	must(plErr)
 	must(d.AddToPlaylist(context.Background(), plID, "v1"))
-	must(d.AddWatchLater(context.Background(), "wl1", "Later", "Chan", "wlurl"))
 	must(d.AddHistory(context.Background(), "v1", "playVideo", ""))
 	must(d.SaveVideoPosition(context.Background(), "v1", 42000))
 }
@@ -122,7 +117,7 @@ func TestInProcImportRoundTripAgainstRealDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportApply: %v", err)
 	}
-	if res.ChannelsUpserted != 1 || res.PlaylistAdds != 1 || res.WatchLaterAdded != 1 ||
+	if res.ChannelsUpserted != 1 || res.PlaylistAdds != 1 ||
 		res.HistoryAdded != 1 || res.PositionsSet != 1 {
 		t.Fatalf("apply result mismatch: %+v", res)
 	}
@@ -145,7 +140,7 @@ func TestInProcImportRoundTripAgainstRealDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second ImportApply: %v", err)
 	}
-	if second.PlaylistAdds != 0 || second.WatchLaterAdded != 0 || second.HistoryAdded != 0 || second.PositionsSet != 0 {
+	if second.PlaylistAdds != 0 || second.HistoryAdded != 0 || second.PositionsSet != 0 {
 		t.Fatalf("second apply not idempotent: %+v", second)
 	}
 }

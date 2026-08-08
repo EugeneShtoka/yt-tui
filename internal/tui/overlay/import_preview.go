@@ -383,7 +383,7 @@ func (ip ImportPreview) planLines() []string {
 		styles.Help.Render(fmt.Sprintf("Channels     %d new · %d updated · %d blocked", p.NewChannels, p.UpdatedChannels, p.BlockedChannels)),
 		styles.Help.Render(fmt.Sprintf("Blocked names %d new", p.NewBlockedNames)),
 		styles.Help.Render(fmt.Sprintf("Playlists    %d new · %d merged · %d adds", p.NewPlaylists, p.MergedPlaylists, p.PlaylistAdds)),
-		styles.Help.Render(fmt.Sprintf("Videos       %d · watch-later %d · YT lists %d", p.Videos, p.NewWatchLater, p.NewYTPlaylists)),
+		styles.Help.Render(fmt.Sprintf("Videos       %d · YT lists %d", p.Videos, p.NewYTPlaylists)),
 		styles.Help.Render(fmt.Sprintf("Watch data   %d history · %d positions", p.NewHistory, p.NewPositions)),
 		styles.Help.Render(fmt.Sprintf("Config       %s", configState)),
 	}
@@ -444,7 +444,6 @@ func summarizeImport(r portability.ImportResult) string {
 	add(r.PlaylistsTouched, "playlists")
 	add(r.PlaylistAdds, "playlist adds")
 	add(r.VideosUpserted, "videos")
-	add(r.WatchLaterAdded, "watch-later")
 	add(r.YTPlaylists, "YT playlists")
 	add(r.HistoryAdded, "history")
 	add(r.PositionsSet, "positions")

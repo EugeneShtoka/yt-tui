@@ -36,7 +36,6 @@ func fullBundle() portability.Bundle {
 		Channels:      []portability.ChannelExport{{}, {}},
 		BlockedNames:  []string{"spam"},
 		Playlists:     []portability.PlaylistExport{{}},
-		WatchLater:    []portability.WatchLaterRef{{}},
 		YTPlaylists:   []portability.YTPlaylistRef{{}},
 		Videos:        []portability.VideoExport{{}},
 		History:       []portability.HistoryExport{{}, {}, {}},

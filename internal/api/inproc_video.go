@@ -195,7 +195,39 @@ func (p *InProc) SetVideoStatus(ctx context.Context, id string, status domain.Vi
 }
 
 func (p *InProc) SaveVideoPosition(ctx context.Context, videoID string, ms int64) error {
-	return p.db.SaveVideoPosition(ctx, videoID, ms)
+	if err := p.db.SaveVideoPosition(ctx, videoID, ms); err != nil {
+		return err
+	}
+	p.maybeAutoRemoveWatchLater(ctx, videoID, ms)
+	return nil
+}
+
+// maybeAutoRemoveWatchLater removes a video from Watch Later once it has been
+// watched at least WatchLaterAutoRemovePercent of its duration (0 disables).
+// Best-effort — never fails the position save. The membership guard both avoids
+// a spurious YouTube removal for a video that isn't queued and keeps the
+// end-of-playback position-save burst from firing more than once (the removal
+// leaves the video absent from both stores).
+func (p *InProc) maybeAutoRemoveWatchLater(ctx context.Context, videoID string, ms int64) {
+	pct := p.cfg.WatchLaterAutoRemovePercent
+	if pct <= 0 || ms <= 0 {
+		return
+	}
+	durSec, err := p.db.VideoDuration(ctx, videoID)
+	if err != nil || durSec <= 0 {
+		return
+	}
+	// watched% = ms / (durSec*1000); trigger when ms >= pct% of duration.
+	if ms*100 < int64(durSec)*1000*int64(pct) {
+		return
+	}
+	inWL, err := p.db.InWatchLater(ctx, videoID, domain.WatchLaterYTID, domain.WatchLaterPlaylistName)
+	if err != nil || !inWL {
+		return
+	}
+	if err := p.RemoveFromWatchLater(ctx, videoID); err != nil {
+		debug.Log("auto-remove watch later %s: %v", videoID, err)
+	}
 }
 
 func (p *InProc) DeleteVideoPosition(ctx context.Context, videoID string) error {

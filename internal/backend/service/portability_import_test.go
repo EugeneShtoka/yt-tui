@@ -18,7 +18,6 @@ type memPort struct {
 	plID         map[string]int64
 	plVids       map[int64]map[string]bool
 	nextPlID     int64
-	watchLater   map[string]domain.WatchLaterEntry
 	ytPlaylists  []domain.YTPlaylist
 	videos       map[string]domain.Video
 	history      []domain.HistoryEntry
@@ -29,7 +28,7 @@ func newMemPort() *memPort {
 	return &memPort{
 		channels: map[string]domain.Channel{}, blockedNames: map[string]bool{},
 		plID: map[string]int64{}, plVids: map[int64]map[string]bool{},
-		watchLater: map[string]domain.WatchLaterEntry{}, videos: map[string]domain.Video{},
+		videos:    map[string]domain.Video{},
 		positions: map[string]int64{},
 	}
 }
@@ -72,13 +71,6 @@ func (m *memPort) PlaylistVideos(ctx context.Context, id int64) ([]domain.Video,
 	return out, nil
 }
 
-func (m *memPort) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	out := make([]domain.WatchLaterEntry, 0, len(m.watchLater))
-	for _, e := range m.watchLater {
-		out = append(out, e)
-	}
-	return out, nil
-}
 func (m *memPort) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 	return m.ytPlaylists, nil
 }
@@ -120,10 +112,6 @@ func (m *memPort) UpsertVideo(ctx context.Context, id, title, channel, channelID
 	return nil
 }
 
-func (m *memPort) AddWatchLater(ctx context.Context, id, title, channel, url string) error {
-	m.watchLater[id] = domain.WatchLaterEntry{VideoID: id, Title: title, Channel: channel, URL: url}
-	return nil
-}
 func (m *memPort) SaveYTPlaylists(ctx context.Context, pls []domain.YTPlaylist) error {
 	m.ytPlaylists = pls
 	return nil
@@ -290,7 +278,6 @@ func TestImportApplyIdempotent(t *testing.T) {
 		BlockedNames:  []string{"Spammer"},
 		Videos:        []portability.VideoExport{{ID: "v1", Title: "One"}},
 		Playlists:     []portability.PlaylistExport{{Name: "Favs", VideoIDs: []string{"v1"}}},
-		WatchLater:    []portability.WatchLaterRef{{VideoID: "wl1", Title: "Later"}},
 		YTPlaylists:   []portability.YTPlaylistRef{{ID: "PL1", Title: "My PL"}},
 		History:       []portability.HistoryExport{{VideoID: "v1", EventType: "playVideo", Timestamp: 1000}},
 		Positions:     []portability.PositionExport{{VideoID: "v1", PositionMs: 5000}},
@@ -302,7 +289,7 @@ func TestImportApplyIdempotent(t *testing.T) {
 	// Second apply: the dedup'd sections must add nothing, and DB state must be
 	// unchanged (channel/video rows are re-upserted with identical values).
 	second := apply(t, svc, b, opts)
-	if second.BlockedNames != 0 || second.PlaylistAdds != 0 || second.WatchLaterAdded != 0 ||
+	if second.BlockedNames != 0 || second.PlaylistAdds != 0 ||
 		second.YTPlaylists != 0 || second.HistoryAdded != 0 || second.PositionsSet != 0 {
 		t.Fatalf("second import added new rows: %+v", second)
 	}
@@ -331,7 +318,6 @@ func TestImportPreviewCounts(t *testing.T) {
 			{Name: "Favs", VideoIDs: []string{"v1", "v2"}}, // merged, +1
 			{Name: "New", VideoIDs: []string{"v2"}},        // new, +1
 		},
-		WatchLater:  []portability.WatchLaterRef{{VideoID: "wl1"}},
 		YTPlaylists: []portability.YTPlaylistRef{{ID: "PL1", Title: "t"}},
 		History:     []portability.HistoryExport{{VideoID: "v1", EventType: "playVideo", Timestamp: 1}},
 		Positions:   []portability.PositionExport{{VideoID: "v1", PositionMs: 100}},
@@ -348,7 +334,6 @@ func TestImportPreviewCounts(t *testing.T) {
 	assertEq(t, "MergedPlaylists", plan.MergedPlaylists, 1)
 	assertEq(t, "PlaylistAdds", plan.PlaylistAdds, 2) // Favs+v2, New+v2
 	assertEq(t, "Videos", plan.Videos, 2)
-	assertEq(t, "NewWatchLater", plan.NewWatchLater, 1)
 	assertEq(t, "NewYTPlaylists", plan.NewYTPlaylists, 1)
 	assertEq(t, "NewHistory", plan.NewHistory, 1)
 	assertEq(t, "NewPositions", plan.NewPositions, 1)

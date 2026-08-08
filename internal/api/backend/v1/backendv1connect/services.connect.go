@@ -234,15 +234,12 @@ const (
 	// PlaylistServiceRemoveFromPlaylistProcedure is the fully-qualified name of the PlaylistService's
 	// RemoveFromPlaylist RPC.
 	PlaylistServiceRemoveFromPlaylistProcedure = "/backend.v1.PlaylistService/RemoveFromPlaylist"
-	// PlaylistServiceWatchLaterProcedure is the fully-qualified name of the PlaylistService's
-	// WatchLater RPC.
-	PlaylistServiceWatchLaterProcedure = "/backend.v1.PlaylistService/WatchLater"
-	// PlaylistServiceAddWatchLaterProcedure is the fully-qualified name of the PlaylistService's
-	// AddWatchLater RPC.
-	PlaylistServiceAddWatchLaterProcedure = "/backend.v1.PlaylistService/AddWatchLater"
-	// PlaylistServiceRemoveWatchLaterProcedure is the fully-qualified name of the PlaylistService's
-	// RemoveWatchLater RPC.
-	PlaylistServiceRemoveWatchLaterProcedure = "/backend.v1.PlaylistService/RemoveWatchLater"
+	// PlaylistServiceAddToWatchLaterProcedure is the fully-qualified name of the PlaylistService's
+	// AddToWatchLater RPC.
+	PlaylistServiceAddToWatchLaterProcedure = "/backend.v1.PlaylistService/AddToWatchLater"
+	// PlaylistServiceRemoveFromWatchLaterProcedure is the fully-qualified name of the PlaylistService's
+	// RemoveFromWatchLater RPC.
+	PlaylistServiceRemoveFromWatchLaterProcedure = "/backend.v1.PlaylistService/RemoveFromWatchLater"
 	// PlaylistServiceYTPlaylistsProcedure is the fully-qualified name of the PlaylistService's
 	// YTPlaylists RPC.
 	PlaylistServiceYTPlaylistsProcedure = "/backend.v1.PlaylistService/YTPlaylists"
@@ -1959,9 +1956,9 @@ type PlaylistServiceClient interface {
 	DeletePlaylist(context.Context, *connect.Request[v1.DeletePlaylistRequest]) (*connect.Response[v1.DeletePlaylistResponse], error)
 	AddToPlaylist(context.Context, *connect.Request[v1.AddToPlaylistRequest]) (*connect.Response[v1.AddToPlaylistResponse], error)
 	RemoveFromPlaylist(context.Context, *connect.Request[v1.RemoveFromPlaylistRequest]) (*connect.Response[v1.RemoveFromPlaylistResponse], error)
-	WatchLater(context.Context, *connect.Request[v1.WatchLaterRequest]) (*connect.Response[v1.WatchLaterResponse], error)
-	AddWatchLater(context.Context, *connect.Request[v1.AddWatchLaterRequest]) (*connect.Response[v1.AddWatchLaterResponse], error)
-	RemoveWatchLater(context.Context, *connect.Request[v1.RemoveWatchLaterRequest]) (*connect.Response[v1.RemoveWatchLaterResponse], error)
+	// Watch Later (YT "WL" when authed, else a local "Watch Later" playlist):
+	AddToWatchLater(context.Context, *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error)
+	RemoveFromWatchLater(context.Context, *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error)
 	// Live YouTube API fetches:
 	YTPlaylists(context.Context, *connect.Request[v1.YTPlaylistsRequest]) (*connect.Response[v1.YTPlaylistsResponse], error)
 	YTPlaylistVideos(context.Context, *connect.Request[v1.YTPlaylistVideosRequest]) (*connect.Response[v1.YTPlaylistVideosResponse], error)
@@ -2031,22 +2028,16 @@ func NewPlaylistServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(playlistServiceMethods.ByName("RemoveFromPlaylist")),
 			connect.WithClientOptions(opts...),
 		),
-		watchLater: connect.NewClient[v1.WatchLaterRequest, v1.WatchLaterResponse](
+		addToWatchLater: connect.NewClient[v1.AddToWatchLaterRequest, v1.AddToWatchLaterResponse](
 			httpClient,
-			baseURL+PlaylistServiceWatchLaterProcedure,
-			connect.WithSchema(playlistServiceMethods.ByName("WatchLater")),
+			baseURL+PlaylistServiceAddToWatchLaterProcedure,
+			connect.WithSchema(playlistServiceMethods.ByName("AddToWatchLater")),
 			connect.WithClientOptions(opts...),
 		),
-		addWatchLater: connect.NewClient[v1.AddWatchLaterRequest, v1.AddWatchLaterResponse](
+		removeFromWatchLater: connect.NewClient[v1.RemoveFromWatchLaterRequest, v1.RemoveFromWatchLaterResponse](
 			httpClient,
-			baseURL+PlaylistServiceAddWatchLaterProcedure,
-			connect.WithSchema(playlistServiceMethods.ByName("AddWatchLater")),
-			connect.WithClientOptions(opts...),
-		),
-		removeWatchLater: connect.NewClient[v1.RemoveWatchLaterRequest, v1.RemoveWatchLaterResponse](
-			httpClient,
-			baseURL+PlaylistServiceRemoveWatchLaterProcedure,
-			connect.WithSchema(playlistServiceMethods.ByName("RemoveWatchLater")),
+			baseURL+PlaylistServiceRemoveFromWatchLaterProcedure,
+			connect.WithSchema(playlistServiceMethods.ByName("RemoveFromWatchLater")),
 			connect.WithClientOptions(opts...),
 		),
 		yTPlaylists: connect.NewClient[v1.YTPlaylistsRequest, v1.YTPlaylistsResponse](
@@ -2127,9 +2118,8 @@ type playlistServiceClient struct {
 	deletePlaylist       *connect.Client[v1.DeletePlaylistRequest, v1.DeletePlaylistResponse]
 	addToPlaylist        *connect.Client[v1.AddToPlaylistRequest, v1.AddToPlaylistResponse]
 	removeFromPlaylist   *connect.Client[v1.RemoveFromPlaylistRequest, v1.RemoveFromPlaylistResponse]
-	watchLater           *connect.Client[v1.WatchLaterRequest, v1.WatchLaterResponse]
-	addWatchLater        *connect.Client[v1.AddWatchLaterRequest, v1.AddWatchLaterResponse]
-	removeWatchLater     *connect.Client[v1.RemoveWatchLaterRequest, v1.RemoveWatchLaterResponse]
+	addToWatchLater      *connect.Client[v1.AddToWatchLaterRequest, v1.AddToWatchLaterResponse]
+	removeFromWatchLater *connect.Client[v1.RemoveFromWatchLaterRequest, v1.RemoveFromWatchLaterResponse]
 	yTPlaylists          *connect.Client[v1.YTPlaylistsRequest, v1.YTPlaylistsResponse]
 	yTPlaylistVideos     *connect.Client[v1.YTPlaylistVideosRequest, v1.YTPlaylistVideosResponse]
 	getYTPlaylists       *connect.Client[v1.GetYTPlaylistsRequest, v1.GetYTPlaylistsResponse]
@@ -2178,19 +2168,14 @@ func (c *playlistServiceClient) RemoveFromPlaylist(ctx context.Context, req *con
 	return c.removeFromPlaylist.CallUnary(ctx, req)
 }
 
-// WatchLater calls backend.v1.PlaylistService.WatchLater.
-func (c *playlistServiceClient) WatchLater(ctx context.Context, req *connect.Request[v1.WatchLaterRequest]) (*connect.Response[v1.WatchLaterResponse], error) {
-	return c.watchLater.CallUnary(ctx, req)
+// AddToWatchLater calls backend.v1.PlaylistService.AddToWatchLater.
+func (c *playlistServiceClient) AddToWatchLater(ctx context.Context, req *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error) {
+	return c.addToWatchLater.CallUnary(ctx, req)
 }
 
-// AddWatchLater calls backend.v1.PlaylistService.AddWatchLater.
-func (c *playlistServiceClient) AddWatchLater(ctx context.Context, req *connect.Request[v1.AddWatchLaterRequest]) (*connect.Response[v1.AddWatchLaterResponse], error) {
-	return c.addWatchLater.CallUnary(ctx, req)
-}
-
-// RemoveWatchLater calls backend.v1.PlaylistService.RemoveWatchLater.
-func (c *playlistServiceClient) RemoveWatchLater(ctx context.Context, req *connect.Request[v1.RemoveWatchLaterRequest]) (*connect.Response[v1.RemoveWatchLaterResponse], error) {
-	return c.removeWatchLater.CallUnary(ctx, req)
+// RemoveFromWatchLater calls backend.v1.PlaylistService.RemoveFromWatchLater.
+func (c *playlistServiceClient) RemoveFromWatchLater(ctx context.Context, req *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error) {
+	return c.removeFromWatchLater.CallUnary(ctx, req)
 }
 
 // YTPlaylists calls backend.v1.PlaylistService.YTPlaylists.
@@ -2257,9 +2242,9 @@ type PlaylistServiceHandler interface {
 	DeletePlaylist(context.Context, *connect.Request[v1.DeletePlaylistRequest]) (*connect.Response[v1.DeletePlaylistResponse], error)
 	AddToPlaylist(context.Context, *connect.Request[v1.AddToPlaylistRequest]) (*connect.Response[v1.AddToPlaylistResponse], error)
 	RemoveFromPlaylist(context.Context, *connect.Request[v1.RemoveFromPlaylistRequest]) (*connect.Response[v1.RemoveFromPlaylistResponse], error)
-	WatchLater(context.Context, *connect.Request[v1.WatchLaterRequest]) (*connect.Response[v1.WatchLaterResponse], error)
-	AddWatchLater(context.Context, *connect.Request[v1.AddWatchLaterRequest]) (*connect.Response[v1.AddWatchLaterResponse], error)
-	RemoveWatchLater(context.Context, *connect.Request[v1.RemoveWatchLaterRequest]) (*connect.Response[v1.RemoveWatchLaterResponse], error)
+	// Watch Later (YT "WL" when authed, else a local "Watch Later" playlist):
+	AddToWatchLater(context.Context, *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error)
+	RemoveFromWatchLater(context.Context, *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error)
 	// Live YouTube API fetches:
 	YTPlaylists(context.Context, *connect.Request[v1.YTPlaylistsRequest]) (*connect.Response[v1.YTPlaylistsResponse], error)
 	YTPlaylistVideos(context.Context, *connect.Request[v1.YTPlaylistVideosRequest]) (*connect.Response[v1.YTPlaylistVideosResponse], error)
@@ -2325,22 +2310,16 @@ func NewPlaylistServiceHandler(svc PlaylistServiceHandler, opts ...connect.Handl
 		connect.WithSchema(playlistServiceMethods.ByName("RemoveFromPlaylist")),
 		connect.WithHandlerOptions(opts...),
 	)
-	playlistServiceWatchLaterHandler := connect.NewUnaryHandler(
-		PlaylistServiceWatchLaterProcedure,
-		svc.WatchLater,
-		connect.WithSchema(playlistServiceMethods.ByName("WatchLater")),
+	playlistServiceAddToWatchLaterHandler := connect.NewUnaryHandler(
+		PlaylistServiceAddToWatchLaterProcedure,
+		svc.AddToWatchLater,
+		connect.WithSchema(playlistServiceMethods.ByName("AddToWatchLater")),
 		connect.WithHandlerOptions(opts...),
 	)
-	playlistServiceAddWatchLaterHandler := connect.NewUnaryHandler(
-		PlaylistServiceAddWatchLaterProcedure,
-		svc.AddWatchLater,
-		connect.WithSchema(playlistServiceMethods.ByName("AddWatchLater")),
-		connect.WithHandlerOptions(opts...),
-	)
-	playlistServiceRemoveWatchLaterHandler := connect.NewUnaryHandler(
-		PlaylistServiceRemoveWatchLaterProcedure,
-		svc.RemoveWatchLater,
-		connect.WithSchema(playlistServiceMethods.ByName("RemoveWatchLater")),
+	playlistServiceRemoveFromWatchLaterHandler := connect.NewUnaryHandler(
+		PlaylistServiceRemoveFromWatchLaterProcedure,
+		svc.RemoveFromWatchLater,
+		connect.WithSchema(playlistServiceMethods.ByName("RemoveFromWatchLater")),
 		connect.WithHandlerOptions(opts...),
 	)
 	playlistServiceYTPlaylistsHandler := connect.NewUnaryHandler(
@@ -2425,12 +2404,10 @@ func NewPlaylistServiceHandler(svc PlaylistServiceHandler, opts ...connect.Handl
 			playlistServiceAddToPlaylistHandler.ServeHTTP(w, r)
 		case PlaylistServiceRemoveFromPlaylistProcedure:
 			playlistServiceRemoveFromPlaylistHandler.ServeHTTP(w, r)
-		case PlaylistServiceWatchLaterProcedure:
-			playlistServiceWatchLaterHandler.ServeHTTP(w, r)
-		case PlaylistServiceAddWatchLaterProcedure:
-			playlistServiceAddWatchLaterHandler.ServeHTTP(w, r)
-		case PlaylistServiceRemoveWatchLaterProcedure:
-			playlistServiceRemoveWatchLaterHandler.ServeHTTP(w, r)
+		case PlaylistServiceAddToWatchLaterProcedure:
+			playlistServiceAddToWatchLaterHandler.ServeHTTP(w, r)
+		case PlaylistServiceRemoveFromWatchLaterProcedure:
+			playlistServiceRemoveFromWatchLaterHandler.ServeHTTP(w, r)
 		case PlaylistServiceYTPlaylistsProcedure:
 			playlistServiceYTPlaylistsHandler.ServeHTTP(w, r)
 		case PlaylistServiceYTPlaylistVideosProcedure:
@@ -2490,16 +2467,12 @@ func (UnimplementedPlaylistServiceHandler) RemoveFromPlaylist(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.RemoveFromPlaylist is not implemented"))
 }
 
-func (UnimplementedPlaylistServiceHandler) WatchLater(context.Context, *connect.Request[v1.WatchLaterRequest]) (*connect.Response[v1.WatchLaterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.WatchLater is not implemented"))
+func (UnimplementedPlaylistServiceHandler) AddToWatchLater(context.Context, *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.AddToWatchLater is not implemented"))
 }
 
-func (UnimplementedPlaylistServiceHandler) AddWatchLater(context.Context, *connect.Request[v1.AddWatchLaterRequest]) (*connect.Response[v1.AddWatchLaterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.AddWatchLater is not implemented"))
-}
-
-func (UnimplementedPlaylistServiceHandler) RemoveWatchLater(context.Context, *connect.Request[v1.RemoveWatchLaterRequest]) (*connect.Response[v1.RemoveWatchLaterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.RemoveWatchLater is not implemented"))
+func (UnimplementedPlaylistServiceHandler) RemoveFromWatchLater(context.Context, *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("backend.v1.PlaylistService.RemoveFromWatchLater is not implemented"))
 }
 
 func (UnimplementedPlaylistServiceHandler) YTPlaylists(context.Context, *connect.Request[v1.YTPlaylistsRequest]) (*connect.Response[v1.YTPlaylistsResponse], error) {
