@@ -19,7 +19,7 @@ func (t Channels) View() tea.View {
 }
 
 func (t Channels) viewContent(header string, _ int) string {
-	if t.pane == 0 {
+	if !t.inDetail() {
 		var body string
 		switch {
 		case t.loading && t.subs.Len() == 0:
@@ -27,7 +27,7 @@ func (t Channels) viewContent(header string, _ int) string {
 		case len(t.sortedChs) == 0:
 			body = styles.Dim.Render(t.emptyViewText())
 		default:
-			body = t.chNav.View()
+			body = t.listNav.View()
 		}
 		if t.editMode != chEditNone {
 			body = t.appendEditInput(body)
@@ -35,15 +35,11 @@ func (t Channels) viewContent(header string, _ int) string {
 		if t.picker.isOpen() {
 			body = t.picker.view(body, t.keys.Escape.Help().Key, t.width)
 		}
-		parts := []string{header, body}
-		if s := t.chNav.NumBufView(); s != "" {
-			parts = append(parts, s)
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		return t.renderList([]string{header, body})
 	}
 
 	chName := ""
-	idx := t.chNav.Index()
+	idx := t.listNav.Index()
 	if idx < len(t.sortedChs) {
 		chName = t.sortedChs[idx].DisplayName()
 	}
@@ -51,16 +47,9 @@ func (t Channels) viewContent(header string, _ int) string {
 	if t.chVidLoad == srcRefreshing {
 		suffix = t.spinnerFrame + " refreshing…"
 	}
-	subHeader := drillSubHeader(chName, t.width, suffix)
-	var body string
+	body := t.vidNav.View()
 	if t.chVidLoad == srcLoading {
 		body = t.spinnerFrame + " Loading…"
-	} else {
-		body = t.chVidNav.View()
 	}
-	parts := []string{header, subHeader, body}
-	if s := t.chVidNav.NumBufView(); s != "" {
-		parts = append(parts, s)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return t.renderDetail(header, chName, suffix, body)
 }

@@ -104,7 +104,9 @@ type Channels struct {
 	refreshInterval    time.Duration        // auto-refresh throttle window (0 = always refresh)
 	lastRefresh        map[string]time.Time // channelID → last successful video fetch
 
-	width, height int
+	// masterDetail owns the two-pane skeleton: pane, listNav (channel list),
+	// vidNav (channel video list), width, height (M-1).
+	masterDetail
 
 	subs         channels.ChannelSet
 	chLatest     map[string]domain.Video
@@ -120,7 +122,6 @@ type Channels struct {
 
 	aux videotable.AuxData
 
-	pane        int
 	chVideos    []domain.Video
 	chVidLoad   loadState // fetch lifecycle of the drilled-in channel's videos
 	activeChID  string
@@ -129,13 +130,8 @@ type Channels struct {
 	editMode  int
 	editInput textinput.Model
 
-	// channel list table — uses TableNav
-	chNav  videotable.TableNav
-	chCols []videotable.ColumnDef[ChannelRow]
-
-	// video-list table — uses TableNav
-	chVidNav  videotable.TableNav
-	chVidCols []videotable.ColumnDef[videotable.VideoData]
+	chCols    []videotable.ColumnDef[ChannelRow]           // channel list columns
+	chVidCols []videotable.ColumnDef[videotable.VideoData] // channel video columns
 }
 
 // channelColumns is the full, natural-order column set for the Channels list.
@@ -188,20 +184,22 @@ func NewChannels(ctx context.Context, backend channelsBackend, keys keymap.KeyMa
 		picker:             newModePicker("View", modeLabels(channelModes), circular),
 		sort:               newSortState(sortModeOr(opts.Sort, feed.SortDate), videotable.ColumnKeys(chCols)),
 		editInput:          textinput.New(),
-		chNav:              videotable.NewTableNav(chCols, circular, 2),
-		chVidNav:           videotable.NewTableNav(chVidCols, circular, 4),
-		chCols:             chCols,
-		chVidCols:          chVidCols,
+		masterDetail: masterDetail{
+			listNav: videotable.NewTableNav(chCols, circular, 2),
+			vidNav:  videotable.NewTableNav(chVidCols, circular, 4),
+		},
+		chCols:    chCols,
+		chVidCols: chVidCols,
 	}
 }
 
 func (t Channels) ID() tuipkg.TabID { return tuipkg.TabChannels }
 func (t Channels) Title() string    { return "Channels" }
 func (t Channels) SelectedVideo() (domain.Video, bool) {
-	if t.pane == 1 {
-		return t.chVidAt(t.chVidNav.Index())
+	if t.inDetail() {
+		return t.chVidAt(t.vidNav.Index())
 	}
-	idx := t.chNav.Index()
+	idx := t.listNav.Index()
 	if idx < len(t.sortedChs) {
 		if v := t.chLatest[t.sortedChs[idx].ID]; v.ID != "" {
 			return v, true
@@ -211,7 +209,7 @@ func (t Channels) SelectedVideo() (domain.Video, bool) {
 }
 func (t Channels) Loading() bool { return t.loading || t.chVidLoad.inFlight() }
 func (t Channels) ShortHelp() []key.Binding {
-	if t.pane == 1 {
+	if t.inDetail() {
 		return []key.Binding{t.keys.Play, t.keys.Refresh, t.keys.ForceRefresh, t.keys.Left}
 	}
 	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.Block, t.keys.PanelMode, t.keys.SortChord}
@@ -237,10 +235,8 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 
 	case tuipkg.ContentSizeMsg:
-		t.width, t.height = m.Width, m.Height
-		t.chNav.Resize(m.Width, m.Height)
+		t.resize(m.Width, m.Height)
 		t.setChNavRows()
-		t.chVidNav.Resize(m.Width, m.Height)
 		t.setChVidNavRows()
 
 	case tuipkg.SpinnerFrameMsg:
@@ -279,7 +275,7 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// video pane, re-read the open channel's cached videos (grows as a crawl
 		// streams them in); in the list pane, refresh the universe so per-channel
 		// latest-video columns update as channels get backfilled.
-		if t.pane == 1 && t.activeChID != "" {
+		if t.inDetail() && t.activeChID != "" {
 			return t, t.chPollFetchCmd(t.activeChID)
 		}
 		return t, t.chsLoadCmd()
@@ -297,11 +293,11 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // setChNavRows rebuilds the channel-list table's rows from the sorted slice.
-func (t *Channels) setChNavRows() { t.chNav.SetRows(t.toChannelRows(t.sortedChs)) }
+func (t *Channels) setChNavRows() { t.listNav.SetRows(t.toChannelRows(t.sortedChs)) }
 
 // setChVidNavRows rebuilds the channel-video table's rows from the enriched slice.
 func (t *Channels) setChVidNavRows() {
-	videotable.SetVideoRows(&t.chVidNav, t.chVideos, t.aux, t.chVidCols)
+	videotable.SetVideoRows(&t.vidNav, t.chVideos, t.aux, t.chVidCols)
 }
 
 // rebuildAndSetChNav re-sorts the channel universe and refreshes the list table.
@@ -372,7 +368,7 @@ func (t Channels) onChVideosFetched(m chVideosFetchedMsg) (tea.Model, tea.Cmd) {
 // currently shown, the open list grows in place (new, older videos append at the
 // bottom, so the cursor is undisturbed). Root's PollTickMsg drives the next read.
 func (t Channels) onChVideosPolled(m chVideosPolledMsg) (tea.Model, tea.Cmd) {
-	if m.channelID == t.activeChID && t.pane == 1 && len(m.videos) > len(t.chVideos) {
+	if m.channelID == t.activeChID && t.inDetail() && len(m.videos) > len(t.chVideos) {
 		t.chVideos = m.videos
 		t.setChVidNavRows()
 	}
@@ -401,13 +397,13 @@ func (t Channels) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if t.picker.handleKey(msg, t.keys) == pickerCommitted {
 		t.view = channelModes[t.picker.selection()]
 		t.rebuildAndSetChNav()
-		t.chNav.GotoRow(0)
+		t.listNav.GotoRow(0)
 	}
 	return t, nil
 }
 
 func (t Channels) handleKeyFlat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if t.pane == 0 {
+	if !t.inDetail() {
 		return t.handleKeyList(msg)
 	}
 	return t.handleKeyVideos(msg)
@@ -416,7 +412,7 @@ func (t Channels) handleKeyFlat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // handleKeyList routes keys for pane 0 (the channel list).
 func (t Channels) handleKeyList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
-	if t.chNav.HandleNav(msg, keys, len(t.sortedChs)) {
+	if t.listNav.HandleNav(msg, keys, len(t.sortedChs)) {
 		return t, nil
 	}
 
@@ -458,7 +454,7 @@ func (t Channels) handleKeyList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // selectedChannel returns the highlighted channel, or false when the cursor is
 // past the end of the (possibly empty) list.
 func (t Channels) selectedChannel() (domain.Channel, bool) {
-	idx := t.chNav.Index()
+	idx := t.listNav.Index()
 	if idx < 0 || idx >= len(t.sortedChs) {
 		return domain.Channel{}, false
 	}
@@ -481,8 +477,8 @@ func (t Channels) drillIntoChannel(ch domain.Channel) (tea.Model, tea.Cmd) {
 	t.activeChURL = ch.URL
 	t.chVideos = nil
 	t.chVidLoad = srcLoading
-	t.chVidNav.SetRows(nil)
-	t.chVidNav.GotoRow(0)
+	t.vidNav.SetRows(nil)
+	t.vidNav.GotoRow(0)
 	return t, tea.Batch(t.chDrilldownCmd(ch))
 }
 
@@ -505,7 +501,7 @@ func (t Channels) beginEdit(ch domain.Channel, mode int) (tea.Model, tea.Cmd) {
 func (t Channels) unsubscribeChannel(ch domain.Channel, returnToList bool) (tea.Model, tea.Cmd) {
 	t.subs.Remove(ch)
 	if returnToList {
-		t.pane = 0
+		t.drillOut()
 	}
 	t.rebuildAndSetChNav()
 	return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
@@ -515,14 +511,11 @@ func (t Channels) unsubscribeChannel(ch domain.Channel, returnToList bool) (tea.
 func (t Channels) handleKeyVideos(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := len(t.chVideos)
-	if handled, back := handleDrillBackKey(&t.chVidNav, msg, keys, n); handled {
-		if back {
-			t.pane = 0
-		}
+	if t.handleDetailBack(msg, keys, n) {
 		return t, nil
 	}
 
-	idx := t.chVidNav.Index()
+	idx := t.vidNav.Index()
 	switch {
 	case key.Matches(msg, keys.Refresh):
 		// Manual refresh — latest N videos, bypassing the auto-refresh throttle.
@@ -538,10 +531,10 @@ func (t Channels) handleKeyVideos(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.GotoBottom):
 		if n > 0 {
-			t.chVidNav.GotoRow(n - 1)
+			t.vidNav.GotoRow(n - 1)
 		}
 	case key.Matches(msg, keys.Unsubscribe):
-		chIdx := t.chNav.Index()
+		chIdx := t.listNav.Index()
 		if chIdx < len(t.sortedChs) {
 			return t.unsubscribeChannel(t.sortedChs[chIdx], true)
 		}

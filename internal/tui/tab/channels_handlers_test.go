@@ -62,7 +62,7 @@ func TestChannelsDrillReusesLoadedVideos(t *testing.T) {
 // pre-fills it with the channel's display name.
 func TestChannelsBeginEditAlias(t *testing.T) {
 	c := subscribedChannels(t)
-	c.chNav.GotoRow(0)
+	c.listNav.GotoRow(0)
 	target := c.sortedChs[0]
 
 	m, _ := c.Update(tea.KeyPressMsg{Text: "A"}) // RenameChannel
@@ -93,7 +93,7 @@ func TestChannelsBeginEditTags(t *testing.T) {
 			idx = i
 		}
 	}
-	c.chNav.GotoRow(idx)
+	c.listNav.GotoRow(idx)
 
 	m, _ := c.Update(tea.KeyPressMsg{Text: "T"}) // TagChannel
 	got := m.(Channels)
@@ -109,7 +109,7 @@ func TestChannelsBeginEditTags(t *testing.T) {
 // local set optimistically and emits an UnsubscribeMsg carrying that channel.
 func TestChannelsUnsubscribeRemovesAndEmits(t *testing.T) {
 	c := subscribedChannels(t)
-	c.chNav.GotoRow(0)
+	c.listNav.GotoRow(0)
 	target := c.sortedChs[0]
 
 	m, cmd := c.Update(tea.KeyPressMsg{Text: "u"}) // Unsubscribe
@@ -130,7 +130,7 @@ func TestChannelsUnsubscribeRemovesAndEmits(t *testing.T) {
 // into the video pane drops back to the channel list (returnToList path).
 func TestChannelsUnsubscribeFromVideoPaneReturnsToList(t *testing.T) {
 	c := subscribedChannels(t)
-	c.chNav.GotoRow(0)
+	c.listNav.GotoRow(0)
 	c.pane = 1 // drilled into the video list
 
 	m, cmd := c.handleKeyVideos(tea.KeyPressMsg{Text: "u"})

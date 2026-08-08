@@ -46,11 +46,10 @@ func (m *masterDetail) drillIn() {
 	m.vidNav.GotoRow(0)
 }
 
-// drillOut returns to the master list, resetting the detail cursor.
-func (m *masterDetail) drillOut() {
-	m.pane = 0
-	m.vidNav.GotoRow(0)
-}
+// drillOut returns to the master list. It does not reset the detail cursor, so a
+// tab that re-drills into the same item (from a cache) can preserve the reading
+// position; tabs that always reset on entry use drillIn, which does.
+func (m *masterDetail) drillOut() { m.pane = 0 }
 
 // handleDetailBack runs the shared drill-back key in the detail pane: nav keys
 // and the numBuf-guarded Left/Escape that pops back to the master list. Returns
@@ -66,9 +65,10 @@ func (m *masterDetail) handleDetailBack(msg tea.KeyPressMsg, keys keymap.KeyMap,
 
 // renderDetail composes the detail pane every two-pane tab renders identically:
 // the tab's header, the drill sub-header ("← <name>" + optional suffix), the
-// video table, and the numBuf line when active.
-func (m masterDetail) renderDetail(header, drillName, subSuffix string) string {
-	parts := []string{header, drillSubHeader(drillName, m.width, subSuffix), m.vidNav.View()}
+// given body (usually vidNav.View(), or a spinner while the detail is loading),
+// and the numBuf line when active.
+func (m masterDetail) renderDetail(header, drillName, subSuffix, body string) string {
+	parts := []string{header, drillSubHeader(drillName, m.width, subSuffix), body}
 	if s := m.vidNav.NumBufView(); s != "" {
 		parts = append(parts, s)
 	}
