@@ -104,6 +104,47 @@ func (vd VideoDetail) transcriptLoadCmd(v domain.Video) tea.Cmd {
 	}
 }
 
+// stripNoteChrome reduces a stored transcript markdown note to just its body for
+// the popup: the note is an Obsidian-facing artifact (YAML frontmatter, a
+// thumbnail image ref, and either a flat "## Transcript" header or per-chapter
+// "## <ts> <title>" headers), but the popup already supplies its own "Transcript"
+// title and should show text, not metadata. It drops the leading frontmatter
+// block, a leading image ref, and a sole redundant "## Transcript" header, while
+// preserving real chapter headers (the [ / ] navigation depends on them). A
+// legacy raw transcript (no frontmatter) passes through unchanged.
+func stripNoteChrome(md string) string {
+	lines := strings.Split(md, "\n")
+	i := 0
+	skipBlank := func() {
+		for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+			i++
+		}
+	}
+	// Leading YAML frontmatter: "---" ... "---".
+	if i < len(lines) && strings.TrimSpace(lines[i]) == "---" {
+		i++
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "---" {
+			i++
+		}
+		if i < len(lines) {
+			i++ // consume the closing "---"
+		}
+	}
+	skipBlank()
+	// Leading thumbnail image ref.
+	if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "![](") {
+		i++
+		skipBlank()
+	}
+	// Redundant flat header (the popup titles itself "Transcript"); keep real
+	// per-chapter "## <ts> <title>" headers.
+	if i < len(lines) && strings.TrimSpace(lines[i]) == "## Transcript" {
+		i++
+		skipBlank()
+	}
+	return strings.Join(lines[i:], "\n")
+}
+
 // handleTranscriptMsg applies a completed transcript fetch: it wraps the text to
 // the modal width and opens the transcript modal, or pops the overlay with a
 // status error when none is available.
@@ -122,7 +163,7 @@ func (vd VideoDetail) handleTranscriptMsg(m vdTranscriptMsg) (tea.Model, tea.Cmd
 		}
 		return vd, status
 	}
-	vd.transcriptText = m.text
+	vd.transcriptText = stripNoteChrome(m.text)
 	vd.transcriptVS = 0
 	vd.transcriptLoaded = true
 	vd.subState = vdTranscript
