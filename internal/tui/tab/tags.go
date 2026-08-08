@@ -8,7 +8,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/domain/channels"
@@ -109,7 +108,9 @@ type Tags struct {
 	keys     keymap.KeyMap
 	circular bool
 
-	width, height int
+	// masterDetail owns the two-pane skeleton: pane, listNav (tag list), vidNav
+	// (tag video list), width, height (M-1).
+	masterDetail
 
 	subs         channels.ChannelSet // full channel universe (subscribed + rec-feed + annotated)
 	subVideos    []domain.Video      // combined video pool (subscribed ∪ recommended)
@@ -123,17 +124,11 @@ type Tags struct {
 
 	aux videotable.AuxData
 
-	pane          int
 	tagSel        string
 	sortedTagRows []TagRow // cached rows, rebuilt on mutation
 
-	// tag list table — uses TableNav
-	tagNav  videotable.TableNav
-	tagCols []videotable.ColumnDef[TagRow]
-
-	// tag video table — uses TableNav
-	tagVidNav  videotable.TableNav
-	tagVidCols []videotable.ColumnDef[videotable.VideoData]
+	tagCols    []videotable.ColumnDef[TagRow]               // tag list columns
+	tagVidCols []videotable.ColumnDef[videotable.VideoData] // tag video columns
 }
 
 // tagColumns is the full, natural-order column set for the Tags list. Extracted
@@ -173,16 +168,18 @@ func NewTags(ctx context.Context, backend tagsBackend, keys keymap.KeyMap, circu
 		videotable.ChannelCol[videotable.VideoData](), videotable.WatchedCol[videotable.VideoData](), videotable.DurationCol[videotable.VideoData](), videotable.ViewsCol[videotable.VideoData](), videotable.DateCol[videotable.VideoData](),
 	}
 	return Tags{
-		ctx:        ctx,
-		backend:    backend,
-		keys:       keys,
-		circular:   circular,
+		ctx:      ctx,
+		backend:  backend,
+		keys:     keys,
+		circular: circular,
+		masterDetail: masterDetail{
+			listNav: videotable.NewTableNav(tagCols, circular, 2),
+			vidNav:  videotable.NewTableNav(tagVidCols, circular, 4),
+		},
 		mode:       mode,
 		recFeedIDs: map[string]bool{},
 		stale:      staleFilter{hide: opts.HideStale, days: opts.StaleDays},
 		picker:     newModePicker("Mode", modeLabels(tagModes), circular),
-		tagNav:     videotable.NewTableNav(tagCols, circular, 2),
-		tagVidNav:  videotable.NewTableNav(tagVidCols, circular, 4),
 		tagCols:    tagCols,
 		tagVidCols: tagVidCols,
 	}
@@ -199,15 +196,15 @@ func (t Tags) modeChannels() []domain.Channel {
 	return selectChannels(t.subs.Channels(), t.mode, t.recFeedIDs, t.stale, time.Now())
 }
 func (t Tags) SelectedVideo() (domain.Video, bool) {
-	if t.pane == 1 {
+	if t.inDetail() {
 		vids := t.tagVideosFor(t.tagSel)
-		idx := t.tagVidNav.Index()
+		idx := t.vidNav.Index()
 		if idx >= 0 && idx < len(vids) {
 			return vids[idx], true
 		}
 		return domain.Video{}, false
 	}
-	idx := t.tagNav.Index()
+	idx := t.listNav.Index()
 	if idx < len(t.sortedTagRows) {
 		if v := t.sortedTagRows[idx].Latest; v.ID != "" {
 			return v, true
@@ -228,11 +225,9 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 
 	case tuipkg.ContentSizeMsg:
-		t.width, t.height = m.Width, m.Height
-		t.tagNav.Resize(m.Width, m.Height)
+		t.resize(m.Width, m.Height)
 		t.rebuildTagRows()
-		t.tagVidNav.Resize(m.Width, m.Height)
-		videotable.SetVideoRows(&t.tagVidNav, t.tagVideosFor(t.tagSel), t.aux, t.tagVidCols)
+		videotable.SetVideoRows(&t.vidNav, t.tagVideosFor(t.tagSel), t.aux, t.tagVidCols)
 
 	case tuipkg.SpinnerFrameMsg:
 		t.spinnerFrame = m.Frame
@@ -255,7 +250,7 @@ func (t Tags) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case videotable.AuxDataMsg:
 		t.aux = m
 		t.rebuildTagRows()
-		videotable.SetVideoRows(&t.tagVidNav, t.tagVideosFor(t.tagSel), t.aux, t.tagVidCols)
+		videotable.SetVideoRows(&t.vidNav, t.tagVideosFor(t.tagSel), t.aux, t.tagVidCols)
 
 	case tea.KeyPressMsg:
 		return t.handleKey(m)
@@ -270,13 +265,8 @@ func (t Tags) View() tea.View {
 	}
 	header := styles.SectionTitle.Render(headerText)
 
-	if t.pane == 1 {
-		tagHeader := drillSubHeader(t.tagSel, t.width, "")
-		parts := []string{header, tagHeader, t.tagVidNav.View()}
-		if s := t.tagVidNav.NumBufView(); s != "" {
-			parts = append(parts, s)
-		}
-		return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	if t.inDetail() {
+		return tea.NewView(t.renderDetail(header, t.tagSel, ""))
 	}
 
 	var body string
@@ -286,17 +276,13 @@ func (t Tags) View() tea.View {
 	case len(t.sortedTagRows) == 0:
 		body = styles.Dim.Render(t.emptyTagsText())
 	default:
-		body = t.tagNav.View()
+		body = t.listNav.View()
 	}
 	// The mode picker can be opened over any state (loading, empty, or list).
 	if t.picker.isOpen() {
 		body = t.picker.view(body, t.keys.Escape.Help().Key, t.width)
 	}
-	parts := []string{header, body}
-	if s := t.tagNav.NumBufView(); s != "" {
-		parts = append(parts, s)
-	}
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	return tea.NewView(t.renderList([]string{header, body}))
 }
 
 // emptyTagsText is the "nothing here" message tailored to the active mode.
@@ -317,10 +303,10 @@ func (t Tags) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if t.picker.isOpen() {
 		return t.handlePickerKey(msg)
 	}
-	if t.pane == 0 {
-		return t.handleKeyList(msg)
+	if t.inDetail() {
+		return t.handleKeyVideos(msg)
 	}
-	return t.handleKeyVideos(msg)
+	return t.handleKeyList(msg)
 }
 
 // handleKeyList routes keys for pane 0 (the tag list).
@@ -328,11 +314,11 @@ func (t Tags) handleKeyList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	n := len(t.sortedTagRows)
 
-	if t.tagNav.HandleNav(msg, keys, n) {
+	if t.listNav.HandleNav(msg, keys, n) {
 		return t, nil
 	}
 
-	idx := t.tagNav.Index()
+	idx := t.listNav.Index()
 	switch {
 	case key.Matches(msg, keys.PanelMode):
 		t.picker.openAt(modeIndex(tagModes, t.mode))
@@ -340,10 +326,8 @@ func (t Tags) handleKeyList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.DrillDown), key.Matches(msg, keys.Right):
 		if idx < n {
 			t.tagSel = t.sortedTagRows[idx].Tag
-			vids := t.tagVideosFor(t.tagSel)
-			videotable.SetVideoRows(&t.tagVidNav, vids, t.aux, t.tagVidCols)
-			t.tagVidNav.GotoRow(0)
-			t.pane = 1
+			videotable.SetVideoRows(&t.vidNav, t.tagVideosFor(t.tagSel), t.aux, t.tagVidCols)
+			t.drillIn()
 		}
 	default:
 		if idx < n {
@@ -362,19 +346,15 @@ func (t Tags) handleKeyVideos(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	keys := t.keys
 	vids := t.tagVideosFor(t.tagSel)
 	n := len(vids)
-	if handled, back := handleDrillBackKey(&t.tagVidNav, msg, keys, n); handled {
-		if back {
-			t.pane = 0
-			t.tagVidNav.GotoRow(0)
-		}
+	if t.handleDetailBack(msg, keys, n) {
 		return t, nil
 	}
 
-	idx := t.tagVidNav.Index()
+	idx := t.vidNav.Index()
 	switch {
 	case key.Matches(msg, keys.GotoBottom):
 		if n > 0 {
-			t.tagVidNav.GotoRow(n - 1)
+			t.vidNav.GotoRow(n - 1)
 		}
 	default:
 		if idx < n {
@@ -393,7 +373,7 @@ func (t Tags) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		t.mode = tagModes[t.picker.selection()]
 		t.pane = 0
 		t.rebuildTagRows()
-		t.tagNav.GotoRow(0)
+		t.listNav.GotoRow(0)
 	}
 	return t, nil
 }
@@ -422,7 +402,7 @@ func (t *Tags) rebuildTagRows() {
 		}
 	}
 	t.sortedTagRows = rows
-	t.tagNav.SetRows(videotable.BuildRows(rows, t.tagCols))
+	t.listNav.SetRows(videotable.BuildRows(rows, t.tagCols))
 }
 
 func (t Tags) tagsDataLoadCmd() tea.Cmd {
