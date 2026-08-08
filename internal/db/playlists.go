@@ -10,23 +10,17 @@ import (
 
 // SaveYTPlaylists persists the YouTube playlist list.
 func (d *DB) SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlaylist) error {
-	tx, err := d.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("SaveYTPlaylists begin: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM yt_playlists`); err != nil {
-		return fmt.Errorf("SaveYTPlaylists delete: %w", err)
-	}
-	for _, pl := range playlists {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO yt_playlists (id, title) VALUES (?, ?)`, pl.ID, pl.Title); err != nil {
-			return fmt.Errorf("SaveYTPlaylists insert: %w", err)
+	return d.withTx(ctx, "SaveYTPlaylists", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM yt_playlists`); err != nil {
+			return fmt.Errorf("SaveYTPlaylists delete: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("SaveYTPlaylists commit: %w", err)
-	}
-	return nil
+		for _, pl := range playlists {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO yt_playlists (id, title) VALUES (?, ?)`, pl.ID, pl.Title); err != nil {
+				return fmt.Errorf("SaveYTPlaylists insert: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // GetYTPlaylists returns the cached YouTube playlist list.
@@ -45,29 +39,23 @@ func (d *DB) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 
 // SaveYTPlaylistVideos replaces the cached video list for a YT playlist.
 func (d *DB) SaveYTPlaylistVideos(ctx context.Context, playlistID string, videos []domain.Video) error {
-	tx, err := d.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("SaveYTPlaylistVideos begin: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM yt_playlist_videos WHERE playlist_id=?`, playlistID); err != nil {
-		return fmt.Errorf("SaveYTPlaylistVideos delete: %w", err)
-	}
-	for i, v := range videos {
-		if err := upsertVideoTx(ctx, tx, v); err != nil {
-			return fmt.Errorf("SaveYTPlaylistVideos upsert video: %w", err)
+	return d.withTx(ctx, "SaveYTPlaylistVideos", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM yt_playlist_videos WHERE playlist_id=?`, playlistID); err != nil {
+			return fmt.Errorf("SaveYTPlaylistVideos delete: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO yt_playlist_videos (playlist_id, video_id, position)
-			VALUES (?, ?, ?)
-		`, playlistID, v.ID, i); err != nil {
-			return fmt.Errorf("SaveYTPlaylistVideos insert: %w", err)
+		for i, v := range videos {
+			if err := upsertVideoTx(ctx, tx, v); err != nil {
+				return fmt.Errorf("SaveYTPlaylistVideos upsert video: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT OR REPLACE INTO yt_playlist_videos (playlist_id, video_id, position)
+				VALUES (?, ?, ?)
+			`, playlistID, v.ID, i); err != nil {
+				return fmt.Errorf("SaveYTPlaylistVideos insert: %w", err)
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("SaveYTPlaylistVideos commit: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // GetYTPlaylistVideos returns cached videos for a YT playlist in position order.

@@ -23,25 +23,19 @@ func (d *DB) execByChannelID(ctx context.Context, label, query string, args ...a
 
 // SaveChannelVideos upserts all videos for a channel and links them.
 func (d *DB) SaveChannelVideos(ctx context.Context, channelID string, videos []domain.Video) error {
-	tx, err := d.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("SaveChannelVideos begin: %w", err)
-	}
-	defer tx.Rollback()
-	for _, v := range videos {
-		if err := upsertVideoTx(ctx, tx, v); err != nil {
-			return fmt.Errorf("SaveChannelVideos upsert video: %w", err)
+	return d.withTx(ctx, "SaveChannelVideos", func(tx *sql.Tx) error {
+		for _, v := range videos {
+			if err := upsertVideoTx(ctx, tx, v); err != nil {
+				return fmt.Errorf("SaveChannelVideos upsert video: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT OR IGNORE INTO channel_videos (channel_id, video_id) VALUES (?, ?)
+			`, channelID, v.ID); err != nil {
+				return fmt.Errorf("SaveChannelVideos link: %w", err)
+			}
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT OR IGNORE INTO channel_videos (channel_id, video_id) VALUES (?, ?)
-		`, channelID, v.ID); err != nil {
-			return fmt.Errorf("SaveChannelVideos link: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("SaveChannelVideos commit: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // TouchChannelVideosRefreshed records that a channel's videos were just fetched
@@ -147,55 +141,49 @@ func (d *DB) SaveSubscribedChannels(ctx context.Context, channels []domain.Chann
 	if len(channels) == 0 {
 		return nil
 	}
-	tx, err := d.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("SaveSubscribedChannels begin: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op once committed
-	ids := make([]interface{}, len(channels))
-	for i := range channels {
-		ids[i] = channels[i].ID
-	}
-	notIn := `subscription_state='subscribed_yt' AND channel_id NOT IN (` + placeholders(len(channels)) + `)`
-	// GC annotation-free YT subs that dropped off the fetch.
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM subscribed_channels WHERE `+notIn+` AND alias='' AND tags=''`,
-		ids...,
-	); err != nil {
-		return fmt.Errorf("SaveSubscribedChannels gc: %w", err)
-	}
-	// Transition the annotated remainder to 'none', preserving alias/tags.
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE subscribed_channels SET subscription_state='none', is_local=0, updated_at=CURRENT_TIMESTAMP
-		 WHERE `+notIn+` AND (alias!='' OR tags!='')`,
-		ids...,
-	); err != nil {
-		return fmt.Errorf("SaveSubscribedChannels transition: %w", err)
-	}
-	// Upsert — alias and tags are intentionally excluded from the UPDATE SET so
-	// they are preserved; a blocked row stays at 'none' rather than resurfacing.
-	for i := range channels {
-		ch := &channels[i]
-		if ch.ID == "" {
-			continue
+	return d.withTx(ctx, "SaveSubscribedChannels", func(tx *sql.Tx) error {
+		ids := make([]interface{}, len(channels))
+		for i := range channels {
+			ids[i] = channels[i].ID
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local, subscription_state)
-			VALUES (?, ?, ?, ?, 0, ?)
-			ON CONFLICT(channel_id) DO UPDATE SET
-				name=excluded.name, url=excluded.url,
-				subscribers=excluded.subscribers,
-				is_local=0,
-				subscription_state=CASE WHEN subscribed_channels.blocked=1 THEN 'none' ELSE excluded.subscription_state END,
-				updated_at=CURRENT_TIMESTAMP
-		`, ch.ID, ch.Name, ch.URL, ch.Subscribers, string(domain.SubYT)); err != nil {
-			return fmt.Errorf("SaveSubscribedChannels upsert: %w", err)
+		notIn := `subscription_state='subscribed_yt' AND channel_id NOT IN (` + placeholders(len(channels)) + `)`
+		// GC annotation-free YT subs that dropped off the fetch.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM subscribed_channels WHERE `+notIn+` AND alias='' AND tags=''`,
+			ids...,
+		); err != nil {
+			return fmt.Errorf("SaveSubscribedChannels gc: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("SaveSubscribedChannels commit: %w", err)
-	}
-	return nil
+		// Transition the annotated remainder to 'none', preserving alias/tags.
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE subscribed_channels SET subscription_state='none', is_local=0, updated_at=CURRENT_TIMESTAMP
+			 WHERE `+notIn+` AND (alias!='' OR tags!='')`,
+			ids...,
+		); err != nil {
+			return fmt.Errorf("SaveSubscribedChannels transition: %w", err)
+		}
+		// Upsert — alias and tags are intentionally excluded from the UPDATE SET so
+		// they are preserved; a blocked row stays at 'none' rather than resurfacing.
+		for i := range channels {
+			ch := &channels[i]
+			if ch.ID == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO subscribed_channels (channel_id, name, url, subscribers, is_local, subscription_state)
+				VALUES (?, ?, ?, ?, 0, ?)
+				ON CONFLICT(channel_id) DO UPDATE SET
+					name=excluded.name, url=excluded.url,
+					subscribers=excluded.subscribers,
+					is_local=0,
+					subscription_state=CASE WHEN subscribed_channels.blocked=1 THEN 'none' ELSE excluded.subscription_state END,
+					updated_at=CURRENT_TIMESTAMP
+			`, ch.ID, ch.Name, ch.URL, ch.Subscribers, string(domain.SubYT)); err != nil {
+				return fmt.Errorf("SaveSubscribedChannels upsert: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // SetChannelState transitions a channel's subscription_state (and keeps the

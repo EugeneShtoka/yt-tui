@@ -12,47 +12,41 @@ import (
 
 // SaveFeedCache replaces the cached video list for a feed.
 func (d *DB) SaveFeedCache(ctx context.Context, feed string, videos []domain.Video) error {
-	tx, err := d.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("SaveFeedCache begin: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM feed_cache WHERE feed=?`, feed); err != nil {
-		return fmt.Errorf("SaveFeedCache delete: %w", err)
-	}
-	// Distinct channel IDs seen in this feed — stamped as active below so a
-	// channel currently in the recommended feed never reads as stale.
-	seenChannels := make(map[string]bool)
-	for i, v := range videos {
-		if err := upsertVideoTx(ctx, tx, v); err != nil {
-			return fmt.Errorf("SaveFeedCache upsert video: %w", err)
+	return d.withTx(ctx, "SaveFeedCache", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM feed_cache WHERE feed=?`, feed); err != nil {
+			return fmt.Errorf("SaveFeedCache delete: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO feed_cache (feed, video_id, position) VALUES (?, ?, ?)`,
-			feed, v.ID, i,
-		); err != nil {
-			return fmt.Errorf("SaveFeedCache insert: %w", err)
+		// Distinct channel IDs seen in this feed — stamped as active below so a
+		// channel currently in the recommended feed never reads as stale.
+		seenChannels := make(map[string]bool)
+		for i, v := range videos {
+			if err := upsertVideoTx(ctx, tx, v); err != nil {
+				return fmt.Errorf("SaveFeedCache upsert video: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT OR REPLACE INTO feed_cache (feed, video_id, position) VALUES (?, ?, ?)`,
+				feed, v.ID, i,
+			); err != nil {
+				return fmt.Errorf("SaveFeedCache insert: %w", err)
+			}
+			if v.ChannelID != "" {
+				seenChannels[v.ChannelID] = true
+			}
 		}
-		if v.ChannelID != "" {
-			seenChannels[v.ChannelID] = true
+		// Stamp channel activity for every channel present in the feed (no-op for
+		// channels without a subscribed_channels row — untagged rec channels aren't
+		// tracked). Monotonic MAX keeps an earlier stamp from moving backward.
+		now := time.Now().Unix()
+		for chID := range seenChannels {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE subscribed_channels SET last_activity_at=MAX(last_activity_at, ?) WHERE channel_id=?`,
+				now, chID,
+			); err != nil {
+				return fmt.Errorf("SaveFeedCache stamp activity: %w", err)
+			}
 		}
-	}
-	// Stamp channel activity for every channel present in the feed (no-op for
-	// channels without a subscribed_channels row — untagged rec channels aren't
-	// tracked). Monotonic MAX keeps an earlier stamp from moving backward.
-	now := time.Now().Unix()
-	for chID := range seenChannels {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE subscribed_channels SET last_activity_at=MAX(last_activity_at, ?) WHERE channel_id=?`,
-			now, chID,
-		); err != nil {
-			return fmt.Errorf("SaveFeedCache stamp activity: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("SaveFeedCache commit: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // GetFeedCache returns the cached video list for a feed ordered by position.

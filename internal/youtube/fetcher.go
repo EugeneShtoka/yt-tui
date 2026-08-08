@@ -25,22 +25,32 @@ func NewClient(cfg *config.Config) *Client {
 	return &Client{cfg: cfg, runner: procexec.OS{}}
 }
 
+// subtitleSRTArgs returns the yt-dlp flags that fetch captions/auto-subtitles and
+// convert them to .srt. langs is a --sub-langs value; empty falls back to English.
+// Shared by FetchTranscript and VideoDetailsWithTranscript so the flag set and the
+// English fallback can't drift between the two transcript paths.
+func subtitleSRTArgs(langs string) []string {
+	if langs == "" {
+		langs = "en.*"
+	}
+	return []string{
+		"--write-sub", "--write-auto-sub",
+		"--sub-langs", langs,
+		"--convert-subs", "srt",
+	}
+}
+
 // FetchTranscript downloads a video's captions/auto-subtitles as sidecar .srt
 // files (no media download), using the given yt-dlp output template. langs is a
 // yt-dlp --sub-langs value; empty falls back to English. Used to save transcripts
 // during enrichment and when video info is actively requested.
 func (c *Client) FetchTranscript(ctx context.Context, videoURL, langs, outTemplate string) error {
-	if langs == "" {
-		langs = "en.*"
-	}
-	args := []string{
-		"--skip-download",
-		"--write-sub", "--write-auto-sub",
-		"--sub-langs", langs,
-		"--convert-subs", "srt",
+	args := []string{"--skip-download"}
+	args = append(args, subtitleSRTArgs(langs)...)
+	args = append(args,
 		"--no-playlist", "--no-warnings", "--quiet",
 		"-o", outTemplate,
-	}
+	)
 	args = append(args, cookieArgs(c.cfg)...)
 	args = append(args, videoURL)
 	if _, err := runYtdlpOutputWithRetry(ctx, c.runner, "transcript", args); err != nil {
@@ -313,17 +323,12 @@ func (c *Client) VideoDetails(ctx context.Context, videoURL string) (domain.Vide
 // a --sponsorblock-mark category list; it makes yt-dlp report the matching
 // SponsorBlock segments in sponsorblock_chapters so callers can excise them.
 func (c *Client) VideoDetailsWithTranscript(ctx context.Context, videoURL, langs, sbCats, outTemplate string) (domain.VideoDetails, error) {
-	if langs == "" {
-		langs = "en.*"
-	}
-	args := []string{
-		"--dump-json", "--no-simulate", "--skip-download",
-		"--write-sub", "--write-auto-sub",
-		"--sub-langs", langs,
-		"--convert-subs", "srt",
+	args := []string{"--dump-json", "--no-simulate", "--skip-download"}
+	args = append(args, subtitleSRTArgs(langs)...)
+	args = append(args,
 		"--no-playlist", "--no-warnings", "--quiet",
 		"-o", outTemplate,
-	}
+	)
 	if sbCats != "" {
 		args = append(args, "--sponsorblock-mark", sbCats)
 	}
