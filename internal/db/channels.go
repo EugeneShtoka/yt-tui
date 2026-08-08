@@ -287,21 +287,9 @@ func (d *DB) queryChannels(ctx context.Context, where string) ([]domain.Channel,
 		q += ` WHERE ` + where
 	}
 	q += ` ORDER BY name`
-	rows, err := d.sql.QueryContext(ctx, q)
+	out, err := queryList(ctx, d.sql, q, scanChannel)
 	if err != nil {
-		return nil, fmt.Errorf("queryChannels query: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.Channel
-	for rows.Next() {
-		ch, err := scanChannel(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, ch)
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("queryChannels rows: %w", err)
+		return nil, fmt.Errorf("queryChannels: %w", err)
 	}
 	return out, nil
 }
@@ -414,7 +402,7 @@ func (d *DB) GetAllChannelVideos(ctx context.Context, channelIDs []string) ([]do
 // MAX()+GROUP BY self-join lets SQLite pick an arbitrary row on ties, which made
 // channel ordering flicker between refreshes.
 func (d *DB) GetChannelLatestAll(ctx context.Context) (map[string]domain.Video, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	out, err := queryMap(ctx, d.sql, `
 		WITH ranked AS (
 			SELECT cv.channel_id AS ch_id, v.id, v.title, v.channel, v.channel_id,
 			       v.duration, v.view_count, v.upload_date, v.url,
@@ -428,22 +416,13 @@ func (d *DB) GetChannelLatestAll(ctx context.Context) (map[string]domain.Video, 
 		       COALESCE(duration,0), COALESCE(view_count,0),
 		       COALESCE(upload_date,''), COALESCE(url,'')
 		FROM ranked WHERE rn = 1
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("GetChannelLatestAll query: %w", err)
-	}
-	defer rows.Close()
-	out := make(map[string]domain.Video)
-	for rows.Next() {
+	`, func(rows *sql.Rows) (string, domain.Video, error) {
 		var chID string
 		v, err := scanVideo(rows, &chID)
-		if err != nil {
-			return nil, fmt.Errorf("GetChannelLatestAll scan: %w", err)
-		}
-		out[chID] = v
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("GetChannelLatestAll rows: %w", err)
+		return chID, v, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetChannelLatestAll: %w", err)
 	}
 	return out, nil
 }

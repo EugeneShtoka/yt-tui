@@ -135,6 +135,24 @@ linters:
       disabled-checks:
         - hugeParam          # bubbletea models are legitimately large value types
 
+    wrapcheck:
+      # sql.Rows.Scan errors are returned unwrapped by the queryList/queryMap scan
+      # closures (and the scanVideo/scanChannel helpers); every DB method wraps them
+      # with its own "Name: %w" context at the call site. Add .Scan( to the ignore
+      # list so that convention needs no //nolint on every scan closure. Setting
+      # ignoreSigs replaces the defaults, so the default entries are re-listed here.
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
+        - .Scan(
+
     misspell:
       locale: US
 

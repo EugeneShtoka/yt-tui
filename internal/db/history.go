@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -52,34 +53,36 @@ func (d *DB) AddHistory(ctx context.Context, videoID, eventType, details string)
 
 // SearchQueries returns all unique search queries, newest first.
 func (d *DB) SearchQueries(ctx context.Context) ([]string, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT details FROM history
 		WHERE event_type = 'search' AND details != ''
 		GROUP BY details
 		ORDER BY MAX(timestamp) DESC
-	`)
+	`, scanString)
 	if err != nil {
-		return nil, fmt.Errorf("SearchQueries query: %w", err)
-	}
-	defer rows.Close()
-	var result []string
-	for rows.Next() {
-		var q string
-		if err := rows.Scan(&q); err != nil {
-			return nil, fmt.Errorf("SearchQueries scan: %w", err)
-		}
-		result = append(result, q)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("SearchQueries rows: %w", err)
+		return nil, fmt.Errorf("SearchQueries: %w", err)
 	}
 	return result, nil
+}
+
+// scanHistoryEntry is the queryList scan for the shared 11-column history
+// projection (id, video_id, title, channel, channel_id, duration, view_count,
+// upload_date, event_type, details, timestamp) that History / HistoryVideos /
+// VideoHistory all select.
+func scanHistoryEntry(rows *sql.Rows) (domain.HistoryEntry, error) {
+	var e domain.HistoryEntry
+	err := rows.Scan(
+		&e.ID, &e.VideoID, &e.Title,
+		&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
+		&e.EventType, &e.Details, &e.Timestamp,
+	)
+	return e, err
 }
 
 // HistoryVideos returns the most recent play/stream/download event per video,
 // ordered by recency. Search and delete events are excluded.
 func (d *DB) HistoryVideos(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id) AS title,
 		       COALESCE(v.channel, '') AS channel, COALESCE(v.channel_id, '') AS channel_id,
 		       COALESCE(v.duration, 0) AS duration,
@@ -98,25 +101,9 @@ func (d *DB) HistoryVideos(ctx context.Context, limit int) ([]domain.HistoryEntr
 		)
 		ORDER BY h.timestamp DESC
 		LIMIT ?
-	`, limit)
+	`, scanHistoryEntry, limit)
 	if err != nil {
-		return nil, fmt.Errorf("HistoryVideos query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.HistoryEntry
-	for rows.Next() {
-		var e domain.HistoryEntry
-		if err := rows.Scan(
-			&e.ID, &e.VideoID, &e.Title,
-			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
-			&e.EventType, &e.Details, &e.Timestamp,
-		); err != nil {
-			return nil, fmt.Errorf("HistoryVideos scan: %w", err)
-		}
-		result = append(result, e)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("HistoryVideos rows: %w", err)
+		return nil, fmt.Errorf("HistoryVideos: %w", err)
 	}
 	return result, nil
 }
@@ -139,7 +126,7 @@ func (d *DB) DeleteSearchHistory(ctx context.Context, query string) error {
 
 // VideoHistory returns all events for a single video, newest first.
 func (d *DB) VideoHistory(ctx context.Context, videoID string) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT h.id, h.video_id, COALESCE(v.title, h.video_id),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -148,32 +135,16 @@ func (d *DB) VideoHistory(ctx context.Context, videoID string) ([]domain.History
 		LEFT JOIN videos v ON v.id = h.video_id
 		WHERE h.video_id = ?
 		ORDER BY h.timestamp DESC
-	`, videoID)
+	`, scanHistoryEntry, videoID)
 	if err != nil {
-		return nil, fmt.Errorf("VideoHistory query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.HistoryEntry
-	for rows.Next() {
-		var e domain.HistoryEntry
-		if err := rows.Scan(
-			&e.ID, &e.VideoID, &e.Title,
-			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
-			&e.EventType, &e.Details, &e.Timestamp,
-		); err != nil {
-			return nil, fmt.Errorf("VideoHistory scan: %w", err)
-		}
-		result = append(result, e)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("VideoHistory rows: %w", err)
+		return nil, fmt.Errorf("VideoHistory: %w", err)
 	}
 	return result, nil
 }
 
 // History returns recent history entries with video titles.
 func (d *DB) History(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT h.id, COALESCE(h.video_id,''), COALESCE(v.title, h.video_id, ''),
 		       COALESCE(v.channel, ''), COALESCE(v.channel_id, ''), COALESCE(v.duration, 0),
 		       COALESCE(v.view_count, 0), COALESCE(v.upload_date, ''),
@@ -182,25 +153,9 @@ func (d *DB) History(ctx context.Context, limit int) ([]domain.HistoryEntry, err
 		LEFT JOIN videos v ON v.id=h.video_id
 		ORDER BY h.timestamp DESC
 		LIMIT ?
-	`, limit)
+	`, scanHistoryEntry, limit)
 	if err != nil {
-		return nil, fmt.Errorf("History query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.HistoryEntry
-	for rows.Next() {
-		var e domain.HistoryEntry
-		if err := rows.Scan(
-			&e.ID, &e.VideoID, &e.Title,
-			&e.Channel, &e.ChannelID, &e.Duration, &e.ViewCount, &e.UploadDate,
-			&e.EventType, &e.Details, &e.Timestamp,
-		); err != nil {
-			return nil, fmt.Errorf("History scan: %w", err)
-		}
-		result = append(result, e)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("History rows: %w", err)
+		return nil, fmt.Errorf("History: %w", err)
 	}
 	return result, nil
 }
@@ -231,32 +186,26 @@ func (d *DB) LogActivity(ctx context.Context, e domain.ActivityEntry) error {
 
 // GetActivityLog returns the most recent activity entries, newest first.
 func (d *DB) GetActivityLog(ctx context.Context, limit int) ([]domain.ActivityEntry, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	entries, err := queryList(ctx, d.sql, `
 		SELECT id, type, is_local,
 		       COALESCE(channel_id,''), COALESCE(channel_name,''),
 		       COALESCE(playlist_id,''), COALESCE(playlist_local_id,0), COALESCE(playlist_name,''),
 		       COALESCE(video_id,''), COALESCE(video_title,''), timestamp
 		FROM activity_log ORDER BY timestamp DESC LIMIT ?
-	`, limit)
-	if err != nil {
-		return nil, fmt.Errorf("GetActivityLog query: %w", err)
-	}
-	defer rows.Close()
-	var entries []domain.ActivityEntry
-	for rows.Next() {
+	`, func(rows *sql.Rows) (domain.ActivityEntry, error) {
 		var e domain.ActivityEntry
 		var isLocal int
 		if err := rows.Scan(&e.ID, &e.Type, &isLocal,
 			&e.ChannelID, &e.ChannelName,
 			&e.PlaylistID, &e.PlaylistLocalID, &e.PlaylistName,
 			&e.VideoID, &e.VideoTitle, &e.Timestamp); err != nil {
-			return nil, fmt.Errorf("GetActivityLog scan: %w", err)
+			return e, err
 		}
 		e.IsLocal = isLocal != 0
-		entries = append(entries, e)
-	}
-	if err := rows.Err(); err != nil {
-		return entries, fmt.Errorf("GetActivityLog rows: %w", err)
+		return e, nil
+	}, limit)
+	if err != nil {
+		return nil, fmt.Errorf("GetActivityLog: %w", err)
 	}
 	return entries, nil
 }

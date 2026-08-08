@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 )
@@ -100,22 +101,15 @@ type localFile struct {
 
 // localVideoFiles returns every local_videos row as id → localFile (Set A).
 func (d *DB) localVideoFiles(ctx context.Context) (map[string]localFile, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, file_path, COALESCE(file_size, 0) FROM local_videos`)
+	out, err := queryMap(ctx, d.sql, `SELECT id, file_path, COALESCE(file_size, 0) FROM local_videos`,
+		func(rows *sql.Rows) (string, localFile, error) {
+			var id string
+			var lf localFile
+			err := rows.Scan(&id, &lf.path, &lf.size)
+			return id, lf, err
+		})
 	if err != nil {
-		return nil, fmt.Errorf("reconcileDownloads query local: %w", err)
-	}
-	defer rows.Close()
-	out := make(map[string]localFile)
-	for rows.Next() {
-		var id string
-		var lf localFile
-		if err := rows.Scan(&id, &lf.path, &lf.size); err != nil {
-			return nil, fmt.Errorf("reconcileDownloads scan local: %w", err)
-		}
-		out[id] = lf
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("reconcileDownloads local rows: %w", err)
+		return nil, fmt.Errorf("reconcileDownloads local: %w", err)
 	}
 	return out, nil
 }
@@ -133,7 +127,7 @@ func (d *DB) setLocalVideoSize(ctx context.Context, id string, size int64) error
 // downloaded (Set B). Latest is by id (autoincrement, monotonic with
 // insertion); NULL/empty video_ids are skipped.
 func (d *DB) danglingDownloadIDs(ctx context.Context) ([]string, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	ids, err := queryList(ctx, d.sql, `
 		SELECT h.video_id
 		FROM history h
 		JOIN (
@@ -144,21 +138,9 @@ func (d *DB) danglingDownloadIDs(ctx context.Context) ([]string, error) {
 			GROUP BY video_id
 		) m ON m.latest = h.id
 		WHERE h.event_type LIKE 'download %'
-	`, evtDownloadVideo, evtDownloadAudio, evtDelete)
+	`, scanString, evtDownloadVideo, evtDownloadAudio, evtDelete)
 	if err != nil {
-		return nil, fmt.Errorf("reconcileDownloads query history: %w", err)
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("reconcileDownloads scan history: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("reconcileDownloads history rows: %w", err)
+		return nil, fmt.Errorf("reconcileDownloads history: %w", err)
 	}
 	return ids, nil
 }

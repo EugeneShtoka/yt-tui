@@ -100,21 +100,14 @@ func (d *DB) HideRecVideo(ctx context.Context, videoID string) error {
 
 // HiddenRecVideoIDs returns a set of video IDs hidden from recommended.
 func (d *DB) HiddenRecVideoIDs(ctx context.Context) (map[string]bool, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT video_id FROM hidden_rec_videos`)
+	out, err := queryMap(ctx, d.sql, `SELECT video_id FROM hidden_rec_videos`,
+		func(rows *sql.Rows) (string, bool, error) {
+			var id string
+			err := rows.Scan(&id)
+			return id, true, err
+		})
 	if err != nil {
-		return nil, fmt.Errorf("HiddenRecVideoIDs query: %w", err)
-	}
-	defer rows.Close()
-	out := make(map[string]bool)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("HiddenRecVideoIDs scan: %w", err)
-		}
-		out[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("HiddenRecVideoIDs rows: %w", err)
+		return nil, fmt.Errorf("HiddenRecVideoIDs: %w", err)
 	}
 	return out, nil
 }

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
@@ -30,21 +31,14 @@ func (d *DB) SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlaylist)
 
 // GetYTPlaylists returns the cached YouTube playlist list.
 func (d *DB) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, title FROM yt_playlists ORDER BY rowid`)
+	out, err := queryList(ctx, d.sql, `SELECT id, title FROM yt_playlists ORDER BY rowid`,
+		func(rows *sql.Rows) (domain.YTPlaylist, error) {
+			var pl domain.YTPlaylist
+			err := rows.Scan(&pl.ID, &pl.Title)
+			return pl, err
+		})
 	if err != nil {
-		return nil, fmt.Errorf("GetYTPlaylists query: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.YTPlaylist
-	for rows.Next() {
-		var pl domain.YTPlaylist
-		if err := rows.Scan(&pl.ID, &pl.Title); err != nil {
-			return nil, fmt.Errorf("GetYTPlaylists scan: %w", err)
-		}
-		out = append(out, pl)
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("GetYTPlaylists rows: %w", err)
+		return nil, fmt.Errorf("GetYTPlaylists: %w", err)
 	}
 	return out, nil
 }
@@ -95,21 +89,14 @@ func (d *DB) GetYTPlaylistVideos(ctx context.Context, playlistID string) ([]doma
 
 // Playlists returns all custom playlists.
 func (d *DB) Playlists(ctx context.Context) ([]domain.Playlist, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, name, created_at FROM playlists ORDER BY name`)
+	result, err := queryList(ctx, d.sql, `SELECT id, name, created_at FROM playlists ORDER BY name`,
+		func(rows *sql.Rows) (domain.Playlist, error) {
+			var p domain.Playlist
+			err := rows.Scan(&p.ID, &p.Name, &p.CreatedAt)
+			return p, err
+		})
 	if err != nil {
-		return nil, fmt.Errorf("Playlists query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.Playlist
-	for rows.Next() {
-		var p domain.Playlist
-		if err := rows.Scan(&p.ID, &p.Name, &p.CreatedAt); err != nil {
-			return nil, fmt.Errorf("Playlists scan: %w", err)
-		}
-		result = append(result, p)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("Playlists rows: %w", err)
+		return nil, fmt.Errorf("Playlists: %w", err)
 	}
 	return result, nil
 }
@@ -160,24 +147,12 @@ func (d *DB) RemoveFromPlaylist(ctx context.Context, playlistID int64, videoID s
 
 // PlaylistVideoIDs returns video IDs in a playlist (needs cross-reference with a video cache).
 func (d *DB) PlaylistVideoIDs(ctx context.Context, playlistID int64) ([]string, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	ids, err := queryList(ctx, d.sql, `
 		SELECT video_id FROM playlist_videos
 		WHERE playlist_id=? ORDER BY position, added_at
-	`, playlistID)
+	`, scanString, playlistID)
 	if err != nil {
-		return nil, fmt.Errorf("PlaylistVideoIDs query: %w", err)
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("PlaylistVideoIDs scan: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return ids, fmt.Errorf("PlaylistVideoIDs rows: %w", err)
+		return nil, fmt.Errorf("PlaylistVideoIDs: %w", err)
 	}
 	return ids, nil
 }
@@ -219,24 +194,16 @@ func (d *DB) RemoveWatchLater(ctx context.Context, id string) error {
 
 // WatchLater returns all watch-later entries.
 func (d *DB) WatchLater(ctx context.Context) ([]domain.WatchLaterEntry, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	result, err := queryList(ctx, d.sql, `
 		SELECT video_id, title, channel, url, added_at
 		FROM watch_later ORDER BY added_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("WatchLater query: %w", err)
-	}
-	defer rows.Close()
-	var result []domain.WatchLaterEntry
-	for rows.Next() {
+	`, func(rows *sql.Rows) (domain.WatchLaterEntry, error) {
 		var e domain.WatchLaterEntry
-		if err := rows.Scan(&e.VideoID, &e.Title, &e.Channel, &e.URL, &e.AddedAt); err != nil {
-			return nil, fmt.Errorf("WatchLater scan: %w", err)
-		}
-		result = append(result, e)
-	}
-	if err := rows.Err(); err != nil {
-		return result, fmt.Errorf("WatchLater rows: %w", err)
+		err := rows.Scan(&e.VideoID, &e.Title, &e.Channel, &e.URL, &e.AddedAt)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("WatchLater: %w", err)
 	}
 	return result, nil
 }
