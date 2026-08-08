@@ -20,7 +20,7 @@ func TestRecentSearches_MoveClampsAndWraps(t *testing.T) {
 		t.Fatalf("clamp high: cursor=%d, want 2", r.cursor)
 	}
 
-	rc := recentSearches{queries: []string{"a", "b", "c"}, circular: true}
+	rc := recentSearches{queries: []string{"a", "b", "c"}, listCursor: listCursor{circular: true}}
 	rc.move(-1, 5) // wrap to last
 	if rc.cursor != 2 {
 		t.Fatalf("wrap down: cursor=%d, want 2", rc.cursor)
