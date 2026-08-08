@@ -123,11 +123,25 @@ func queryPositionMs(conn *dbus.Conn, busName string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	us, ok := v.Value().(int64)
+	us, ok := parsePositionUs(v.Value())
 	if !ok {
 		return 0, false
 	}
 	return us / 1000, true
+}
+
+// parsePositionUs extracts the MPRIS Position value (microseconds) from a D-Bus
+// variant's raw value. The MPRIS2 spec types Position as an int64 (x) and it is
+// never negative; any other type — or a negative value from a misbehaving
+// player — is treated as "unavailable" so a bogus reading can't be saved as a
+// resume position. Split out as a pure function so the parse can be tested
+// without a live D-Bus connection.
+func parsePositionUs(value any) (int64, bool) {
+	us, ok := value.(int64)
+	if !ok || us < 0 {
+		return 0, false
+	}
+	return us, true
 }
 
 // pidAlive reports whether the process pid is still running. Signal 0 performs
