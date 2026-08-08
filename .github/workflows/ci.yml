@@ -34,6 +34,12 @@ jobs:
           go tool cover -func=coverage.hand.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # Enforce the coverage floors: overall >= 40% and every non-exempt package
+      # >= 35% (see scripts/coverage-gate.sh for the exempt list + rationale).
+      # Reuses the coverage.out produced by the test step above.
+      - name: Coverage gate
+        run: bash scripts/coverage-gate.sh coverage.out
+
   # Compile-only check for the platforms we release binaries for (see
   # .goreleaser.yaml) plus a non-native arch, so darwin/arm builds can't rot
   # unnoticed. Windows is intentionally absent: the player package uses the

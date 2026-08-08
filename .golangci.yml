@@ -156,11 +156,15 @@ linters:
     paths:
       - "\\.pb\\.go"
     rules:
-      # Test files: relax dead-code and security rules.
+      # Test files: relax dead-code and security rules, plus two linters that are
+      # noise in tests — wrapcheck (returning a raw error from a table-driven
+      # closure needs no wrapping) and funlen (data tables are legitimately long).
       - path: "_test\\.go"
         linters:
           - unused
           - gosec
+          - wrapcheck
+          - funlen
 
 issues:
   max-issues-per-linter: 0
