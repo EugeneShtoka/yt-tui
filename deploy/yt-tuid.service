@@ -1,0 +1,62 @@
+[Unit]
+Description=yt-tui daemon
+After=network.target
+
+[Service]
+Type=simple
+User=yt-tui
+ExecStart=/usr/local/bin/yt-tuid \
+    --listen 0.0.0.0:7373 \
+    --tls-cert /etc/yt-tui/server.crt \
+    --tls-key  /etc/yt-tui/server.key
+Restart=on-failure
+RestartSec=5
+
+# ── Sandboxing / hardening ──────────────────────────────────────────────────
+# Defense-in-depth for a network-facing service. These directives shrink what a
+# compromised daemon can reach without changing where it reads/writes, so they
+# are safe on the default layout (config under the user's home, downloads under
+# download_dir). Verify with: systemd-analyze security yt-tuid.service
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Stricter filesystem isolation — TEST BEFORE ENABLING. ProtectSystem=strict +
+# ProtectHome=true make the whole filesystem read-only except explicit writable
+# paths; the daemon re-saves its config on startup and yt-dlp needs a writable
+# HOME/cache, so you must redirect those and list every writable path:
+#   ProtectSystem=strict
+#   ProtectHome=true
+#   StateDirectory=yt-tui
+#   CacheDirectory=yt-tui
+#   Environment=HOME=%S/yt-tui XDG_CACHE_HOME=%C/yt-tui
+#   # config re-save + downloads (+ your cookies_file / download_dir):
+#   ReadWritePaths=/etc/yt-tui /srv/yt-tui/videos
+
+# Config file at ~/.config/yt-tui/config.toml under the service user;
+# set token, download_dir, and cookies_file there. Keys are flat (top-level) —
+# there is no [daemon] table. Example config.toml snippet:
+#
+#   token        = "change-me"          # openssl rand -hex 32
+#   download_dir = "/srv/yt-tui/videos"
+#   cookies_file = "/etc/yt-tui/cookies.txt"  # export from logged-in browser
+#   tls_cert     = "/etc/yt-tui/server.crt"
+#   tls_key      = "/etc/yt-tui/server.key"
+
+[Install]
+WantedBy=multi-user.target

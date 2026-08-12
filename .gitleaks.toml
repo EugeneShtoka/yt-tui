@@ -1,0 +1,26 @@
+# gitleaks configuration for yt-tui.
+# Used by the local pre-commit hook (.githooks/pre-commit), the `make secrets`
+# target, and the CI secret-scan job.
+title = "yt-tui gitleaks config"
+
+# Start from gitleaks' built-in rule set, then narrow with the allowlist below.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project false positives: test fixtures and documented placeholders"
+
+# Test files use fake tokens on purpose (e.g. the round-trip tests set
+# `const token = "s3cr3t"`). Real secrets never belong in tests anyway.
+paths = [
+  '''.*_test\.go$''',
+]
+
+# Placeholder strings that appear in the README / config samples and in test
+# code. These are documentation, not credentials.
+regexes = [
+  '''your-token-here''',
+  '''change-me''',
+  '''s3cr3t''',
+  '''testtoken''',
+]

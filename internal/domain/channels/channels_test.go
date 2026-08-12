@@ -1,0 +1,219 @@
+package channels
+
+import (
+	"testing"
+
+	"github.com/EugeneShtoka/yt-tui/internal/domain"
+)
+
+func newSet(channels []domain.Channel) ChannelSet { return New(channels) }
+
+func TestAddDedup(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
+	added := s.Subscribe(domain.Channel{ID: "ch1", Name: "Alpha"})
+	if added {
+		t.Error("Subscribe: expected false for duplicate ID")
+	}
+	if s.Len() != 1 {
+		t.Errorf("Subscribe: len=%d, want 1", s.Len())
+	}
+}
+
+func TestAddNew(t *testing.T) {
+	s := newSet(nil)
+	s.Subscribe(domain.Channel{ID: "ch1", Name: "Alpha"})
+	if s.Len() != 1 {
+		t.Errorf("Subscribe: len=%d, want 1", s.Len())
+	}
+	if !s.Index()["ch1"] || !s.Index()["name:alpha"] {
+		t.Error("Subscribe: index not updated")
+	}
+}
+
+func TestRemove(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
+	s.Remove(domain.Channel{ID: "ch1", Name: "Alpha"})
+	if s.Len() != 1 || s.Channels()[0].ID != "ch2" {
+		t.Errorf("Remove: got %+v, want [ch2]", s.Channels())
+	}
+	if s.Index()["ch1"] || s.Index()["name:alpha"] {
+		t.Error("Remove: index not cleaned up")
+	}
+}
+
+func TestSetAlias(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	s.SetAlias("ch1", "my alias")
+	ch, ok := s.ByID("ch1")
+	if !ok || ch.Alias != "my alias" {
+		t.Errorf("SetAlias: got %q, want %q", ch.Alias, "my alias")
+	}
+}
+
+func TestSetTags(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	s.SetTags("ch1", []string{"tech", "news"})
+	ch, _ := s.ByID("ch1")
+	if len(ch.Tags) != 2 || ch.Tags[0] != "tech" {
+		t.Errorf("SetTags: got %v", ch.Tags)
+	}
+}
+
+func TestSetReplacesInPlace(t *testing.T) {
+	s := newSet([]domain.Channel{
+		{ID: "ch1", Name: "Alpha", State: domain.SubYT},
+		{ID: "ch2", Name: "Beta"},
+	})
+	s.Set(domain.Channel{ID: "ch1", Name: "Alpha", State: domain.SubNone, Blocked: true})
+	ch, ok := s.ByID("ch1")
+	if !ok || ch.State != domain.SubNone || !ch.Blocked {
+		t.Fatalf("Set: got %+v, want state=none blocked=true", ch)
+	}
+	if s.Len() != 2 {
+		t.Errorf("Set: len=%d, want 2 (in-place replace)", s.Len())
+	}
+	if !s.Index()["ch1"] || !s.Index()["name:alpha"] {
+		t.Error("Set: index lost keys for unchanged name")
+	}
+}
+
+func TestSetAppendsWhenAbsent(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
+	s.Set(domain.Channel{ID: "ch2", Name: "Beta", Blocked: true})
+	if s.Len() != 2 {
+		t.Fatalf("Set: len=%d, want 2", s.Len())
+	}
+	if !s.Index()["ch2"] || !s.Index()["name:beta"] {
+		t.Error("Set: index not updated for appended channel")
+	}
+}
+
+func TestSync(t *testing.T) {
+	existing := []domain.Channel{
+		{ID: "ch1", Name: "Alpha", Alias: "kept"},
+		{ID: "local1", IsLocal: true},
+	}
+	ytChannels := []domain.Channel{
+		{ID: "ch1", Name: "Alpha"},
+		{ID: "ch2", Name: "Beta"},
+	}
+	merged := Sync(existing, ytChannels)
+	if len(merged) != 3 {
+		t.Fatalf("Sync: expected 3 channels, got %d", len(merged))
+	}
+	// local-only preserved
+	found := false
+	for _, ch := range merged {
+		if ch.ID == "local1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Sync: local-only channel was dropped")
+	}
+	// alias carried over
+	for _, ch := range merged {
+		if ch.ID == "ch1" && ch.Alias != "kept" {
+			t.Errorf("Sync: alias not preserved, got %q", ch.Alias)
+		}
+	}
+}
+
+func TestSyncFromYTMembershipChanged(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha", Alias: "kept"}})
+	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
+	if !changed {
+		t.Error("SyncFromYT: expected changed=true")
+	}
+	if s.Len() != 2 {
+		t.Errorf("SyncFromYT: len=%d, want 2", s.Len())
+	}
+	ch, _ := s.ByID("ch1")
+	if ch.Alias != "kept" {
+		t.Errorf("SyncFromYT: alias not preserved, got %q", ch.Alias)
+	}
+}
+
+func TestSyncFromYTNoChange(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
+	if changed {
+		t.Error("SyncFromYT: expected changed=false")
+	}
+}
+
+func TestSyncFromYTPreservesLocalOnly(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}, {ID: "local1"}})
+	s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
+	if _, ok := s.ByID("local1"); !ok {
+		t.Error("SyncFromYT: local-only channel was dropped")
+	}
+}
+
+func TestUnsubscribeLocal(t *testing.T) {
+	ch := domain.Channel{ID: "ch1", Name: "Alpha", IsLocal: true}
+	s := newSet([]domain.Channel{ch})
+	got, ok := s.Unsubscribe("ch1")
+	if !ok {
+		t.Fatal("Unsubscribe: expected ok=true")
+	}
+	if !got.IsLocal {
+		t.Error("Unsubscribe: expected IsLocal=true on returned channel")
+	}
+	if _, found := s.ByID("ch1"); found {
+		t.Error("Unsubscribe: channel still in set after removal")
+	}
+}
+
+func TestUnsubscribeRemote(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha"}})
+	got, ok := s.Unsubscribe("ch1")
+	if !ok {
+		t.Fatal("Unsubscribe: expected ok=true for remote channel")
+	}
+	if got.IsLocal {
+		t.Error("Unsubscribe: expected IsLocal=false for remote channel")
+	}
+	if _, found := s.ByID("ch1"); found {
+		t.Error("Unsubscribe: channel still in set after removal")
+	}
+}
+
+// TestRemoveSameNamePreservesOtherNameIndex guards L-13: two distinct YouTube
+// channels can share a display name. Removing one used to delete the shared
+// "name:..." index key outright, delisting the other from name-based lookups
+// (feed.FilterSubscribed's fallback match when ChannelID is unavailable).
+func TestRemoveSameNamePreservesOtherNameIndex(t *testing.T) {
+	s := newSet([]domain.Channel{
+		{ID: "ch1", Name: "Alpha"},
+		{ID: "ch2", Name: "Alpha"},
+	})
+	s.Remove(domain.Channel{ID: "ch1", Name: "Alpha"})
+
+	if !s.Index()["name:alpha"] {
+		t.Error("Remove: name index entry dropped despite ch2 still using it")
+	}
+	if s.Index()["ch1"] {
+		t.Error("Remove: ch1's own id key should be gone")
+	}
+	if _, found := s.ByID("ch2"); !found {
+		t.Fatal("Remove: ch2 should remain in the set")
+	}
+
+	// Now remove the last channel with that name — the key must finally go.
+	s.Remove(domain.Channel{ID: "ch2", Name: "Alpha"})
+	if s.Index()["name:alpha"] {
+		t.Error("Remove: name index entry should be gone once no channel uses it")
+	}
+}
+
+func TestUnsubscribeNotFound(t *testing.T) {
+	s := newSet([]domain.Channel{{ID: "ch1"}})
+	_, ok := s.Unsubscribe("missing")
+	if ok {
+		t.Error("Unsubscribe: expected ok=false for non-existent channel")
+	}
+	if s.Len() != 1 {
+		t.Error("Unsubscribe: set mutated despite not-found")
+	}
+}

@@ -1,0 +1,91 @@
+# GoReleaser configuration for yt-tui.
+#
+# Local dry run (no tag needed):  goreleaser release --snapshot --clean
+# Real release:                   git tag v0.1.0 && git push origin v0.1.0
+#                                 (the release workflow runs GoReleaser)
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: yt-tui
+    main: ./cmd/yt-tui
+    binary: yt-tui
+    env:
+      - CGO_ENABLED=0 # modernc.org/sqlite is pure Go — no cgo needed.
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Version={{.Version}}
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+  - id: yt-tuid
+    main: ./cmd/yt-tuid
+    binary: yt-tuid
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Version={{.Version}}
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/EugeneShtoka/yt-tui/internal/buildinfo.Date={{.Date}}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  # One archive per platform containing both binaries plus docs.
+  - id: default
+    ids: [yt-tui, yt-tuid]
+    name_template: >-
+      yt-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+      - ARCHITECTURE.md
+      - deploy/yt-tuid.service
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  # Group the auto-generated changelog by conventional-commit prefix; drop noise.
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto # tags like v0.1.0-rc1 are marked prerelease automatically.
+  footer: |
+    ---
+    **Install:** download the archive for your platform, extract, and put
+    `yt-tui` (and optionally `yt-tuid`) on your `PATH`. Requires `yt-dlp` and a
+    media player (`mpv`/`vlc`). See the README for details.

@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (with race detector + coverage)
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          # Exclude generated protobuf/Connect code — it has no tests by design
+          # and would otherwise understate hand-written coverage by ~15 points.
+          grep -vE '\.pb\.go:|\.connect\.go:' coverage.out > coverage.hand.out
+          echo '### Test coverage (excluding generated code)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.hand.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Enforce the coverage floors: overall >= 40% and every non-exempt package
+      # >= 35% (see scripts/coverage-gate.sh for the exempt list + rationale).
+      # Reuses the coverage.out produced by the test step above.
+      - name: Coverage gate
+        run: bash scripts/coverage-gate.sh coverage.out
+
+  # Compile-only check for the platforms we release binaries for (see
+  # .goreleaser.yaml) plus a non-native arch, so darwin/arm builds can't rot
+  # unnoticed. Windows is intentionally absent: the player package uses the
+  # Unix-only syscall.SysProcAttr.Setsid, so it does not compile there — the
+  # project is Linux-first with a macOS fallback (see README).
+  cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: linux, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build ./...
+
+  # Supply-chain guard: every third-party action must stay pinned to a full
+  # commit SHA (H-2). A future PR that reintroduces a mutable @vX tag fails here
+  # rather than silently widening the attack surface. Pure shell, no actions of
+  # its own beyond the (SHA-pinned) checkout.
+  pin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Actions SHA-pin check
+        run: bash scripts/actions-pin-check.sh
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false  # golangci-lint manages its own cache
+
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+
+      # Assert formatting too — `golangci-lint run` checks lint rules but not the
+      # formatters, so without this a mis-formatted tree would pass CI. Reuses the
+      # binary the action just installed; --diff is non-mutating and fails on drift.
+      - name: Format check (gofmt/gofumpt/etc.)
+        run: golangci-lint fmt --diff ./...
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pinned for reproducibility (like gitleaks below), rather than @latest:
+      # a floating toolchain makes the vuln gate non-deterministic and lets a bad
+      # release break CI out of band. Dependabot's gomod updater bumps it via PR.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Vulnerability scan
+        run: govulncheck ./...
+
+  # Enforced secret scan — the local pre-commit hook (.githooks) is opt-in and
+  # bypassable, so this is the gate that actually blocks secrets from landing.
+  #
+  # Runs the gitleaks CLI directly (like `make secrets`) rather than
+  # gitleaks-action: the action calls the GitHub API to list PR commits, which
+  # 403s on Dependabot/fork PRs (restricted token). The CLI scans the checked-out
+  # history with no API calls, so it works identically on pushes, forks, and
+  # Dependabot PRs. Uses .gitleaks.toml automatically.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit
+
+      # Install the gitleaks binary from its release (the module still declares
+      # the old zricethezav path, so `go install .../gitleaks/v8` fails). Pinned
+      # for reproducibility; bump GITLEAKS_VERSION to pick up newer rules.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan
+        run: gitleaks detect --redact --no-banner

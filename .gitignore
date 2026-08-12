@@ -1,0 +1,59 @@
+# Build output (anchored so cmd/yt-tui/ and cmd/yt-tuid/ sources aren't ignored)
+/yt-tui
+/yt-tuid
+dist/
+
+# Local MCP server config (per-developer, not committed)
+/.mcp.json
+
+# Go test/coverage artifacts
+*.test
+*.out
+coverage.html
+/coverage/
+
+# Docs (internal planning docs; the published demo asset lives in assets/)
+/docs/
+PLAN.md
+
+# Claude Code local agent files
+.claude/
+
+# Logs
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config / secrets — the app is TOML-based and its daemon config holds a
+# bearer token + TLS paths. Defaults live in XDG dirs (outside the repo), but
+# guard against a local test copy being dropped in the tree. Anchored so the
+# Go source under internal/config/ is never matched.
+*.local.yaml
+*.local.toml
+/config.toml
+/theme.toml
+
+# Local runtime state that must never be committed (secrets / personal data)
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.db-wal
+*.db-shm
+cookies.txt
+*.cookies
+*.pem
+*.key
+*.crt
+*.p12
+.env
+.env.*

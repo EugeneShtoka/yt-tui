@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Pre-commit secret scan — blocks a commit whose staged changes look like they
+# contain a secret (private key, cloud/provider token, credentialed assignment).
+#
+# Prefers gitleaks (https://github.com/gitleaks/gitleaks); falls back to a small
+# high-confidence pattern scan when gitleaks isn't installed.
+#
+# Enable once per clone:   make hooks   (or: git config core.hooksPath .githooks)
+# Emergency bypass:        git commit --no-verify   (use sparingly!)
+#
+# This is fast local defense, not the enforcement gate — CI runs gitleaks over
+# the whole history on every push/PR and cannot be bypassed.
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+if command -v gitleaks >/dev/null 2>&1; then
+	# `protect --staged` scans only what's staged, so it's quick and catches the
+	# secret before it ever lands in a commit.
+	if ! gitleaks protect --staged --redact --no-banner; then
+		echo "" >&2
+		echo "pre-commit: gitleaks flagged a potential secret in your staged changes." >&2
+		echo "  • False positive? add an allowlist entry to .gitleaks.toml" >&2
+		echo "  • Real secret?    unstage it and rotate the credential" >&2
+		echo "  • Override:       git commit --no-verify  (only if you are sure)" >&2
+		exit 1
+	fi
+	exit 0
+fi
+
+# ── Fallback: gitleaks not installed ─────────────────────────────────────────
+echo "pre-commit: gitleaks not found — running a basic pattern scan." >&2
+echo "            Install gitleaks for full coverage: https://github.com/gitleaks/gitleaks" >&2
+
+# High-confidence patterns only (POSIX ERE, portable to BSD/macOS grep) so the
+# fallback almost never cries wolf. gitleaks is the real detector.
+pattern='-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_-]{20}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN OPENSSH PRIVATE KEY-----'
+
+# Only the added ('+') lines of staged changes. Use `-e` so a pattern that
+# begins with '-' (e.g. "-----BEGIN…") isn't parsed as a grep option.
+hits=$(git diff --cached --diff-filter=ACM -U0 | grep -E '^\+' | grep -En -e "$pattern" || true)
+if [ -n "$hits" ]; then
+	echo "" >&2
+	echo "pre-commit: potential secret detected in staged changes:" >&2
+	echo "$hits" >&2
+	echo "Unstage/rotate it, or bypass with --no-verify if it is a false positive." >&2
+	exit 1
+fi
+exit 0
