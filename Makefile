@@ -18,26 +18,34 @@ run-daemon:
 test:
 	go test -race ./...
 
+# golangci-lint and govulncheck are pinned as Go tool dependencies (the go.mod
+# `tool` directive, Go 1.24+) and invoked via `go tool`, so their versions are
+# reproducible from go.mod/go.sum with no `go install ...@version` drift.
+# goreleaser (huge dep tree) and gitleaks (not `go install`-able under its v8
+# module path) stay outside the directive — see the release workflow / `secrets`.
+GOLANGCI := go tool golangci-lint
+GOVULN   := go tool govulncheck
+
 lint:
-	golangci-lint run ./...
+	$(GOLANGCI) run ./...
 
 fmt:
-	golangci-lint fmt ./...
+	$(GOLANGCI) fmt ./...
 
 # Non-mutating formatting check for the pre-push gate and CI: reports diffs
 # instead of rewriting files (unlike `fmt`), so `check` can't silently modify
 # the tree while CI asserts formatting.
 fmt-check:
-	golangci-lint fmt --diff ./...
+	$(GOLANGCI) fmt --diff ./...
 
 # Auto-fix everything that can be fixed without human judgment.
 fix:
 	go mod tidy
 	go fmt ./...
-	golangci-lint run --fix ./...
+	$(GOLANGCI) run --fix ./...
 
 vuln:
-	govulncheck ./...
+	$(GOVULN) ./...
 
 # Scan the full git history for committed secrets (requires gitleaks).
 secrets:

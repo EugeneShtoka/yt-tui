@@ -9,8 +9,9 @@ test, and submit changes.
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** and a media player (`mpv`
   recommended) to run the app end to end
 - **[golangci-lint](https://golangci-lint.run) v2** and
-  **[govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)** for the
-  full local gate (CI installs these itself)
+  **[govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)** are
+  pinned as Go tool dependencies (the `go.mod` `tool` directive) and invoked via
+  `go tool` — no separate install needed; `make lint` / `make vuln` just work
 
 ## First-time setup
 

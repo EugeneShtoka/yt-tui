@@ -80,6 +80,9 @@ jobs:
       - name: Actions SHA-pin check
         run: bash scripts/actions-pin-check.sh
 
+  # Lint + format check run golangci-lint via `go tool`, so the version is
+  # pinned by the go.mod `tool` directive alone — no second version to keep in
+  # sync with a lint action. setup-go's cache covers the tool build.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -88,18 +91,20 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false  # golangci-lint manages its own cache
+          cache: true
 
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.12.2
+      - name: Lint
+        run: go tool golangci-lint run ./...
 
       # Assert formatting too — `golangci-lint run` checks lint rules but not the
-      # formatters, so without this a mis-formatted tree would pass CI. Reuses the
-      # binary the action just installed; --diff is non-mutating and fails on drift.
+      # formatters, so without this a mis-formatted tree would pass CI. --diff is
+      # non-mutating and fails on drift.
       - name: Format check (gofmt/gofumpt/etc.)
-        run: golangci-lint fmt --diff ./...
+        run: go tool golangci-lint fmt --diff ./...
 
+  # Vulnerability scan via `go tool` — version pinned by the go.mod `tool`
+  # directive (Dependabot's gomod updater bumps it via PR), so the gate is
+  # deterministic and not tied to a floating @latest install.
   vuln:
     runs-on: ubuntu-latest
     steps:
@@ -110,14 +115,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Pinned for reproducibility (like gitleaks below), rather than @latest:
-      # a floating toolchain makes the vuln gate non-deterministic and lets a bad
-      # release break CI out of band. Dependabot's gomod updater bumps it via PR.
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-
       - name: Vulnerability scan
-        run: govulncheck ./...
+        run: go tool govulncheck ./...
 
   # Enforced secret scan — the local pre-commit hook (.githooks) is opt-in and
   # bypassable, so this is the gate that actually blocks secrets from landing.
