@@ -97,6 +97,11 @@ func run() error {
 	// to the shutdown signal so SIGTERM stops it.
 	backend.StartBackgroundEnrichment(sigCtx)
 
+	// Refresh the cached newest-yt-dlp release in the background so the
+	// availability probe this daemon serves can report how far behind its yt-dlp
+	// is, without the probe itself making a request.
+	go youtube.RefreshLatestVersion(sigCtx, cfg)
+
 	srv := &http.Server{
 		Handler:           httpauth.Bearer(token, mux),
 		ReadHeaderTimeout: 30 * time.Second,

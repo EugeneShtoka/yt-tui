@@ -5,47 +5,49 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/debug"
 )
 
-// ytdlpStaleAfter is how old an installed yt-dlp may be before the probe warns.
-// yt-dlp is date-versioned and YouTube routinely rotates its playback signing
-// and throttles stale extractors, so a build much older than this typically
-// still resolves metadata but then fails to fetch the actual stream (HTTP 403) —
-// which surfaces to the user as playback that silently does nothing.
-const ytdlpStaleAfter = 45 * 24 * time.Hour
+// staleLagTolerance is how far behind a newer known release the host's yt-dlp may
+// fall before the probe warns. Some lag is normal and harmless — distro packagers
+// cut a release days after upstream — but around a month behind is where
+// YouTube's rotating playback signatures start rejecting an old extractor, which
+// the user experiences as playback that silently does nothing.
+const staleLagTolerance = 30 * 24 * time.Hour
 
 // Probe runs cheap, bounded, strictly-local checks for YouTube readiness and
 // returns any problems as non-fatal config issues (empty when all is well). It
-// never touches the network — it only verifies that the yt-dlp binary is on
-// PATH, is not badly outdated, and that the configured cookie source resolves,
-// so it is safe on the startup path. The daemon-side counterpart (a health RPC
-// for remote mode) is a planned follow-up; today remote clients simply skip the
-// probe.
-func Probe(cfg *config.Config) []config.ConfigIssue {
+// never touches the network: it verifies that the yt-dlp binary is on PATH, that
+// nothing older is shadowing the version the host's package manager provides,
+// that the newest version the host can reach is not far behind the latest
+// release, and that the configured cookie source resolves. The latest-release
+// number comes from a cache that RefreshLatestVersion fills in the background, so
+// the probe stays instant and offline-safe. The daemon-side counterpart (a health
+// RPC for remote mode) is a planned follow-up; today remote clients simply skip
+// the probe.
+func Probe(ctx context.Context, cfg *config.Config) []config.ConfigIssue {
 	return availabilityProbe{
-		cfg:        cfg,
-		lookPath:   exec.LookPath,
-		runVersion: defaultYtdlpVersion,
-		now:        time.Now,
+		cfg:       cfg,
+		lookPath:  exec.LookPath,
+		installed: func() (Version, bool) { return InstalledVersion(ctx) },
+		system:    func() (Version, string, bool) { return SystemVersion(ctx) },
+		latest:    func() (Version, bool) { return CachedLatestVersion(cfg) },
 	}.run()
 }
 
-// availabilityProbe holds the probe inputs. lookPath, runVersion and now are
-// injected (real implementations in production) so the binary-presence and
-// staleness checks are unit-testable without a real yt-dlp install or a wall
-// clock. A nil runVersion or now disables the version check — used by tests that
-// only exercise the presence/cookie paths.
+// availabilityProbe holds the probe inputs. Every environment lookup is injected
+// (real implementations in production) so the checks are unit-testable without a
+// real yt-dlp install, a package manager, or a wall clock. A nil lookup disables
+// the check that needs it — used by tests that only exercise the other paths.
 type availabilityProbe struct {
-	cfg        *config.Config
-	lookPath   func(string) (string, error)
-	runVersion func() (string, error)
-	now        func() time.Time
+	cfg       *config.Config
+	lookPath  func(string) (string, error)
+	installed func() (Version, bool)         // yt-dlp --version
+	system    func() (Version, string, bool) // version + name of the host package manager
+	latest    func() (Version, bool)         // newest release, from the cache
 }
 
 func (p availabilityProbe) run() []config.ConfigIssue {
@@ -54,82 +56,101 @@ func (p availabilityProbe) run() []config.ConfigIssue {
 	}
 	// Without yt-dlp nothing YouTube-related works; report and stop (the version
 	// and cookie checks below would only add noise on top of the root cause).
-	if _, err := p.lookPath("yt-dlp"); err != nil {
+	path, err := p.lookPath("yt-dlp")
+	if err != nil {
 		return []config.ConfigIssue{{
 			Severity: config.SeverityError,
 			Message:  "yt-dlp not found on PATH — YouTube features (feed, search, playback, downloads) are unavailable; install yt-dlp",
 		}}
 	}
 	var issues []config.ConfigIssue
-	issues = append(issues, p.checkYtdlpVersion()...)
+	issues = append(issues, p.checkYtdlpVersion(path)...)
 	issues = append(issues, p.checkCookieSource()...)
 	return issues
 }
 
-// checkYtdlpVersion warns when the installed yt-dlp is old enough that YouTube
-// is likely to reject its stream URLs. It reads the version with a bounded local
-// exec; a read or parse failure is logged and skipped rather than reported —
-// presence is already confirmed, so an unreadable version must not block startup
-// or manufacture a bogus warning.
-func (p availabilityProbe) checkYtdlpVersion() []config.ConfigIssue {
-	if p.runVersion == nil || p.now == nil {
+// checkYtdlpVersion compares the yt-dlp that will actually run against the two
+// references the host can offer: what its package manager provides, and the
+// newest release recorded by the background update check. Each comparison is only
+// made when its reference exists — no reference means no warning, never a guess
+// from the version's age alone, because how long a release stays good is not
+// something a date can tell us.
+func (p availabilityProbe) checkYtdlpVersion(path string) []config.ConfigIssue {
+	if p.installed == nil {
 		return nil
 	}
-	out, err := p.runVersion()
-	if err != nil {
-		debug.Log("probe: yt-dlp --version: %v", err)
-		return nil
-	}
-	ver := strings.TrimSpace(out)
-	released, ok := parseYtdlpDate(ver)
+	installed, ok := p.installed()
 	if !ok {
-		debug.Log("probe: unrecognized yt-dlp version %q", ver)
+		debug.Log("probe: yt-dlp version unreadable or unrecognized; skipping version checks")
 		return nil
 	}
-	age := p.now().Sub(released)
-	if age < ytdlpStaleAfter {
-		return nil
+	system, manager, haveSystem := p.systemVersion()
+	var issues []config.ConfigIssue
+	if haveSystem && installed.Older(system) {
+		issues = append(issues, shadowedIssue(installed, system, manager, path))
 	}
-	return []config.ConfigIssue{{
+	// The lag check judges the best yt-dlp this host can currently get: if the
+	// packaged one is newer, that is what an update would install.
+	best, fromSystem := installed, false
+	if haveSystem && installed.Older(system) {
+		best, fromSystem = system, true
+	} else if haveSystem && !system.Older(installed) {
+		fromSystem = true // package manager offers exactly what is installed
+	}
+	if iss, lagging := p.lagIssue(best, manager, fromSystem); lagging {
+		issues = append(issues, iss)
+	}
+	return issues
+}
+
+// systemVersion asks the host package manager what it provides, tolerating a nil
+// lookup (tests) as "no package manager knows yt-dlp".
+func (p availabilityProbe) systemVersion() (Version, string, bool) {
+	if p.system == nil {
+		return Version{}, "", false
+	}
+	return p.system()
+}
+
+// shadowedIssue reports a yt-dlp on PATH that is older than the one the host's
+// package manager has — almost always a stale copy in an earlier PATH entry
+// (/usr/local/bin, ~/.local/bin) quietly winning over the packaged binary, which
+// makes "I already updated yt-dlp" and "playback is broken" true at the same time.
+func shadowedIssue(installed, system Version, manager, path string) config.ConfigIssue {
+	return config.ConfigIssue{
 		Severity: config.SeverityWarning,
 		Message: fmt.Sprintf(
-			"yt-dlp %s is %d days old — YouTube may reject playback and downloads with an outdated extractor; update it (e.g. 'yt-dlp -U' or via your package manager)",
-			ver, int(age.Hours()/24)),
-	}}
+			"yt-dlp %s at %s is older than the %s %s provides — an out-of-date copy earlier on PATH is shadowing the packaged one; remove it or fix PATH, or playback and downloads will keep failing",
+			installed.Raw, path, system.Raw, manager),
+	}
 }
 
-// parseYtdlpDate parses yt-dlp's date-based version string (YYYY.MM.DD, with an
-// optional trailing time/suffix component on nightly builds) into its release
-// date. It returns ok=false for any string it doesn't recognize so an unusual
-// build never yields a spurious staleness warning.
-func parseYtdlpDate(ver string) (time.Time, bool) {
-	parts := strings.Split(ver, ".")
-	if len(parts) < 3 {
-		return time.Time{}, false
+// lagIssue reports how far the best yt-dlp this host can reach is behind the
+// latest release, once that gap passes staleLagTolerance. When the best version
+// is the packaged one, updating cannot fix it — the advice has to be to go around
+// the package manager — so the two cases say different things.
+func (p availabilityProbe) lagIssue(best Version, manager string, fromSystem bool) (config.ConfigIssue, bool) {
+	if p.latest == nil {
+		return config.ConfigIssue{}, false
 	}
-	y, err1 := strconv.Atoi(parts[0])
-	m, err2 := strconv.Atoi(parts[1])
-	d, err3 := strconv.Atoi(parts[2])
-	if err1 != nil || err2 != nil || err3 != nil {
-		return time.Time{}, false
+	latest, ok := p.latest()
+	if !ok {
+		return config.ConfigIssue{}, false // no update check has succeeded yet
 	}
-	if y < 2000 || m < 1 || m > 12 || d < 1 || d > 31 {
-		return time.Time{}, false
+	behind := best.Behind(latest)
+	if behind < staleLagTolerance {
+		return config.ConfigIssue{}, false
 	}
-	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC), true
-}
-
-// defaultYtdlpVersion returns the installed yt-dlp's version string via a
-// bounded local exec. The timeout guards the startup path against a wedged
-// binary — the probe must stay fast and never hang.
-func defaultYtdlpVersion() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "yt-dlp", "--version").Output()
-	if err != nil {
-		return "", fmt.Errorf("defaultYtdlpVersion: %w", err)
+	days := int(behind.Hours() / 24)
+	msg := fmt.Sprintf(
+		"yt-dlp %s is %d days behind the latest release (%s) — YouTube rejects playback from an outdated extractor; update it ('yt-dlp -U', pip/pipx, or your package manager)",
+		best.Raw, days, latest.Raw)
+	if fromSystem {
+		msg = fmt.Sprintf(
+			"the newest yt-dlp %s offers (%s) is %d days behind the latest release (%s) — your distribution's packaging is lagging, so updating through it will not catch you up; install yt-dlp from upstream (pip/pipx or the standalone build) if playback starts failing",
+			manager, best.Raw, days, latest.Raw)
 	}
-	return string(out), nil
+	return config.ConfigIssue{Severity: config.SeverityWarning, Message: msg}, true
 }
 
 // checkCookieSource validates the resolved cookie source with local-only I/O.
