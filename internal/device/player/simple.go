@@ -27,14 +27,25 @@ func (s *simpleBackend) exec(args []string) (*Session, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = null
 	cmd.Stderr = null
+	// Capture the player's console output when we can, so a launch that never
+	// plays can be explained (see consoleLog). mpv reports yt-dlp's errors on
+	// stdout and other players on stderr, so both go to the same log; /dev/null
+	// stays the fallback.
+	console := newConsoleLog()
+	if f := console.file(); f != nil {
+		cmd.Stdout = f
+		cmd.Stderr = f
+	}
 	if err := cmd.Start(); err != nil {
+		console.close()
 		return nil, fmt.Errorf("exec: %w", err)
 	}
 	sess := newSession(0)
 	sess.setPosition(0, false) // simple backend has no position tracking
 	go func() {
-		_ = cmd.Wait()
-		sess.Finish()
+		waitErr := cmd.Wait()
+		sess.finishWith(waitErr, console.tail())
+		console.close()
 	}()
 	return sess, nil
 }

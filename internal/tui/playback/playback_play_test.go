@@ -62,7 +62,7 @@ func (p *fakePlayer) Active() (player.ActivePlayback, bool) { return player.Acti
 func (p *fakePlayer) Close()                                {}
 
 func TestUpdate_IgnoresUnknownMsg(t *testing.T) {
-	c := New(context.Background(), &fakeBackend{}, nil)
+	c := New(context.Background(), &fakeBackend{}, nil, YtdlpInfo{})
 	if cmd, ok := c.Update(struct{ tea.Msg }{}); ok || cmd != nil {
 		t.Errorf("Update consumed an unrelated msg: ok=%v cmd=%v", ok, cmd)
 	}
@@ -71,7 +71,7 @@ func TestUpdate_IgnoresUnknownMsg(t *testing.T) {
 func TestPlayVideo_ResolvesLaunchesAndRecordsHistory(t *testing.T) {
 	be := &playFake{resolveURI: "file:///v.mp4", posMs: 12_000}
 	pl := &fakePlayer{sess: player.NewSession(0)}
-	c := New(context.Background(), be, pl)
+	c := New(context.Background(), be, pl, YtdlpInfo{})
 
 	cmd, ok := c.Update(tuipkg.PlayVideoMsg{Video: domain.Video{ID: "v1", URL: "https://y/v1", Title: "My Video"}})
 	if !ok {
@@ -102,7 +102,7 @@ func TestPlayVideo_ResolvesLaunchesAndRecordsHistory(t *testing.T) {
 func TestPlayVideo_AudioOnlyUsesLaunchAudioAndEvent(t *testing.T) {
 	be := &playFake{resolveURI: "https://y/v1"}
 	pl := &fakePlayer{sess: player.NewSession(0)}
-	c := New(context.Background(), be, pl)
+	c := New(context.Background(), be, pl, YtdlpInfo{})
 
 	cmd, _ := c.Update(tuipkg.PlayVideoMsg{Video: domain.Video{ID: "v1", Title: "T"}, AudioOnly: true})
 	if _, ok := runCmd(cmd).(StartedMsg); !ok {
@@ -119,7 +119,7 @@ func TestPlayVideo_AudioOnlyUsesLaunchAudioAndEvent(t *testing.T) {
 func TestLaunchLocal_PlaysLocalFileWithPlayEvent(t *testing.T) {
 	be := &playFake{resolveURI: "file:///local.mp4"}
 	pl := &fakePlayer{sess: player.NewSession(0)}
-	c := New(context.Background(), be, pl)
+	c := New(context.Background(), be, pl, YtdlpInfo{})
 
 	cmd, ok := c.Update(tuipkg.LaunchLocalVideoMsg{Video: domain.LocalVideo{ID: "l1", Title: "Local"}})
 	if !ok {
@@ -135,7 +135,7 @@ func TestLaunchLocal_PlaysLocalFileWithPlayEvent(t *testing.T) {
 }
 
 func TestPlayCmd_NoPlayerReturnsError(t *testing.T) {
-	c := New(context.Background(), &playFake{}, nil) // nil player
+	c := New(context.Background(), &playFake{}, nil, YtdlpInfo{}) // nil player
 	cmd, _ := c.Update(tuipkg.PlayVideoMsg{Video: domain.Video{ID: "v1"}})
 	st, ok := runCmd(cmd).(tuipkg.StatusMsg)
 	if !ok || !st.IsErr {
@@ -146,7 +146,7 @@ func TestPlayCmd_NoPlayerReturnsError(t *testing.T) {
 func TestPlayCmd_ResolveErrorReturnsError(t *testing.T) {
 	be := &playFake{resolveErr: errors.New("resolve boom")}
 	pl := &fakePlayer{sess: player.NewSession(0)}
-	c := New(context.Background(), be, pl)
+	c := New(context.Background(), be, pl, YtdlpInfo{})
 
 	cmd, _ := c.Update(tuipkg.PlayVideoMsg{Video: domain.Video{ID: "v1"}})
 	st, ok := runCmd(cmd).(tuipkg.StatusMsg)
@@ -161,7 +161,7 @@ func TestPlayCmd_ResolveErrorReturnsError(t *testing.T) {
 func TestPlayCmd_LaunchErrorReturnsError(t *testing.T) {
 	be := &playFake{resolveURI: "u"}
 	pl := &fakePlayer{err: errors.New("launch boom")}
-	c := New(context.Background(), be, pl)
+	c := New(context.Background(), be, pl, YtdlpInfo{})
 
 	cmd, _ := c.Update(tuipkg.PlayVideoMsg{Video: domain.Video{ID: "v1"}})
 	st, ok := runCmd(cmd).(tuipkg.StatusMsg)
@@ -174,10 +174,11 @@ func TestPlayCmd_LaunchErrorReturnsError(t *testing.T) {
 }
 
 // TestWaitCmd_SavesFinalPositionOnExit drives waitCmd via handleStarted: once the
-// session finishes, it saves the final position and emits RefreshPositionsMsg.
+// session finishes, it saves the final position and reports the session's end.
+// A session with no recorded outcome carries no diagnosis.
 func TestWaitCmd_SavesFinalPositionOnExit(t *testing.T) {
 	be := &playFake{}
-	c := New(context.Background(), be, nil)
+	c := New(context.Background(), be, nil, YtdlpInfo{})
 	sess := player.NewSession(45 * time.Second) // position 45s
 
 	// handleStarted batches [status, history, wait, tick]; run only the wait cmd.
@@ -189,8 +190,15 @@ func TestWaitCmd_SavesFinalPositionOnExit(t *testing.T) {
 
 	sess.Finish() // player exits
 	msg := runCmd(batch[2])
-	if _, ok := msg.(tuipkg.RefreshPositionsMsg); !ok {
-		t.Fatalf("waitCmd should return RefreshPositionsMsg, got %#v", msg)
+	ended, ok := msg.(endedMsg)
+	if !ok {
+		t.Fatalf("waitCmd should return endedMsg, got %#v", msg)
+	}
+	if ended.diag != "" {
+		t.Errorf("a session with no recorded outcome must carry no diagnosis, got %q", ended.diag)
+	}
+	if _, ok := runCmd(c.handleEnded(ended)).(tuipkg.RefreshPositionsMsg); !ok {
+		t.Error("an ordinary session end must refresh positions")
 	}
 	if be.calls != 1 || be.savedID != "v1" || be.savedMs != 45_000 {
 		t.Errorf("final save wrong: calls=%d id=%q ms=%d", be.calls, be.savedID, be.savedMs)

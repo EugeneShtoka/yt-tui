@@ -345,6 +345,10 @@ sponsorblock_categories  = ["sponsor", "selfpromo", "interaction"]
 subtitles                = true
 subtitle_langs           = ["en"]                  # regex patterns for --sub-langs
 strip_emojis             = true
+ytdlp_update_check       = true                    # once a day, in the background, ask GitHub
+                                                   # for the newest yt-dlp release so startup can
+                                                   # warn when yours is far behind; false = no
+                                                   # network, compare against your packages only
 
 # Feed tuning
 recommended_max_age_days   = 7

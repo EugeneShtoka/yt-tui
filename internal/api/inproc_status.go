@@ -14,7 +14,7 @@ import (
 // the error return is always nil — problems come back as issues.
 
 func (p *InProc) CheckAvailability(ctx context.Context) ([]config.ConfigIssue, error) {
-	return youtube.Probe(p.cfg), nil
+	return youtube.Probe(ctx, p.cfg), nil
 }
 
 // Capabilities reports the daemon's feature switches. ThumbnailsEnabled mirrors

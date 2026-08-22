@@ -110,6 +110,124 @@ func TestProbeCookiesFileValid(t *testing.T) {
 	}
 }
 
+// probeVersion runs the probe with yt-dlp present at a fixed path and a clean
+// browser cookie source, so the only issue can come from the version checks.
+// installed/system/latest are the three references, each nil-able to model
+// "unknown".
+func probeVersion(installed, system, latest string, manager string) []config.ConfigIssue {
+	ver := func(raw string) func() (Version, bool) {
+		return func() (Version, bool) { return ParseVersion(raw) }
+	}
+	p := availabilityProbe{
+		cfg:       enabledBrowserCfg(),
+		lookPath:  func(string) (string, error) { return "/usr/local/bin/yt-dlp", nil },
+		installed: ver(installed),
+		latest:    ver(latest),
+	}
+	if system != "" {
+		p.system = func() (Version, string, bool) {
+			v, ok := ParseVersion(system)
+			return v, manager, ok
+		}
+	}
+	return p.run()
+}
+
+func enabledBrowserCfg() *config.Config {
+	cfg := &config.Config{}
+	cfg.YouTubeEnabled = true
+	cfg.Browser = "vivaldi+gnomekeyring"
+	return cfg
+}
+
+// TestProbeYtdlpShadowed: a yt-dlp on PATH older than the one the package manager
+// provides is the classic stale-copy-earlier-in-PATH setup, and the warning must
+// name both versions and the path so the user can find the offending binary.
+func TestProbeYtdlpShadowed(t *testing.T) {
+	issues := probeVersion("2026.03.31", "2026.08.19", "2026.08.19", "pacman")
+	if !hasSeverity(issues, config.SeverityWarning, "shadowing") {
+		t.Fatalf("shadowed yt-dlp not reported: %+v", issues)
+	}
+	for _, want := range []string{"2026.03.31", "2026.08.19", "/usr/local/bin/yt-dlp", "pacman"} {
+		if !hasSeverity(issues, config.SeverityWarning, want) {
+			t.Errorf("shadow warning omits %q: %+v", want, issues)
+		}
+	}
+}
+
+// TestProbeSystemLagging: when the newest version the package manager offers is
+// itself far behind the latest release, updating through it cannot help — the
+// warning has to say so rather than just "update yt-dlp".
+func TestProbeSystemLagging(t *testing.T) {
+	issues := probeVersion("2026.05.01", "2026.05.01", "2026.08.19", "apt")
+	if !hasSeverity(issues, config.SeverityWarning, "lagging") {
+		t.Fatalf("lagging distro package not reported: %+v", issues)
+	}
+	if !hasSeverity(issues, config.SeverityWarning, "apt") {
+		t.Errorf("lag warning must name the package manager: %+v", issues)
+	}
+	if hasSeverity(issues, config.SeverityWarning, "shadowing") {
+		t.Errorf("nothing is shadowing anything here: %+v", issues)
+	}
+}
+
+// TestProbeBothWarnings: a shadowed binary AND a lagging package manager are two
+// separate problems with two separate fixes, so both are reported.
+func TestProbeBothWarnings(t *testing.T) {
+	issues := probeVersion("2026.01.10", "2026.05.01", "2026.08.19", "pacman")
+	if !hasSeverity(issues, config.SeverityWarning, "shadowing") ||
+		!hasSeverity(issues, config.SeverityWarning, "lagging") {
+		t.Errorf("expected both a shadow and a lag warning: %+v", issues)
+	}
+}
+
+// TestProbeInstalledBehindUpstream: with no package manager entry (a pip or
+// standalone install), the installed version is compared against the latest
+// release directly and the advice is the ordinary "update it".
+func TestProbeInstalledBehindUpstream(t *testing.T) {
+	issues := probeVersion("2026.05.01", "", "2026.08.19", "")
+	if !hasSeverity(issues, config.SeverityWarning, "behind the latest release") {
+		t.Fatalf("outdated yt-dlp not reported: %+v", issues)
+	}
+	if hasSeverity(issues, config.SeverityWarning, "lagging") {
+		t.Errorf("with no package manager there is no packaging to blame: %+v", issues)
+	}
+}
+
+// TestProbeInstalledNewerThanPackage: a self-updated yt-dlp ahead of the repo is
+// exactly right — neither the shadow nor the lag check may fire.
+func TestProbeInstalledNewerThanPackage(t *testing.T) {
+	if issues := probeVersion("2026.08.19", "2026.05.01", "2026.08.19", "pacman"); len(issues) != 0 {
+		t.Errorf("a yt-dlp newer than the packaged one produced issues: %+v", issues)
+	}
+}
+
+// TestProbeNoReference: the age of a version says nothing on its own, so with
+// neither a package manager nor a cached release to compare against, the probe
+// stays silent no matter how old the install looks.
+func TestProbeNoReference(t *testing.T) {
+	if issues := probeVersion("2024.01.01", "", "", ""); len(issues) != 0 {
+		t.Errorf("probe warned with no reference version: %+v", issues)
+	}
+}
+
+// TestProbeVersionUnreadable: an unreadable or unrecognizable installed version
+// is skipped, not surfaced — presence is already confirmed, and startup must
+// neither block nor manufacture a warning.
+func TestProbeVersionUnreadable(t *testing.T) {
+	if issues := probeVersion("not-a-version", "2026.08.19", "2026.08.19", "pacman"); len(issues) != 0 {
+		t.Errorf("unreadable version produced issues: %+v", issues)
+	}
+}
+
+// TestProbeWithinTolerance: a gap smaller than staleLagTolerance is normal
+// packaging lag and must stay quiet.
+func TestProbeWithinTolerance(t *testing.T) {
+	if issues := probeVersion("2026.08.05", "2026.08.05", "2026.08.19", "pacman"); len(issues) != 0 {
+		t.Errorf("a two-week-old yt-dlp produced issues: %+v", issues)
+	}
+}
+
 func writeCookieFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "cookies.txt")

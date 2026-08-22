@@ -51,6 +51,9 @@ func (b *mprisBackend) exec(videoID string, args []string, startAt time.Duration
 	b.mu.Unlock()
 	if oldSess != nil {
 		oldSess.stop()
+		// The kill below is deliberate, so the old session's outcome must not be
+		// read as a failed playback.
+		oldSess.supersede()
 	}
 	if oldCmd != nil && oldCmd.Process != nil {
 		_ = oldCmd.Process.Kill()
@@ -65,7 +68,17 @@ func (b *mprisBackend) exec(videoID string, args []string, startAt time.Duration
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = null
 	cmd.Stderr = null
+	// Capture the player's console output when we can, so a launch that never
+	// plays can be explained (see consoleLog). mpv reports yt-dlp's errors on
+	// stdout and other players on stderr, so both go to the same log; /dev/null
+	// stays the fallback.
+	console := newConsoleLog()
+	if f := console.file(); f != nil {
+		cmd.Stdout = f
+		cmd.Stderr = f
+	}
 	if err := cmd.Start(); err != nil {
+		console.close()
 		return nil, fmt.Errorf("exec: %w", err)
 	}
 
@@ -79,8 +92,9 @@ func (b *mprisBackend) exec(videoID string, args []string, startAt time.Duration
 
 	go b.pollSession(sess, cmd.Process.Pid)
 	go func() {
-		_ = cmd.Wait()
-		sess.Finish()
+		waitErr := cmd.Wait()
+		sess.finishWith(waitErr, console.tail())
+		console.close()
 	}()
 	return sess, nil
 }

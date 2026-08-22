@@ -90,6 +90,20 @@ func (d *DB) migrate() error {
 	if err != nil {
 		return err
 	}
+	// Databases predating this runner carry a hand-stamped user_version (2) that
+	// has no relation to the migration sequence, so every migration up to it
+	// would be skipped and their drifted schema frozen forever. Their schema is
+	// baseline-equivalent, so treat them as version 1 and let the reconciling
+	// migrations (0002 onward) run.
+	if current > 0 {
+		legacy, err := d.hasLegacySchema(ctx)
+		if err != nil {
+			return err
+		}
+		if legacy {
+			current = 1
+		}
+	}
 	for _, m := range ms {
 		if m.version <= current {
 			continue
@@ -99,6 +113,54 @@ func (d *DB) migrate() error {
 		}
 	}
 	return nil
+}
+
+// legacySchemaMarkers are schema artifacts that only a pre-runner database can
+// carry: each one is removed by 0002_reconcile_legacy_schema, so the check below
+// goes false once reconciled and can never misfire on a database this runner
+// built itself.
+var legacySchemaMarkers = []struct{ table, column string }{
+	{"feed_cache", "position"},
+	{"local_videos", "last_position_ms"},
+}
+
+// hasLegacySchema reports whether the database was created before the migration
+// runner existed, and therefore carries a hand-stamped user_version that must
+// not be trusted as a migration count.
+func (d *DB) hasLegacySchema(ctx context.Context) (bool, error) {
+	// blocked_names was dropped when channel blocking went ID-only; 0001 never
+	// creates it.
+	var n int
+	if err := d.sql.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='blocked_names'`,
+	).Scan(&n); err != nil {
+		return false, fmt.Errorf("hasLegacySchema blocked_names: %w", err)
+	}
+	if n > 0 {
+		return true, nil
+	}
+	for _, m := range legacySchemaMarkers {
+		has, err := d.hasColumn(ctx, m.table, m.column)
+		if err != nil {
+			return false, err
+		}
+		if has {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// hasColumn reports whether table declares a column of the given name. A table
+// that does not exist simply has no columns, so a missing table reads as false.
+func (d *DB) hasColumn(ctx context.Context, table, column string) (bool, error) {
+	var n int
+	if err := d.sql.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column,
+	).Scan(&n); err != nil {
+		return false, fmt.Errorf("hasColumn %s.%s: %w", table, column, err)
+	}
+	return n > 0, nil
 }
 
 // applyMigration runs one migration's DDL and stamps user_version to its version

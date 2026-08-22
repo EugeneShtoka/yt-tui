@@ -31,6 +31,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/prewarm"
 	"github.com/EugeneShtoka/yt-tui/internal/theme"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/app"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/playback"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/render"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/styles"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
@@ -137,14 +138,40 @@ func runTUI(backend api.Backend, media api.MediaProvider, cfg *config.Config, pl
 	defer cancelApp()
 
 	maybeStartPrewarm(appCtx, backend, media, cfg, connectAddr)
+	maybeStartUpdateCheck(appCtx, cfg, connectAddr)
 
-	p := tea.NewProgram(app.New(appCtx, backend, media, cfg, pl, issues))
+	p := tea.NewProgram(app.New(appCtx, backend, media, cfg, pl, issues, ytdlpInfo(appCtx)))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run: %w", err)
 	}
 
 	handoffToTracker(pl, cfg, connectAddr, configPath)
 	return nil
+}
+
+// maybeStartUpdateCheck refreshes the cached newest-yt-dlp release in the
+// background, so the next startup probe can say how far behind this host is
+// without the probe itself ever making a request. Skipped in remote mode, where
+// the probe (and this refresh) belong to the daemon that owns the yt-dlp install.
+// Fire-and-forget and tied to ctx: the record is written atomically, so there is
+// nothing to join on the way out.
+func maybeStartUpdateCheck(ctx context.Context, cfg *config.Config, connectAddr string) {
+	if connectAddr != "" || cfg.DaemonAddr != "" {
+		return
+	}
+	go youtube.RefreshLatestVersion(ctx, cfg)
+}
+
+// ytdlpInfo reads the local yt-dlp version for playback diagnostics. mpv resolves
+// YouTube URLs through the local yt-dlp in both single-binary and remote mode, so
+// this stays a client-side fact even when the backend is a daemon. An unreadable
+// version yields the zero value, which only makes a failure report less specific.
+func ytdlpInfo(ctx context.Context) playback.YtdlpInfo {
+	ver, ok := youtube.InstalledVersion(ctx)
+	if !ok {
+		return playback.YtdlpInfo{}
+	}
+	return playback.YtdlpInfo{Version: ver.Raw, Age: ver.Age(time.Now())}
 }
 
 // maybeStartPrewarm launches the eager thumbnail pre-warm in remote mode when
