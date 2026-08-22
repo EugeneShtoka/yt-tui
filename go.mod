@@ -17,7 +17,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.27
 	golang.org/x/image v0.45.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.56.0
 )
 
