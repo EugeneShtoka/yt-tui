@@ -28,7 +28,14 @@ type DaemonConfig struct {
 	// YouTubeEnabled makes "YouTube access is allowed" explicit. Default true.
 	// When false, the startup availability probe is skipped (no yt-dlp/cookie
 	// warnings) — set it off on hosts that intentionally run without YouTube.
-	YouTubeEnabled             bool     `toml:"youtube_enabled"`
+	YouTubeEnabled bool `toml:"youtube_enabled"`
+	// YtdlpUpdateCheck lets the startup probe learn the newest yt-dlp release by
+	// asking GitHub once a day, in the background, and caching the answer under
+	// StateDir. It is the only network call the probe's version check involves —
+	// the check itself only ever reads that cache — so turning this off leaves the
+	// probe comparing against what the host's package manager offers and nothing
+	// more. Default true.
+	YtdlpUpdateCheck           bool     `toml:"ytdlp_update_check"`
 	MaxDownloads               int      `toml:"max_concurrent_downloads"`
 	SponsorBlock               bool     `toml:"sponsorblock"`
 	SponsorBlockCats           []string `toml:"sponsorblock_categories"`
@@ -216,6 +223,7 @@ func defaultConfig() *Config {
 			DownloadDir:                 filepath.Join(os.Getenv("HOME"), "Videos", "yt-tui"),
 			Browser:                     "vivaldi+gnomekeyring",
 			YouTubeEnabled:              true,
+			YtdlpUpdateCheck:            true,
 			MaxDownloads:                3,
 			SponsorBlock:                true,
 			SponsorBlockCats:            []string{"sponsor", "selfpromo", "interaction"},

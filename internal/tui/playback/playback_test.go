@@ -42,7 +42,7 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 // exactly the four expected commands (status, history-changed, player-wait, and
 // the first position-save tick) without executing the blocking wait or the timer.
 func TestHandleStarted_SchedulesWaitAndTick(t *testing.T) {
-	c := New(context.Background(), &fakeBackend{}, nil)
+	c := New(context.Background(), &fakeBackend{}, nil, YtdlpInfo{})
 	sess := player.NewSession(0)
 
 	cmd, ok := c.Update(StartedMsg{VideoID: "v1", Sess: sess, Text: "Playing: X"})
@@ -64,7 +64,7 @@ func TestHandleStarted_SchedulesWaitAndTick(t *testing.T) {
 // a positive position saves that position and re-arms the next tick.
 func TestSavePositionTick_SavesAndRearms(t *testing.T) {
 	be := &fakeBackend{}
-	c := New(context.Background(), be, nil)
+	c := New(context.Background(), be, nil, YtdlpInfo{})
 	sess := player.NewSession(30 * time.Second) // active, position 30s, not done
 
 	cmd := c.handleSavePositionTick(savePositionTickMsg{id: "v1", sess: sess})
@@ -93,7 +93,7 @@ func TestSavePositionTick_SavesAndRearms(t *testing.T) {
 // waitCmd's job, so a dead session must not busy-loop re-arming.
 func TestSavePositionTick_StopsWhenSessionDone(t *testing.T) {
 	be := &fakeBackend{}
-	c := New(context.Background(), be, nil)
+	c := New(context.Background(), be, nil, YtdlpInfo{})
 	sess := player.NewSession(30 * time.Second)
 	sess.Finish() // player process exited
 

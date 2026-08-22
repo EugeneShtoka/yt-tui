@@ -55,19 +55,26 @@ type savePositionTickMsg struct {
 	sess *player.Session
 }
 
+// endedMsg reports a finished session back onto the event loop, carrying the
+// diagnosis of a launch that never played (empty for an ordinary end), so the
+// position refresh and the failure report are handled together.
+type endedMsg struct{ diag string }
+
 // Controller owns the playback lifecycle. Construct with New. It holds no
 // mutable state, so its methods are value receivers and it is safe to copy.
 type Controller struct {
 	ctx     context.Context
 	backend Backend
 	player  player.Backend // may be nil when no player binary was found
+	ytdlp   YtdlpInfo      // local yt-dlp, for explaining a launch that never plays
 }
 
 // New returns a playback Controller. ctx is the app-lifetime context threaded
 // into every backend call (H-1). pl may be nil, in which case play attempts
-// surface an error status instead of launching.
-func New(ctx context.Context, backend Backend, pl player.Backend) Controller {
-	return Controller{ctx: ctx, backend: backend, player: pl}
+// surface an error status instead of launching. ytdlp describes the local yt-dlp
+// (zero value when it could not be read) and is only used to explain failures.
+func New(ctx context.Context, backend Backend, pl player.Backend, ytdlp YtdlpInfo) Controller {
+	return Controller{ctx: ctx, backend: backend, player: pl, ytdlp: ytdlp}
 }
 
 // Update handles the playback-related messages and reports whether it consumed
@@ -83,6 +90,8 @@ func (c Controller) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return c.handleStarted(m), true
 	case savePositionTickMsg:
 		return c.handleSavePositionTick(m), true
+	case endedMsg:
+		return c.handleEnded(m), true
 	}
 	return nil, false
 }
@@ -172,13 +181,35 @@ func (c Controller) playCmd(id, fallbackURL, title string, audioOnly bool, event
 }
 
 // waitCmd blocks until the player process exits, saves the final position, then
-// triggers a UI refresh so tabs show the updated playback progress.
+// reports the session's end so tabs refresh their playback progress. It also asks
+// the session how the process died: a player that exited without ever playing is
+// the "video just doesn't start" symptom, and its captured stderr is the only
+// place the reason (usually yt-dlp's) exists.
 func (c Controller) waitCmd(id string, sess *player.Session) tea.Cmd {
 	return func() tea.Msg {
 		<-sess.Done()
 		if p, _ := sess.Position(); p > 0 {
 			_ = c.backend.SaveVideoPosition(c.ctx, id, p.Milliseconds())
 		}
-		return tuipkg.RefreshPositionsMsg{}
+		var diag string
+		if res, ok := sess.Result(); ok {
+			diag = diagnose(res, c.ytdlp)
+			if diag != "" {
+				debug.Log("playback %s: exit %d after %s; output: %s", id, res.ExitCode, res.Ran, res.Output)
+			}
+		}
+		return endedMsg{diag: diag}
 	}
+}
+
+// handleEnded closes out a session: tabs refresh their progress, and a failed
+// launch is reported on the status line instead of vanishing silently.
+func (c Controller) handleEnded(m endedMsg) tea.Cmd {
+	refresh := func() tea.Msg { return tuipkg.RefreshPositionsMsg{} }
+	if m.diag == "" {
+		return refresh
+	}
+	return tea.Batch(refresh, func() tea.Msg {
+		return tuipkg.StatusMsg{Text: m.diag, IsErr: true}
+	})
 }

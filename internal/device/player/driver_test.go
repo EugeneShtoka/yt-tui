@@ -36,7 +36,7 @@ func TestMpvArgs(t *testing.T) {
 
 	// Local file with a title and a resume position: force the title and seek.
 	got := d.Args("/v/local.mp4", "My Title", 90*time.Second)
-	want := []string{"--force-media-title=My Title", "--start=90", "/v/local.mp4"}
+	want := []string{"--term-status-msg=", "--force-media-title=My Title", "--start=90", "/v/local.mp4"}
 	if !slices.Equal(got, want) {
 		t.Errorf("local Args = %v, want %v", got, want)
 	}
@@ -46,7 +46,7 @@ func TestMpvArgs(t *testing.T) {
 	if slices.Contains(got, "--force-media-title=My Title") {
 		t.Errorf("http Args must not force media title: %v", got)
 	}
-	if want := []string{"https://y/v1"}; !slices.Equal(got, want) {
+	if want := []string{"--term-status-msg=", "https://y/v1"}; !slices.Equal(got, want) {
 		t.Errorf("http Args = %v, want %v", got, want)
 	}
 
