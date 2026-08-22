@@ -69,7 +69,9 @@ type Root struct {
 // issues are the non-fatal config/environment problems collected at startup;
 // when non-empty they open a dismissible ConfigIssues overlay on the first
 // frame so the user sees what was ignored (empty = clean start, no overlay).
-func New(ctx context.Context, backend api.Backend, media api.MediaProvider, cfg *config.Config, pl player.Backend, issues []config.ConfigIssue) Root {
+// ytdlp describes the local yt-dlp, used only to explain a playback launch that
+// never starts (zero value when its version could not be read).
+func New(ctx context.Context, backend api.Backend, media api.MediaProvider, cfg *config.Config, pl player.Backend, issues []config.ConfigIssue, ytdlp playback.YtdlpInfo) Root {
 	keys := keymap.Build(cfg.Keybindings)
 
 	// The tab bar is data-driven from the configured panel list; the default
@@ -97,7 +99,7 @@ func New(ctx context.Context, backend api.Backend, media api.MediaProvider, cfg 
 		backend:   backend,
 		media:     media,
 		cfg:       cfg,
-		playback:  playback.New(ctx, backend, pl),
+		playback:  playback.New(ctx, backend, pl, ytdlp),
 		keys:      keys,
 		cmds:      cmds,
 		tabBar:    component.NewTabBar(titles),

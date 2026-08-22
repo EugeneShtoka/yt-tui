@@ -11,6 +11,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	tuipkg "github.com/EugeneShtoka/yt-tui/internal/tui"
 	"github.com/EugeneShtoka/yt-tui/internal/tui/keymap"
+	"github.com/EugeneShtoka/yt-tui/internal/tui/playback"
 )
 
 func panelTestBackend() apitest.NopBackend { return apitest.NopBackend{} }
@@ -136,7 +137,7 @@ func newPanelRoot(panels []config.Panel, tabKeys map[string]string) Root {
 	cfg := &config.Config{}
 	cfg.Panels = panels
 	cfg.Keybindings = config.KeyBindings{TabChord: "t", Quit: "q", Close: "esc", TabKeys: tabKeys}
-	return New(context.Background(), panelTestBackend(), panelTestBackend(), cfg, nil, nil)
+	return New(context.Background(), panelTestBackend(), panelTestBackend(), cfg, nil, nil, playback.YtdlpInfo{})
 }
 
 func TestTabCommandNavigatesByName(t *testing.T) {
