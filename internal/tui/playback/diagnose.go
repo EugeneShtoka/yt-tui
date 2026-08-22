@@ -42,24 +42,32 @@ const (
 // failureSignature maps phrases players and yt-dlp print on the way down onto a
 // plain-language cause plus the advice that fixes it, which is what turns a raw
 // error into something worth acting on.
+//
+// retry marks the causes a second launch can plausibly survive. YouTube hands out
+// stream URLs that are born dead: roughly half of authenticated extractions for a
+// given video produce a URL that answers 403 forever, while a fresh extraction
+// moments later produces a working one. yt-dlp's own downloader hides this by
+// re-extracting on 403, which is why downloads are reliable and playback is not —
+// mpv's ytdl_hook resolves once and gives up. Retrying restores the odds.
 type failureSignature struct {
 	phrases []string
 	cause   string
 	hint    failureHint
+	retry   bool
 }
 
 // failureSignatures is ordered most-specific first: the first phrase found in the
 // captured output wins, so the generic entries — the ones a player prints after
 // the real cause, like mpv's "youtube-dl failed" — must come last.
 var failureSignatures = []failureSignature{
-	{[]string{"sign in to confirm"}, "YouTube demanded bot verification", hintCookies},
-	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", hintYtdlp},
-	{[]string{"nsig extraction failed", "signature extraction failed", "unable to extract", "failed to extract"}, "yt-dlp could not extract a playable stream", hintYtdlp},
-	{[]string{"requested format is not available", "no video formats found"}, "yt-dlp found no usable format", hintYtdlp},
-	{[]string{"video unavailable", "video is unavailable", "private video", "members-only", "age-restricted", "removed by the uploader"}, "YouTube says the video is unavailable", hintNone},
-	{[]string{"unable to download webpage", "name resolution", "network is unreachable", "connection refused"}, "the network request failed", hintNone},
-	{[]string{"youtube-dl failed", "ytdl_hook"}, "yt-dlp could not hand the player a stream", hintYtdlp},
-	{[]string{"failed to recognize file format", "failed to open"}, "the player could not open the stream", hintYtdlp},
+	{[]string{"sign in to confirm"}, "YouTube demanded bot verification", hintCookies, false},
+	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", hintYtdlp, true},
+	{[]string{"nsig extraction failed", "signature extraction failed", "unable to extract", "failed to extract"}, "yt-dlp could not extract a playable stream", hintYtdlp, true},
+	{[]string{"requested format is not available", "no video formats found"}, "yt-dlp found no usable format", hintYtdlp, false},
+	{[]string{"video unavailable", "video is unavailable", "private video", "members-only", "age-restricted", "removed by the uploader"}, "YouTube says the video is unavailable", hintNone, false},
+	{[]string{"unable to download webpage", "name resolution", "network is unreachable", "connection refused"}, "the network request failed", hintNone, false},
+	{[]string{"youtube-dl failed", "ytdl_hook"}, "yt-dlp could not hand the player a stream", hintYtdlp, true},
+	{[]string{"failed to recognize file format", "failed to open"}, "the player could not open the stream", hintYtdlp, true},
 }
 
 // diagnose turns a player run that never played anything into a single status
@@ -84,18 +92,37 @@ func diagnose(res player.Result, info YtdlpInfo) string {
 	return msg
 }
 
-// classify matches the captured output against the known signatures, falling back
-// to the player's own error line: showing its words beats inventing a cause.
-func classify(output string) (string, failureHint) {
+// matchSignature finds the first signature whose phrase appears in the output.
+func matchSignature(output string) (failureSignature, bool) {
 	lower := strings.ToLower(output)
 	for _, sig := range failureSignatures {
 		for _, phrase := range sig.phrases {
 			if strings.Contains(lower, phrase) {
-				return sig.cause, sig.hint
+				return sig, true
 			}
 		}
 	}
+	return failureSignature{}, false
+}
+
+// classify matches the captured output against the known signatures, falling back
+// to the player's own error line: showing its words beats inventing a cause.
+func classify(output string) (string, failureHint) {
+	if sig, ok := matchSignature(output); ok {
+		return sig.cause, sig.hint
+	}
 	return firstErrorLine(output), hintNone
+}
+
+// retryable reports whether a launch that never played is worth attempting again.
+// An unrecognized failure is not retried: without knowing what went wrong, a
+// second launch is as likely to be a pointless wait as a fix.
+func retryable(res player.Result) bool {
+	if res.Played || res.ExitCode == 0 {
+		return false
+	}
+	sig, ok := matchSignature(res.Output)
+	return ok && sig.retry
 }
 
 // firstErrorLine picks the most telling line out of a captured tail: the first one
