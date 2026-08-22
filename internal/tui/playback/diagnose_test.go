@@ -45,6 +45,7 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 		stderr     string
 		wantCause  string
 		wantsYtdlp bool
+		wantAdvice string // extra text the advice must carry, "" for none
 	}{
 		{
 			name:       "403 from rotated signatures",
@@ -53,10 +54,14 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 			wantsYtdlp: true,
 		},
 		{
+			// Bot verification means the request went out unauthenticated. Every
+			// yt-dlp version is refused equally, so the advice must point at
+			// cookies and must not send the reader off to update the extractor.
 			name:       "bot check",
 			stderr:     `ERROR: [youtube] abc123: Sign in to confirm you're not a bot.`,
 			wantCause:  "bot verification",
-			wantsYtdlp: true,
+			wantsYtdlp: false,
+			wantAdvice: "cookies",
 		},
 		{
 			name:       "extractor broke",
@@ -85,6 +90,29 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 		mentionsUpdate := strings.Contains(got, "needs updating")
 		if mentionsUpdate != tt.wantsYtdlp {
 			t.Errorf("%s: update advice = %v, want %v (%q)", tt.name, mentionsUpdate, tt.wantsYtdlp, got)
+		}
+		if tt.wantAdvice != "" && !strings.Contains(got, tt.wantAdvice) {
+			t.Errorf("%s: %q does not advise %q", tt.name, got, tt.wantAdvice)
+		}
+	}
+}
+
+// TestDiagnoseCookieAdviceSurvivesStaleYtdlp: a stale local yt-dlp normally takes
+// over the advice, but it must not for bot verification — the report the user
+// filed said "yt-dlp needs updating" for a yt-dlp three days old, which is the
+// one thing that could not have been wrong.
+func TestDiagnoseCookieAdviceSurvivesStaleYtdlp(t *testing.T) {
+	const output = "[ytdl_hook] ERROR: [youtube] abc123: Sign in to confirm you’re not a bot. " +
+		"Use --cookies-from-browser or --cookies for the authentication.\n" +
+		"[ytdl_hook] youtube-dl failed: unexpected error occurred\n" +
+		"Exiting... (Errors when loading file)\n"
+	for _, info := range []YtdlpInfo{freshYtdlp(), staleYtdlp(), {}} {
+		got := diagnose(player.Result{ExitCode: 2, Ran: 2 * time.Second, Output: output}, info)
+		if !strings.Contains(got, "cookies") {
+			t.Errorf("yt-dlp %+v: %q does not advise cookies", info, got)
+		}
+		if strings.Contains(got, "needs updating") {
+			t.Errorf("yt-dlp %+v: %q blames the extractor for a cookie failure", info, got)
 		}
 	}
 }

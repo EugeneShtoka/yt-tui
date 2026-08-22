@@ -2,6 +2,7 @@ package player
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,7 +21,7 @@ func TestNewDriverSelection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := newDriver(tt.path)
+			d := newDriver(tt.path, CookieSource{})
 			if got := d.Path(); got != tt.path {
 				t.Errorf("Path() = %q, want %q", got, tt.path)
 			}
@@ -83,5 +84,82 @@ func TestGenericArgs(t *testing.T) {
 	}
 	if got, want := d.DBusName(), "org.mpris.MediaPlayer2.ffplay"; got != want {
 		t.Errorf("DBusName() = %q, want %q", got, want)
+	}
+}
+
+// TestMpvCookieArgs: mpv resolves YouTube through yt-dlp, which YouTube now
+// refuses to serve anonymously, so a remote source has to carry the configured
+// cookie source. A local file must not — it never goes through yt-dlp.
+func TestMpvCookieArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		cookies CookieSource
+		source  string
+		want    string // expected --ytdl-raw-options-append value, "" for none
+	}{
+		{"browser jar on a URL", CookieSource{Browser: "vivaldi+gnomekeyring"},
+			"https://y/v1", "--ytdl-raw-options-append=cookies-from-browser=vivaldi+gnomekeyring"},
+		{"cookie file on a URL", CookieSource{File: "/home/u/cookies.txt"},
+			"https://y/v1", "--ytdl-raw-options-append=cookies=/home/u/cookies.txt"},
+		{"file wins over browser", CookieSource{File: "/c.txt", Browser: "firefox"},
+			"https://y/v1", "--ytdl-raw-options-append=cookies=/c.txt"},
+		{"no source configured", CookieSource{}, "https://y/v1", ""},
+		{"local file never gets cookies", CookieSource{Browser: "firefox"}, "/v/local.mp4", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &mpvDriver{path: "mpv", cookies: tt.cookies}
+			for _, got := range [][]string{
+				d.Args(tt.source, "T", 0),
+				d.AudioArgs(tt.source, "T", 0), // audio-only playback needs them too
+			} {
+				if tt.want == "" {
+					for _, a := range got {
+						if strings.HasPrefix(a, "--ytdl-raw-options") {
+							t.Errorf("unexpected cookie arg %q in %v", a, got)
+						}
+					}
+					continue
+				}
+				if !slices.Contains(got, tt.want) {
+					t.Errorf("args %v omit %q", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+// TestMpvCookiesNotCommaJoined: the value is passed with -append precisely so mpv
+// cannot split a path containing a comma into two broken options.
+func TestMpvCookiesNotCommaJoined(t *testing.T) {
+	d := &mpvDriver{path: "mpv", cookies: CookieSource{File: "/od,d/cookies.txt"}}
+	got := d.Args("https://y/v1", "", 0)
+	if !slices.Contains(got, "--ytdl-raw-options-append=cookies=/od,d/cookies.txt") {
+		t.Errorf("comma-bearing path not passed intact: %v", got)
+	}
+	for _, a := range got {
+		if strings.HasPrefix(a, "--ytdl-raw-options=") {
+			t.Errorf("must not use the comma-splitting form: %q", a)
+		}
+	}
+}
+
+// TestCookieSourceOption pins the precedence CookieSource shares with
+// youtube.cookieArgs, so playback authenticates as the same user as every other
+// yt-dlp call.
+func TestCookieSourceOption(t *testing.T) {
+	cases := []struct {
+		src  CookieSource
+		want string
+	}{
+		{CookieSource{}, ""},
+		{CookieSource{Browser: "firefox"}, "cookies-from-browser=firefox"},
+		{CookieSource{File: "/c.txt"}, "cookies=/c.txt"},
+		{CookieSource{File: "/c.txt", Browser: "firefox"}, "cookies=/c.txt"},
+	}
+	for _, c := range cases {
+		if got := c.src.ytdlpOption(); got != c.want {
+			t.Errorf("%+v.ytdlpOption() = %q, want %q", c.src, got, c.want)
+		}
 	}
 }

@@ -2,6 +2,9 @@ package player
 
 import "time"
 
+// genericDriver takes no CookieSource: a player we know nothing about (ffplay and
+// friends) has no URL resolver to configure, so it can only ever open a source
+// that is already playable.
 type genericDriver struct{ path string }
 
 func (d *genericDriver) Path() string     { return d.path }
