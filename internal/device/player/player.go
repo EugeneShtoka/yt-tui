@@ -20,10 +20,13 @@ func baseName(path string) string {
 	return name
 }
 
-func newDriver(path string) Driver {
+// newDriver picks the driver for a player binary. Only mpv takes a CookieSource:
+// it is the one player that resolves YouTube URLs through yt-dlp, so it is the
+// only one that can be told which cookies to resolve them with.
+func newDriver(path string, cookies CookieSource) Driver {
 	switch baseName(path) {
 	case "mpv":
-		return &mpvDriver{path: path}
+		return &mpvDriver{path: path, cookies: cookies}
 	case "vlc", "cvlc":
 		return &vlcDriver{path: path}
 	default:
@@ -53,7 +56,7 @@ func New(cfg *config.Config) (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	driver := newDriver(path)
+	driver := newDriver(path, CookieSource{File: cfg.CookiesFile, Browser: cfg.Browser})
 	if cfg.PlayerBackend == "simple" {
 		return newSimpleBackend(driver), nil
 	}

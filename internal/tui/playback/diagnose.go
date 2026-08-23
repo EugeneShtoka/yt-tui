@@ -28,27 +28,47 @@ const ytdlpSuspectAge = 30 * 24 * time.Hour
 // causeLineMax keeps a quoted player error to one status-bar line.
 const causeLineMax = 140
 
+// failureHint names the advice a cause has earned. A stale extractor and a
+// missing cookie source produce failures that look alike in the output but need
+// opposite fixes, so the signature — not the caller — decides which to print.
+type failureHint int
+
+const (
+	hintNone      failureHint = iota // the cause speaks for itself
+	hintYtdlp                        // an out-of-date extractor explains this
+	hintCookies                      // an absent or expired cookie source explains this
+	hintTransient                    // nothing local is wrong; YouTube refused this one
+)
+
 // failureSignature maps phrases players and yt-dlp print on the way down onto a
-// plain-language cause. ytdlp marks the causes an out-of-date extractor explains,
-// which is what turns a raw error into advice worth acting on.
+// plain-language cause plus the advice that fixes it, which is what turns a raw
+// error into something worth acting on.
+//
+// retry marks the causes a second launch can plausibly survive. YouTube hands out
+// stream URLs that are born dead: roughly half of authenticated extractions for a
+// given video produce a URL that answers 403 forever, while a fresh extraction
+// moments later produces a working one. yt-dlp's own downloader hides this by
+// re-extracting on 403, which is why downloads are reliable and playback is not —
+// mpv's ytdl_hook resolves once and gives up. Retrying restores the odds.
 type failureSignature struct {
 	phrases []string
 	cause   string
-	ytdlp   bool
+	hint    failureHint
+	retry   bool
 }
 
 // failureSignatures is ordered most-specific first: the first phrase found in the
 // captured output wins, so the generic entries — the ones a player prints after
 // the real cause, like mpv's "youtube-dl failed" — must come last.
 var failureSignatures = []failureSignature{
-	{[]string{"sign in to confirm"}, "YouTube demanded bot verification", true},
-	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", true},
-	{[]string{"nsig extraction failed", "signature extraction failed", "unable to extract", "failed to extract"}, "yt-dlp could not extract a playable stream", true},
-	{[]string{"requested format is not available", "no video formats found"}, "yt-dlp found no usable format", true},
-	{[]string{"video unavailable", "video is unavailable", "private video", "members-only", "age-restricted", "removed by the uploader"}, "YouTube says the video is unavailable", false},
-	{[]string{"unable to download webpage", "name resolution", "network is unreachable", "connection refused"}, "the network request failed", false},
-	{[]string{"youtube-dl failed", "ytdl_hook"}, "yt-dlp could not hand the player a stream", true},
-	{[]string{"failed to recognize file format", "failed to open"}, "the player could not open the stream", true},
+	{[]string{"sign in to confirm"}, "YouTube demanded bot verification", hintCookies, false},
+	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", hintTransient, true},
+	{[]string{"nsig extraction failed", "signature extraction failed", "unable to extract", "failed to extract"}, "yt-dlp could not extract a playable stream", hintYtdlp, true},
+	{[]string{"requested format is not available", "no video formats found"}, "yt-dlp found no usable format", hintYtdlp, false},
+	{[]string{"video unavailable", "video is unavailable", "private video", "members-only", "age-restricted", "removed by the uploader"}, "YouTube says the video is unavailable", hintNone, false},
+	{[]string{"unable to download webpage", "name resolution", "network is unreachable", "connection refused"}, "the network request failed", hintNone, false},
+	{[]string{"youtube-dl failed", "ytdl_hook"}, "yt-dlp could not hand the player a stream", hintYtdlp, true},
+	{[]string{"failed to recognize file format", "failed to open"}, "the player could not open the stream", hintYtdlp, true},
 }
 
 // diagnose turns a player run that never played anything into a single status
@@ -62,29 +82,48 @@ func diagnose(res player.Result, info YtdlpInfo) string {
 	if res.Played || res.ExitCode == 0 {
 		return ""
 	}
-	cause, blameYtdlp := classify(res.Output)
+	cause, hint := classify(res.Output)
 	if cause == "" {
 		cause = fmt.Sprintf("the player exited with status %d without playing anything", res.ExitCode)
 	}
 	msg := "Playback failed: " + cause
-	if hint := ytdlpHint(info, blameYtdlp); hint != "" {
-		msg += " — " + hint
+	if advice := advise(info, hint); advice != "" {
+		msg += " — " + advice
 	}
 	return msg
 }
 
-// classify matches the captured output against the known signatures, falling back
-// to the player's own error line: showing its words beats inventing a cause.
-func classify(output string) (string, bool) {
+// matchSignature finds the first signature whose phrase appears in the output.
+func matchSignature(output string) (failureSignature, bool) {
 	lower := strings.ToLower(output)
 	for _, sig := range failureSignatures {
 		for _, phrase := range sig.phrases {
 			if strings.Contains(lower, phrase) {
-				return sig.cause, sig.ytdlp
+				return sig, true
 			}
 		}
 	}
-	return firstErrorLine(output), false
+	return failureSignature{}, false
+}
+
+// classify matches the captured output against the known signatures, falling back
+// to the player's own error line: showing its words beats inventing a cause.
+func classify(output string) (string, failureHint) {
+	if sig, ok := matchSignature(output); ok {
+		return sig.cause, sig.hint
+	}
+	return firstErrorLine(output), hintNone
+}
+
+// retryable reports whether a launch that never played is worth attempting again.
+// An unrecognized failure is not retried: without knowing what went wrong, a
+// second launch is as likely to be a pointless wait as a fix.
+func retryable(res player.Result) bool {
+	if res.Played || res.ExitCode == 0 {
+		return false
+	}
+	sig, ok := matchSignature(res.Output)
+	return ok && sig.retry
 }
 
 // firstErrorLine picks the most telling line out of a captured tail: the first one
@@ -110,16 +149,32 @@ func firstErrorLine(output string) string {
 	return render.Truncate(last, causeLineMax)
 }
 
-// ytdlpHint is the advice appended to a failure. A local yt-dlp past
-// ytdlpSuspectAge is named outright with its version and age; otherwise the hint
-// only appears for causes an outdated extractor is known to produce.
-func ytdlpHint(info YtdlpInfo, blameYtdlp bool) string {
+// advise is the advice appended to a failure.
+//
+// A cookie failure is reported as such whatever the local yt-dlp's age: YouTube
+// refuses anonymous playback extraction from every version, so "update yt-dlp"
+// there is advice that cannot work — and saying it sends the reader off to check
+// an extractor that turns out to be current. Otherwise a local yt-dlp past
+// ytdlpSuspectAge is named outright with its version and age, and only then do
+// the cause-specific lines get their turn: a stale extractor really can produce
+// any of these, so it is worth naming before blaming YouTube.
+func advise(info YtdlpInfo, hint failureHint) string {
+	if hint == hintCookies {
+		return "playback needs valid YouTube cookies; check 'browser' or 'cookies_file' in config.toml"
+	}
 	if info.Version != "" && info.Age >= ytdlpSuspectAge {
 		return fmt.Sprintf("your yt-dlp (%s, %d days old) is the likely cause; update it",
 			info.Version, int(info.Age.Hours()/24))
 	}
-	if blameYtdlp {
+	switch hint {
+	case hintYtdlp:
 		return "this usually means yt-dlp needs updating"
+	case hintTransient:
+		// YouTube hands out stream URLs that are dead on arrival roughly half the
+		// time; nothing local is at fault and nothing local fixes it, so say what
+		// actually works — asking again.
+		return "usually random on YouTube's side, not a local fault; try again"
+	case hintNone, hintCookies:
 	}
 	return ""
 }

@@ -38,7 +38,7 @@ func TestNewDriverSelectsByBaseName(t *testing.T) {
 		{"/usr/bin/something-else", &genericDriver{}},
 	}
 	for _, c := range cases {
-		got := newDriver(c.path)
+		got := newDriver(c.path, CookieSource{})
 		switch c.expect.(type) {
 		case *mpvDriver:
 			if _, ok := got.(*mpvDriver); !ok {

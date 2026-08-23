@@ -45,18 +45,27 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 		stderr     string
 		wantCause  string
 		wantsYtdlp bool
+		wantAdvice string // extra text the advice must carry, "" for none
 	}{
 		{
-			name:       "403 from rotated signatures",
-			stderr:     "[ytdl_hook] ERROR: unable to download video data: HTTP Error 403: Forbidden\nFailed to open URL.",
+			// A 403 on a URL yt-dlp just resolved is YouTube handing out a dead
+			// stream, not a stale extractor. Advice must not send the reader off
+			// to update a current yt-dlp.
+			name:       "403 on a resolved stream",
+			stderr:     "[ffmpeg] https: HTTP error 403 Forbidden\nExiting... (Errors when loading file)",
 			wantCause:  "HTTP 403",
-			wantsYtdlp: true,
+			wantsYtdlp: false,
+			wantAdvice: "try again",
 		},
 		{
+			// Bot verification means the request went out unauthenticated. Every
+			// yt-dlp version is refused equally, so the advice must point at
+			// cookies and must not send the reader off to update the extractor.
 			name:       "bot check",
 			stderr:     `ERROR: [youtube] abc123: Sign in to confirm you're not a bot.`,
 			wantCause:  "bot verification",
-			wantsYtdlp: true,
+			wantsYtdlp: false,
+			wantAdvice: "cookies",
 		},
 		{
 			name:       "extractor broke",
@@ -85,6 +94,29 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 		mentionsUpdate := strings.Contains(got, "needs updating")
 		if mentionsUpdate != tt.wantsYtdlp {
 			t.Errorf("%s: update advice = %v, want %v (%q)", tt.name, mentionsUpdate, tt.wantsYtdlp, got)
+		}
+		if tt.wantAdvice != "" && !strings.Contains(got, tt.wantAdvice) {
+			t.Errorf("%s: %q does not advise %q", tt.name, got, tt.wantAdvice)
+		}
+	}
+}
+
+// TestDiagnoseCookieAdviceSurvivesStaleYtdlp: a stale local yt-dlp normally takes
+// over the advice, but it must not for bot verification — the report the user
+// filed said "yt-dlp needs updating" for a yt-dlp three days old, which is the
+// one thing that could not have been wrong.
+func TestDiagnoseCookieAdviceSurvivesStaleYtdlp(t *testing.T) {
+	const output = "[ytdl_hook] ERROR: [youtube] abc123: Sign in to confirm you’re not a bot. " +
+		"Use --cookies-from-browser or --cookies for the authentication.\n" +
+		"[ytdl_hook] youtube-dl failed: unexpected error occurred\n" +
+		"Exiting... (Errors when loading file)\n"
+	for _, info := range []YtdlpInfo{freshYtdlp(), staleYtdlp(), {}} {
+		got := diagnose(player.Result{ExitCode: 2, Ran: 2 * time.Second, Output: output}, info)
+		if !strings.Contains(got, "cookies") {
+			t.Errorf("yt-dlp %+v: %q does not advise cookies", info, got)
+		}
+		if strings.Contains(got, "needs updating") {
+			t.Errorf("yt-dlp %+v: %q blames the extractor for a cookie failure", info, got)
 		}
 	}
 }
@@ -173,5 +205,23 @@ func TestDiagnoseRealMpvFailure(t *testing.T) {
 	}
 	if strings.Contains(got, "needs updating") {
 		t.Errorf("an unavailable video is not yt-dlp's fault: %q", got)
+	}
+}
+
+// TestDiagnoseStaleYtdlpStillWinsFor403: a transient-looking 403 gets the
+// "try again" line only when the local extractor is current — a months-old
+// yt-dlp really can cause 403s, so it is still named first.
+func TestDiagnoseStaleYtdlpStillWinsFor403(t *testing.T) {
+	const output = "[ffmpeg] https: HTTP error 403 Forbidden\nExiting... (Errors when loading file)"
+	stale := diagnose(failed(output), staleYtdlp())
+	if !strings.Contains(stale, "2026.03.31") || !strings.Contains(stale, "likely cause") {
+		t.Errorf("stale yt-dlp not named for a 403: %q", stale)
+	}
+	fresh := diagnose(failed(output), freshYtdlp())
+	if !strings.Contains(fresh, "try again") {
+		t.Errorf("current yt-dlp should get the transient advice: %q", fresh)
+	}
+	if strings.Contains(fresh, "needs updating") {
+		t.Errorf("a current yt-dlp must not be blamed for a random 403: %q", fresh)
 	}
 }

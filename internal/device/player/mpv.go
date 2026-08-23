@@ -2,11 +2,13 @@ package player
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
-type mpvDriver struct{ path string }
+type mpvDriver struct {
+	path    string
+	cookies CookieSource
+}
 
 func (d *mpvDriver) Path() string     { return d.path }
 func (d *mpvDriver) DBusName() string { return "org.mpris.MediaPlayer2.mpv" }
@@ -19,9 +21,10 @@ func (d *mpvDriver) Args(source, title string, startAt time.Duration) []string {
 	args := []string{"--term-status-msg="}
 	// For local files force the title; for URLs yt-dlp will set it, avoiding a second
 	// MPRIS metadata update that triggers a duplicate desktop notification.
-	if title != "" && !strings.HasPrefix(source, "http") {
+	if title != "" && !isRemote(source) {
 		args = append(args, "--force-media-title="+title)
 	}
+	args = append(args, d.ytdlOptions(source)...)
 	if startAt > 0 {
 		args = append(args, fmt.Sprintf("--start=%.0f", startAt.Seconds()))
 	}
@@ -30,4 +33,38 @@ func (d *mpvDriver) Args(source, title string, startAt time.Duration) []string {
 
 func (d *mpvDriver) AudioArgs(source, title string, startAt time.Duration) []string {
 	return append([]string{"--no-video"}, d.Args(source, title, startAt)...)
+}
+
+// ytdlOptions are the yt-dlp settings mpv's ytdl_hook needs for a remote source.
+// The hook shells out to yt-dlp, so without cookies it extracts anonymously and
+// YouTube refuses with "Sign in to confirm you're not a bot" — every playback
+// fails while the rest of the app, which passes cookies, works fine.
+//
+// Each setting goes in its own --ytdl-raw-options-append: the plain
+// --ytdl-raw-options form is a comma-separated list, so a single flag holding a
+// cookie-file path that contains a comma would be silently split into two broken
+// options. -append sets one key at a time and never splits the value.
+func (d *mpvDriver) ytdlOptions(source string) []string {
+	if !isRemote(source) {
+		return nil
+	}
+	opts := []string{
+		// Make yt-dlp prove a stream works before handing it over. YouTube serves
+		// URLs that are dead on arrival — they answer 403 forever while a URL from
+		// a fresh extraction plays — and ytdl_hook resolves once and asks no
+		// questions, so a dead URL went straight to the player. Worse, a default
+		// play needs two of them (separate video and audio), so a coin flip per URL
+		// became a coin flip squared. Measured on one video, six launches each:
+		// 1/6 succeeded without this flag, 4/4 with it.
+		//
+		// check-formats makes the discard-and-move-on happen inside yt-dlp's format
+		// selection, which costs a few seconds once instead of a whole player
+		// relaunch per dead URL. The empty value is how mpv spells a bare yt-dlp
+		// flag: ytdl_hook renders "check-formats=" as "--check-formats".
+		"--ytdl-raw-options-append=check-formats=",
+	}
+	if cookies := d.cookies.ytdlpOption(); cookies != "" {
+		opts = append(opts, "--ytdl-raw-options-append="+cookies)
+	}
+	return opts
 }
