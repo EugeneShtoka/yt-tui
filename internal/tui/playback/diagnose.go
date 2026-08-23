@@ -34,9 +34,10 @@ const causeLineMax = 140
 type failureHint int
 
 const (
-	hintNone    failureHint = iota // the cause speaks for itself
-	hintYtdlp                      // an out-of-date extractor explains this
-	hintCookies                    // an absent or expired cookie source explains this
+	hintNone      failureHint = iota // the cause speaks for itself
+	hintYtdlp                        // an out-of-date extractor explains this
+	hintCookies                      // an absent or expired cookie source explains this
+	hintTransient                    // nothing local is wrong; YouTube refused this one
 )
 
 // failureSignature maps phrases players and yt-dlp print on the way down onto a
@@ -61,7 +62,7 @@ type failureSignature struct {
 // the real cause, like mpv's "youtube-dl failed" — must come last.
 var failureSignatures = []failureSignature{
 	{[]string{"sign in to confirm"}, "YouTube demanded bot verification", hintCookies, false},
-	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", hintYtdlp, true},
+	{[]string{"http error 403", "403 forbidden", "access denied"}, "YouTube refused the stream (HTTP 403)", hintTransient, true},
 	{[]string{"nsig extraction failed", "signature extraction failed", "unable to extract", "failed to extract"}, "yt-dlp could not extract a playable stream", hintYtdlp, true},
 	{[]string{"requested format is not available", "no video formats found"}, "yt-dlp found no usable format", hintYtdlp, false},
 	{[]string{"video unavailable", "video is unavailable", "private video", "members-only", "age-restricted", "removed by the uploader"}, "YouTube says the video is unavailable", hintNone, false},
@@ -154,8 +155,9 @@ func firstErrorLine(output string) string {
 // refuses anonymous playback extraction from every version, so "update yt-dlp"
 // there is advice that cannot work — and saying it sends the reader off to check
 // an extractor that turns out to be current. Otherwise a local yt-dlp past
-// ytdlpSuspectAge is named outright with its version and age, and the generic
-// upgrade line is left for causes an outdated extractor is known to produce.
+// ytdlpSuspectAge is named outright with its version and age, and only then do
+// the cause-specific lines get their turn: a stale extractor really can produce
+// any of these, so it is worth naming before blaming YouTube.
 func advise(info YtdlpInfo, hint failureHint) string {
 	if hint == hintCookies {
 		return "playback needs valid YouTube cookies; check 'browser' or 'cookies_file' in config.toml"
@@ -164,8 +166,15 @@ func advise(info YtdlpInfo, hint failureHint) string {
 		return fmt.Sprintf("your yt-dlp (%s, %d days old) is the likely cause; update it",
 			info.Version, int(info.Age.Hours()/24))
 	}
-	if hint == hintYtdlp {
+	switch hint {
+	case hintYtdlp:
 		return "this usually means yt-dlp needs updating"
+	case hintTransient:
+		// YouTube hands out stream URLs that are dead on arrival roughly half the
+		// time; nothing local is at fault and nothing local fixes it, so say what
+		// actually works — asking again.
+		return "usually random on YouTube's side, not a local fault; try again"
+	case hintNone, hintCookies:
 	}
 	return ""
 }

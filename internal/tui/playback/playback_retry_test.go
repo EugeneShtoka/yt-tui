@@ -207,3 +207,25 @@ func TestFirstAttemptIgnoresActivePlayer(t *testing.T) {
 		t.Error("first attempt did not launch")
 	}
 }
+
+// TestWithAttempts: the retry count only shows up once retries actually happened,
+// and never turns an ordinary end into a message of its own.
+func TestWithAttempts(t *testing.T) {
+	cases := []struct {
+		attempt int
+		diag    string
+		want    string
+	}{
+		{1, "Playback failed: nope", "Playback failed: nope"},
+		{2, "Playback failed: nope", "Playback failed: nope (2 attempts)"},
+		{maxPlayAttempts, "Playback failed: nope", "Playback failed: nope (3 attempts)"},
+		{maxPlayAttempts, "", ""}, // a clean end stays silent
+		{1, "", ""},
+	}
+	for _, c := range cases {
+		req := playRequest{id: "v1", eventType: EvtStreamVideo, attempt: c.attempt}
+		if got := req.withAttempts(c.diag); got != c.want {
+			t.Errorf("attempt %d, diag %q: got %q, want %q", c.attempt, c.diag, got, c.want)
+		}
+	}
+}

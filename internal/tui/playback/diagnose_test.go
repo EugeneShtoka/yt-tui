@@ -48,10 +48,14 @@ func TestDiagnoseNamesYtdlpCause(t *testing.T) {
 		wantAdvice string // extra text the advice must carry, "" for none
 	}{
 		{
-			name:       "403 from rotated signatures",
-			stderr:     "[ytdl_hook] ERROR: unable to download video data: HTTP Error 403: Forbidden\nFailed to open URL.",
+			// A 403 on a URL yt-dlp just resolved is YouTube handing out a dead
+			// stream, not a stale extractor. Advice must not send the reader off
+			// to update a current yt-dlp.
+			name:       "403 on a resolved stream",
+			stderr:     "[ffmpeg] https: HTTP error 403 Forbidden\nExiting... (Errors when loading file)",
 			wantCause:  "HTTP 403",
-			wantsYtdlp: true,
+			wantsYtdlp: false,
+			wantAdvice: "try again",
 		},
 		{
 			// Bot verification means the request went out unauthenticated. Every
@@ -201,5 +205,23 @@ func TestDiagnoseRealMpvFailure(t *testing.T) {
 	}
 	if strings.Contains(got, "needs updating") {
 		t.Errorf("an unavailable video is not yt-dlp's fault: %q", got)
+	}
+}
+
+// TestDiagnoseStaleYtdlpStillWinsFor403: a transient-looking 403 gets the
+// "try again" line only when the local extractor is current — a months-old
+// yt-dlp really can cause 403s, so it is still named first.
+func TestDiagnoseStaleYtdlpStillWinsFor403(t *testing.T) {
+	const output = "[ffmpeg] https: HTTP error 403 Forbidden\nExiting... (Errors when loading file)"
+	stale := diagnose(failed(output), staleYtdlp())
+	if !strings.Contains(stale, "2026.03.31") || !strings.Contains(stale, "likely cause") {
+		t.Errorf("stale yt-dlp not named for a 403: %q", stale)
+	}
+	fresh := diagnose(failed(output), freshYtdlp())
+	if !strings.Contains(fresh, "try again") {
+		t.Errorf("current yt-dlp should get the transient advice: %q", fresh)
+	}
+	if strings.Contains(fresh, "needs updating") {
+		t.Errorf("a current yt-dlp must not be blamed for a random 403: %q", fresh)
 	}
 }

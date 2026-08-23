@@ -71,6 +71,17 @@ func (r playRequest) shouldRetry(res player.Result) bool {
 	return r.streamed() && r.attempt < maxPlayAttempts && retryable(res)
 }
 
+// withAttempts annotates a final failure with how many launches it consumed.
+// The retries are silent, so without this the advice to try again reads as
+// something the user has not had a chance to do, and one line of failure hides
+// that three launches were already spent on it.
+func (r playRequest) withAttempts(diag string) string {
+	if diag == "" || r.attempt <= 1 {
+		return diag
+	}
+	return diag + fmt.Sprintf(" (%d attempts)", r.attempt)
+}
+
 // StartedMsg signals the player process launched. The controller responds by
 // scheduling the wait + position-tick commands; Root also reacts to it (status
 // line + a history-changed refresh), so it is exported.
@@ -266,7 +277,7 @@ func (c Controller) waitCmd(req playRequest, sess *player.Session) tea.Cmd {
 			next.attempt++
 			return endedMsg{retry: &next}
 		}
-		return endedMsg{diag: diag}
+		return endedMsg{diag: req.withAttempts(diag)}
 	}
 }
 
