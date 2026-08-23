@@ -48,7 +48,21 @@ func (d *mpvDriver) ytdlOptions(source string) []string {
 	if !isRemote(source) {
 		return nil
 	}
-	var opts []string
+	opts := []string{
+		// Make yt-dlp prove a stream works before handing it over. YouTube serves
+		// URLs that are dead on arrival — they answer 403 forever while a URL from
+		// a fresh extraction plays — and ytdl_hook resolves once and asks no
+		// questions, so a dead URL went straight to the player. Worse, a default
+		// play needs two of them (separate video and audio), so a coin flip per URL
+		// became a coin flip squared. Measured on one video, six launches each:
+		// 1/6 succeeded without this flag, 4/4 with it.
+		//
+		// check-formats makes the discard-and-move-on happen inside yt-dlp's format
+		// selection, which costs a few seconds once instead of a whole player
+		// relaunch per dead URL. The empty value is how mpv spells a bare yt-dlp
+		// flag: ytdl_hook renders "check-formats=" as "--check-formats".
+		"--ytdl-raw-options-append=check-formats=",
+	}
 	if cookies := d.cookies.ytdlpOption(); cookies != "" {
 		opts = append(opts, "--ytdl-raw-options-append="+cookies)
 	}

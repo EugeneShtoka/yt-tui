@@ -47,7 +47,9 @@ func TestMpvArgs(t *testing.T) {
 	if slices.Contains(got, "--force-media-title=My Title") {
 		t.Errorf("http Args must not force media title: %v", got)
 	}
-	if want := []string{"--term-status-msg=", "https://y/v1"}; !slices.Equal(got, want) {
+	// A remote source additionally asks yt-dlp to verify the stream; with no
+	// cookie source configured that is the only option added.
+	if want := []string{"--term-status-msg=", "--ytdl-raw-options-append=check-formats=", "https://y/v1"}; !slices.Equal(got, want) {
 		t.Errorf("http Args = %v, want %v", got, want)
 	}
 
@@ -115,7 +117,7 @@ func TestMpvCookieArgs(t *testing.T) {
 			} {
 				if tt.want == "" {
 					for _, a := range got {
-						if strings.HasPrefix(a, "--ytdl-raw-options") {
+						if strings.Contains(a, "cookies") {
 							t.Errorf("unexpected cookie arg %q in %v", a, got)
 						}
 					}
@@ -160,6 +162,48 @@ func TestCookieSourceOption(t *testing.T) {
 	for _, c := range cases {
 		if got := c.src.ytdlpOption(); got != c.want {
 			t.Errorf("%+v.ytdlpOption() = %q, want %q", c.src, got, c.want)
+		}
+	}
+}
+
+// TestMpvChecksFormats: a remote source must ask yt-dlp to verify the stream
+// before the player gets it — YouTube hands out URLs that answer 403 forever, and
+// without this a dead one reaches mpv and playback simply fails. A local file has
+// nothing to verify.
+func TestMpvChecksFormats(t *testing.T) {
+	const want = "--ytdl-raw-options-append=check-formats="
+	d := &mpvDriver{path: "mpv", cookies: CookieSource{Browser: "firefox"}}
+
+	for _, got := range [][]string{
+		d.Args("https://y/v1", "T", 0),
+		d.AudioArgs("https://y/v1", "T", 0),
+		d.Args("https://y/v1", "T", 30*time.Second), // also when resuming
+	} {
+		if !slices.Contains(got, want) {
+			t.Errorf("remote args %v omit %q", got, want)
+		}
+	}
+	for _, got := range [][]string{
+		d.Args("/v/local.mp4", "T", 0),
+		d.AudioArgs("/v/local.mp4", "T", 0),
+	} {
+		if slices.Contains(got, want) {
+			t.Errorf("local args must not check formats: %v", got)
+		}
+	}
+}
+
+// TestMpvSourceStaysLast: mpv takes the source positionally, so every injected
+// option has to land before it or mpv parses the URL as an option's value.
+func TestMpvSourceStaysLast(t *testing.T) {
+	d := &mpvDriver{path: "mpv", cookies: CookieSource{Browser: "firefox"}}
+	for _, args := range [][]string{
+		d.Args("https://y/v1", "T", 42*time.Second),
+		d.AudioArgs("https://y/v1", "T", 0),
+		d.Args("/v/local.mp4", "T", 5*time.Second),
+	} {
+		if last := args[len(args)-1]; last != "https://y/v1" && last != "/v/local.mp4" {
+			t.Errorf("source is not the final argument: %v", args)
 		}
 	}
 }
