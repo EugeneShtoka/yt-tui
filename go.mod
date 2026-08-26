@@ -3,8 +3,8 @@ module github.com/EugeneShtoka/yt-tui
 go 1.26.6
 
 require (
-	charm.land/bubbles/v2 v2.1.1
-	charm.land/bubbletea/v2 v2.0.8
+	charm.land/bubbles/v2 v2.2.0
+	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
 	connectrpc.com/connect v1.20.0
 	github.com/BurntSushi/toml v1.6.0
@@ -14,11 +14,11 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/evertras/bubble-table v0.22.3
 	github.com/godbus/dbus/v5 v5.2.2
-	github.com/mattn/go-runewidth v0.0.27
+	github.com/mattn/go-runewidth v0.0.28
 	golang.org/x/image v0.45.0
 	golang.org/x/sync v0.22.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.56.0
+	modernc.org/sqlite v1.57.0
 )
 
 require (
