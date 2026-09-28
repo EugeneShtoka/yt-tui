@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/EugeneShtoka/yt-tui/internal/api"
@@ -446,6 +448,17 @@ func (r Root) handleBroadcast(msg tea.Msg) (Root, tea.Cmd) {
 			break
 		}
 		return r, tea.Batch(bcmds...)
+	}
+
+	// A blinking cursor re-arms its timer in whichever model receives the blink, so
+	// only the visible tab gets it: the Search tab's input is focused from startup,
+	// and broadcast to a hidden tab it would wake the whole program — Update, View
+	// and a render — twice a second forever. refreshOnOpen restarts the loop in a
+	// tab when it is shown.
+	if _, ok := msg.(cursor.BlinkMsg); ok {
+		var tabCmd tea.Cmd
+		r, tabCmd = r.updateActiveTab(msg)
+		return r, tea.Batch(append(bcmds, tabCmd)...)
 	}
 
 	for i, t := range r.router.tabs {
@@ -990,9 +1003,13 @@ func (r Root) cycleTab(dir int) (Root, tea.Cmd) {
 // immediately by forwarding a PollTickMsg, so switching to a tab shows fresh
 // rows (streamed in by a background crawl/enrichment) without waiting up to one
 // pollInterval for the next tick. It reuses each tab's existing lightweight
-// PollTickMsg reload path, so it never flips the loading spinner.
+// PollTickMsg reload path, so it never flips the loading spinner. It also
+// restarts the cursor blink, which reaches only the visible tab (handleBroadcast)
+// and so has stopped in the tab being shown.
 func (r Root) refreshOnOpen() (Root, tea.Cmd) {
-	return r.updateActiveTab(tuipkg.PollTickMsg{})
+	var cmd tea.Cmd
+	r, cmd = r.updateActiveTab(tuipkg.PollTickMsg{})
+	return r, tea.Batch(cmd, textinput.Blink)
 }
 
 func (r Root) withSelectionDebounce() (Root, tea.Cmd) {
