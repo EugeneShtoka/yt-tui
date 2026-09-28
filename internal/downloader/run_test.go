@@ -15,6 +15,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/db"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec"
+	"github.com/EugeneShtoka/yt-tui/internal/procexec/procexectest"
 )
 
 func newTestDB(t *testing.T) *db.DB {
@@ -52,12 +53,11 @@ func TestRunCompletesAndPersists(t *testing.T) {
 		"[download] Destination: /tmp/Chan - Title.mkv\n" +
 		"[download] 100.0% of ~5.00MiB at 2.00MiB/s ETA 00:00\n"
 	d := New(&config.Config{}, database)
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: stdout}
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: stdout}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	d.Start(domain.Video{ID: "v1", Title: "Title", Channel: "Chan", URL: "http://x/v1"}, TypeVideo)
@@ -91,12 +91,11 @@ func TestRunPersistsFileSize(t *testing.T) {
 	stdout := "[download] Destination: " + f + "\n" +
 		"[download] 100.0% of ~5.00MiB at 2.00MiB/s ETA 00:00\n"
 	d := New(&config.Config{}, database)
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: stdout}
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: stdout}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	d.Start(domain.Video{ID: "v1", Title: "Title", Channel: "Chan", URL: "http://x/v1"}, TypeVideo)
@@ -114,15 +113,14 @@ func TestRunPersistsFileSize(t *testing.T) {
 // A non-zero yt-dlp exit must mark the item Failed and carry the stderr tail.
 func TestRunFailureCarriesStderr(t *testing.T) {
 	d := New(&config.Config{}, newTestDB(t))
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{
 			Stderr:  "ERROR: video unavailable\nsecond line",
 			WaitErr: fmt.Errorf("exit status 1"),
 		}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	d.Start(domain.Video{ID: "boom", URL: "http://x/boom"}, TypeVideo)
@@ -145,8 +143,8 @@ func TestConcurrentDownloadsRespectSemaphore(t *testing.T) {
 	var mu sync.Mutex
 
 	d := New(&config.Config{DaemonConfig: config.DaemonConfig{MaxDownloads: maxSlots}}, newTestDB(t))
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{
 			Stdout: "[download] Destination: /tmp/x.mkv\n",
 			WaitFn: func() error {
 				n := atomic.AddInt32(&active, 1)
@@ -162,8 +160,7 @@ func TestConcurrentDownloadsRespectSemaphore(t *testing.T) {
 		}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	const total = 6

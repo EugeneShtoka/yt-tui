@@ -8,22 +8,32 @@ test, and submit changes.
 - **Go 1.26+** (the module pins the exact toolchain in `go.mod`)
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** and a media player (`mpv`
   recommended) to run the app end to end
-- **[golangci-lint](https://golangci-lint.run) v2** and
-  **[govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)** are
-  pinned as Go tool dependencies (the `go.mod` `tool` directive) and invoked via
-  `go tool` — no separate install needed; `make lint` / `make vuln` just work
+- **golangci-lint**, **govulncheck**, **deadcode** and the **protoc plugins**
+  are pinned as Go tool dependencies (the `go.mod` `tool` directive) and invoked
+  via `go tool`: no separate install needed
+- **goreleaser**, **gitleaks**, **buf** and **markdownlint-cli2** are pinned in
+  `tools/versions.env` (and `tools/markdownlint`'s lock) and installed into
+  `.tools/` by `scripts/ensure-tools.sh`, checksum-verified, the first time a gate
+  needs them. markdownlint needs node and npm
+- Every gate runs with go.mod's `toolchain` and no `go env` file, the same as CI,
+  so a local pass means a CI pass
 
 ## First-time setup
 
-Enable the pre-commit secret-scan hook (recommended — git hooks aren't cloned,
-so this is opt-in per checkout):
+Enable the git hooks (recommended — git hooks aren't cloned, so this is opt-in
+per checkout):
 
 ```sh
 make hooks   # sets core.hooksPath to .githooks
 ```
 
-Install [gitleaks](https://github.com/gitleaks/gitleaks) for full coverage; the
-hook falls back to a basic pattern scan without it. The same scan runs in CI on
+- **pre-commit**: secret scan of the staged changes, then `fmt-check` and
+  `go vet` over the staged snapshot when Go files are staged.
+- **pre-push**: secret scan, then the whole `make check CHECK_STRICT=1`, so a
+  push does not fail in CI for something this machine could have said.
+
+Both fall back to a basic pattern scan without
+[gitleaks](https://github.com/gitleaks/gitleaks). The same scan runs in CI on
 every push and PR, so a bypassed local hook still gets caught.
 
 ## Building and running
@@ -31,10 +41,16 @@ every push and PR, so a bypassed local hook still gets caught.
 The `Makefile` wraps the common tasks:
 
 ```sh
-make build        # build both ./yt-tui and ./yt-tuid
+make build        # build both ./yt-tui and ./yt-tuid (CGO_ENABLED=0, as released)
 make run          # go run the TUI client
 make run-daemon   # go run the headless daemon
+make install      # build + copy both binaries to ~/.local/bin (no gates)
+make deploy       # make check, then make install — the one command
+make undeploy     # remove the installed binaries (config and data are kept)
 ```
+
+`make deploy PREFIX=/usr/local` installs machine-wide (sudo only when the target
+isn't writable).
 
 There are two binaries: **`yt-tui`** (the TUI client) and **`yt-tuid`** (the
 optional headless daemon). Both build the same in-process backend at their core
@@ -46,19 +62,35 @@ making non-trivial changes.
 Run the full local gate — it must pass, and it's exactly what CI runs:
 
 ```sh
-make check        # build + test (race) + lint + fmt + vuln + secrets
+make check        # every CI gate, with CI's toolchain and tools (non-mutating)
 ```
 
-Individual steps if you want them separately:
+`scripts/ci-parity-check.sh` (the `ci-parity` gate) keeps `make check` and the CI
+workflow running exactly the same targets. Individual gates:
 
 ```sh
-make test         # go test -race ./...
-make lint         # golangci-lint run
-make fmt          # golangci-lint fmt (formats in place)
-make vuln         # govulncheck ./...
-make secrets      # gitleaks full-history secret scan
-make fix          # auto-fix: go mod tidy + gofmt + golangci-lint --fix
+make mod-check      # go.mod/go.sum tidy and verified
+make compile        # every package builds as released
+make coverage-check # go test -race + coverage floors (scripts/coverage-gate.sh)
+make cross          # the release platforms
+make lint           # golangci-lint run (make fmt formats in place)
+make fmt-check      # formatting diff, non-mutating
+make vuln           # govulncheck + npm audit of markdownlint's lock
+make secrets        # gitleaks: full history + working tree
+make pin-check      # every GitHub Actions ref is SHA-pinned
+make arch-check     # depguard names every package, deps-check, deadcode
+make ci-parity      # make check == CI
+make script-check   # the gate scripts' own tests
+make release-check  # goreleaser check
+make proto-check    # buf lint + generated code in sync (make proto regenerates)
+make docs-check     # markdownlint
+make fix            # auto-fix: go mod tidy + gofmt + golangci-lint --fix
+make pins-outdated  # hand-pinned tools and the bubbletea fork vs. upstream (network)
 ```
+
+`arch-check` fails on a function only tests reach (`go tool deadcode`): move it
+into a `_test.go` file or a `*test` package, delete it, or add it to
+`scripts/deadcode-allow.txt` with the reason.
 
 **Add tests for behavioral changes.** The codebase favors table-driven,
 behavioral tests (assert on state, not on rendered glyph strings). Pure logic

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Pre-push secret scan — the last line of defense before commits leave your
-# machine. Blocks the push if any commit being pushed contains a secret.
+# Pre-push checks — the last line of defense before commits leave your machine.
+# Blocks the push if any commit being pushed contains a secret, then runs every CI
+# gate (make check CHECK_STRICT=1: CI's toolchain and tools, and nothing skipped), so a
+# push does not fail in CI for something this machine could have said.
 #
 # Harder to skip by accident than the pre-commit hook: even if a bad commit was
 # made with --no-verify or before the hooks were enabled, this still fires.
@@ -12,10 +14,20 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+# The CI gates, after the secret scan passes (each exit below runs this first).
+gates() {
+	if ! make -s check CHECK_STRICT=1; then
+		echo "pre-push: make check failed (above) — CI would fail the same way." >&2
+		exit 1
+	fi
+}
+trap 'status=$?; [ "$status" -eq 0 ] && gates; exit "$status"' EXIT
+
 if command -v gitleaks >/dev/null 2>&1; then
 	# Scan the full committed history: fast (sub-second here) and guarantees
 	# nothing being pushed carries a secret, regardless of the exact ref range.
-	if ! gitleaks detect --redact --no-banner; then
+	# (`detect` was the old spelling for `git`; still an alias, no longer in --help.)
+	if ! gitleaks git --redact --no-banner; then
 		echo "" >&2
 		echo "pre-push: gitleaks found a secret in committed history — push blocked." >&2
 		echo "  • Rotate the credential (assume it is compromised)." >&2
