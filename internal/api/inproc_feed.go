@@ -13,8 +13,12 @@ func (p *InProc) Recommended(ctx context.Context) ([]domain.Video, error) {
 	return p.feed.Recommended(ctx)
 }
 
+// GetFeedCache routes through the feed service rather than straight to the DB so
+// the cached list is re-filtered against the blocklist and the hidden-video set
+// on the way out (see FeedService.FeedCache) — the cold-start read must respect
+// a block or a hide made after the cache was written.
 func (p *InProc) GetFeedCache(ctx context.Context, feed string) ([]domain.Video, error) {
-	return p.db.GetFeedCache(ctx, feed)
+	return p.feed.FeedCache(ctx, feed)
 }
 
 func (p *InProc) SaveFeedCache(ctx context.Context, feed string, videos []domain.Video) error {

@@ -237,9 +237,6 @@ func (r Root) dispatchChannelAction(msg tea.Msg) (bool, tea.Model, tea.Cmd) {
 	case tuipkg.NavigateToPanelMsg:
 		model, cmd := r.handleNavigateToPanel(m)
 		return true, model, cmd
-	case tuipkg.HideChannelMsg:
-		model, cmd := r.handleHideChannel(m)
-		return true, model, cmd
 	case tuipkg.UnsubscribeMsg:
 		model, cmd := r.handleUnsubscribe(m)
 		return true, model, cmd
@@ -813,10 +810,6 @@ func (r Root) applyNavigate(i int, query string) (Root, tea.Cmd) {
 		return r, tea.Batch(refreshCmd, func() tea.Msg { return tuipkg.SearchFocusInputMsg{} })
 	}
 	return r, refreshCmd
-}
-
-func (r Root) handleHideChannel(m tuipkg.HideChannelMsg) (Root, tea.Cmd) {
-	return r, r.actions().hideChannel(r.baseCtx(), m.Channel)
 }
 
 func (r Root) handleUnsubscribe(m tuipkg.UnsubscribeMsg) (Root, tea.Cmd) {

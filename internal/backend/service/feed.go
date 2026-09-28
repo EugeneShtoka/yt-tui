@@ -17,6 +17,7 @@ type FeedRepo interface {
 	LocalVideos(ctx context.Context) ([]domain.LocalVideo, error)
 	HiddenRecVideoIDs(ctx context.Context) (map[string]bool, error)
 	SaveFeedCache(ctx context.Context, name string, videos []domain.Video) error
+	GetFeedCache(ctx context.Context, name string) ([]domain.Video, error)
 	// Blocklist returns the IDs of channels flagged blocked=1, used to filter
 	// the feed.
 	Blocklist(ctx context.Context) (ids []string, err error)
@@ -80,4 +81,40 @@ func (s *FeedService) Recommended(ctx context.Context) ([]domain.Video, error) {
 		debug.Log("FeedService.Recommended: SaveFeedCache: %v", err)
 	}
 	return filtered, nil
+}
+
+// FeedCache returns the persisted feed, re-applying the user's two suppression
+// filters — the channel blocklist and the hidden-video set — on the way out.
+//
+// The cache is a snapshot of a past fetch, so it goes stale the moment the user
+// blocks a channel or hides a video: those rows stay in feed_cache until some
+// later fetch overwrites them. Since the cache read is the cold-start path (the
+// Feed tab seeds from it before the network fetch lands), filtering only inside
+// Recommended left blocked channels and hidden videos visible after every
+// restart. Applying the filters here makes the stored cache advisory and the DB
+// flags authoritative, so a suppression survives a restart even if feed_cache
+// was never rewritten.
+//
+// Only the suppression filters run here. The property filters (age, duration,
+// views) belong to the fetch path and the Feed tab's cumulative display pass,
+// which already re-applies them to the whole accumulated list.
+func (s *FeedService) FeedCache(ctx context.Context, name string) ([]domain.Video, error) {
+	videos, err := s.repo.GetFeedCache(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("FeedCache: %w", err)
+	}
+	if len(videos) == 0 {
+		return videos, nil
+	}
+	blIDs, err := s.repo.Blocklist(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("FeedCache: blocklist: %w", err)
+	}
+	hidden, err := s.repo.HiddenRecVideoIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("FeedCache: hidden ids: %w", err)
+	}
+	videos = feed.FilterBlacklisted(videos, feed.NewBlocklist(blIDs))
+	videos = feed.FilterHidden(videos, hidden)
+	return videos, nil
 }

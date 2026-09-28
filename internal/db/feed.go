@@ -82,6 +82,18 @@ func (d *DB) PurgeFeedCacheMissingChannelID(ctx context.Context, feed string) er
 	return nil
 }
 
+// DeleteChannelFeedCache removes every feed_cache entry whose video belongs to
+// the given channel, across all feeds. Blocking a channel calls this alongside
+// DeleteChannelVideos: without it the channel's already-cached rows survive in
+// feed_cache and are served straight back by GetFeedCache on the next cold
+// start, so the block appears not to take effect until a network refresh.
+func (d *DB) DeleteChannelFeedCache(ctx context.Context, channelID string) error {
+	return d.execByChannelID(ctx, "DeleteChannelFeedCache", `
+		DELETE FROM feed_cache
+		WHERE video_id IN (SELECT id FROM videos WHERE channel_id=?)
+	`, channelID)
+}
+
 // HideRecVideo records a video as hidden from the recommended feed.
 func (d *DB) HideRecVideo(ctx context.Context, videoID string) error {
 	if _, err := d.sql.ExecContext(ctx, `INSERT OR IGNORE INTO hidden_rec_videos (video_id) VALUES (?)`, videoID); err != nil {

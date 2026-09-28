@@ -21,13 +21,14 @@ type fakeChannelRepo struct {
 	saveVidErr error
 	savedPages [][]domain.Video // each SaveChannelVideos call, in order
 	// call trackers for the block/state transitions
-	blocked        string
-	unblocked      string
-	deletedVideos  string
-	stateChangedID string
-	stateChangedTo domain.SubscriptionState
-	stamped        []string
-	fetchOffsets   []int64 // each SetChannelFetchOffset call, in order
+	blocked          string
+	unblocked        string
+	deletedVideos    string
+	deletedFeedCache string
+	stateChangedID   string
+	stateChangedTo   domain.SubscriptionState
+	stamped          []string
+	fetchOffsets     []int64 // each SetChannelFetchOffset call, in order
 }
 
 func (f *fakeChannelRepo) GetSubscribedChannels(ctx context.Context) ([]domain.Channel, error) {
@@ -58,6 +59,10 @@ func (f *fakeChannelRepo) UnblockChannel(ctx context.Context, id string) error {
 }
 func (f *fakeChannelRepo) DeleteChannelVideos(ctx context.Context, id string) error {
 	f.deletedVideos = id
+	return nil
+}
+func (f *fakeChannelRepo) DeleteChannelFeedCache(ctx context.Context, id string) error {
+	f.deletedFeedCache = id
 	return nil
 }
 func (f *fakeChannelRepo) GetChannelVideos(context.Context, string) ([]domain.Video, error) {
@@ -462,6 +467,11 @@ func TestChannelServiceBlockYTUnsubscribes(t *testing.T) {
 	}
 	if repo.deletedVideos != "c1" {
 		t.Errorf("repo.deletedVideos = %q, want c1", repo.deletedVideos)
+	}
+	// The feed cache is what a cold start reads. Leaving the channel's rows there
+	// makes the block look like a no-op until the next network fetch.
+	if repo.deletedFeedCache != "c1" {
+		t.Errorf("repo.deletedFeedCache = %q, want c1", repo.deletedFeedCache)
 	}
 }
 

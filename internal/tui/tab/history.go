@@ -303,7 +303,7 @@ func (t History) handleListKey(msg tea.KeyPressMsg, n int) (tea.Model, tea.Cmd) 
 	case key.Matches(msg, keys.HideChannel):
 		if idx < n {
 			ch := domain.Channel{ID: t.entries[idx].ChannelID, Name: t.entries[idx].Channel}
-			return t, func() tea.Msg { return tuipkg.HideChannelMsg{Channel: ch} }
+			return t, func() tea.Msg { return tuipkg.BlockChannelMsg{Channel: ch, Block: true} }
 		}
 	case key.Matches(msg, keys.CopyURL):
 		if idx < n {
