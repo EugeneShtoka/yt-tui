@@ -1,6 +1,7 @@
 package youtube
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -130,12 +131,7 @@ func TestBuildArgs(t *testing.T) {
 }
 
 func containsArg(args []string, flag string) bool {
-	for _, a := range args {
-		if a == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
 
 func argPairPresent(args []string, flag, val string) bool {

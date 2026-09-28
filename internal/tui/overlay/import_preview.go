@@ -72,7 +72,7 @@ const (
 // (inproc DB read / remote RPC) computes both the preview and the apply.
 type ImportPreview struct {
 	identity
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  api.PortabilityBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -280,7 +280,7 @@ func (ip ImportPreview) loadAndPreviewCmd(path string, opts portability.ImportOp
 	backend, ctx := ip.backend, ip.ctx
 	target := tuipkg.OverlayTarget{ID: ip.ID()}
 	return func() tea.Msg {
-		data, err := os.ReadFile(path) //nolint:gosec // path is a user-selected file in the data dir
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return importPreviewMsg{OverlayTarget: target, path: path, opts: opts, err: err}
 		}
@@ -336,7 +336,7 @@ func (ip ImportPreview) renderPick() string {
 			lines = append(lines, importRow(i == ip.fileSel, render.Truncate(f, innerW-2)))
 		}
 	}
-	lines = append(lines, "", importHint(innerW, "j/k: move  enter: open", ip.keys.Escape.Help().Key+": cancel"))
+	lines = append(lines, "", importHint("j/k: move  enter: open", ip.keys.Escape.Help().Key+": cancel"))
 	return strings.Join(lines, "\n")
 }
 
@@ -349,7 +349,7 @@ func (ip ImportPreview) renderPreview() string {
 		lines = append(lines,
 			styles.Error.Render(render.Truncate(ip.err.Error(), innerW)),
 			"",
-			importHint(innerW, "", ip.keys.Escape.Help().Key+": back"),
+			importHint("", ip.keys.Escape.Help().Key+": back"),
 		)
 		return strings.Join(lines, "\n")
 	}
@@ -366,7 +366,7 @@ func (ip ImportPreview) renderPreview() string {
 		"",
 		importRow(ip.rowSel == ipRowApply, "Apply import"),
 		"",
-		importHint(innerW, "j/k: move  enter: toggle/apply", ip.keys.Escape.Help().Key+": back"),
+		importHint("j/k: move  enter: toggle/apply", ip.keys.Escape.Help().Key+": back"),
 	)
 	return strings.Join(lines, "\n")
 }
@@ -424,8 +424,9 @@ func importCheckbox(on bool, label string) string {
 	return "[" + mark + "] " + label
 }
 
-func importHint(innerW int, left, right string) string {
-	return styles.Help.Render(render.JustifyEnds(left, right, innerW))
+// importHint renders a footer hint row across the import/export box interior.
+func importHint(left, right string) string {
+	return styles.Help.Render(render.JustifyEnds(left, right, importBoxW-6))
 }
 
 // summarizeImport turns an ImportResult into a one-line status message, listing

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -188,7 +189,7 @@ func serve(srv *http.Server, ln net.Listener, sigCtx context.Context, cert, key 
 
 	select {
 	case err := <-serveErr:
-		if err != http.ErrServerClosed {
+		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("serve: %w", err)
 		}
 	case <-sigCtx.Done():

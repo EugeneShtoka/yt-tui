@@ -192,7 +192,7 @@ func (s *Store) Retain(keep map[string]bool) (int, error) {
 		if e.IsDir() || !strings.HasSuffix(name, ".srt") {
 			continue
 		}
-		id := strings.SplitN(name, ".", 2)[0] // <id>.<lang>.srt — id has no dots
+		id, _, _ := strings.Cut(name, ".") // <id>.<lang>.srt — id has no dots
 		if keep[id] {
 			continue
 		}

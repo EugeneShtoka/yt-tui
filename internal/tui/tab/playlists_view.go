@@ -15,6 +15,7 @@ func (t Playlists) View() tea.View {
 		return tea.NewView(t.viewCreateTypeSelect(header))
 	case plCreateNameInput:
 		return tea.NewView(t.viewCreateNameInput(header))
+	case plCreateNone:
 	}
 
 	cursor := t.listNav.Index()

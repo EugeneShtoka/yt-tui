@@ -34,7 +34,7 @@ const selectionDebounceDelay = 150 * time.Millisecond
 // Root is the top-level BubbleTea model.
 // It owns focus, size, global key routing, and the tab/overlay stack.
 type Root struct {
-	ctx      context.Context // app-lifetime context; canceled on exit (H-1)
+	ctx      context.Context //nolint:containedctx // app-lifetime context; canceled on exit (H-1)
 	backend  api.Backend
 	media    api.MediaProvider // client-side thumbnail/transcript seam (may cache locally)
 	cfg      *config.Config
@@ -573,7 +573,7 @@ func (r Root) handleOpenOverlay(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 // is already the top overlay closes it; otherwise it opens the panel and hands
 // it its size via the resize that OverlaySizeMsg rides on.
 func (r Root) openInfoPanel(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
-	if _, ok := r.overlays.topPanel(); ok {
+	if r.overlays.topIsPanel() {
 		return r.handlePopOverlay()
 	}
 	vd, cmd := ovpkg.NewVideoDetail(r.baseCtx(), r.backend, r.media, r.keys, m.Video, ovpkg.VideoDetailOpts{
@@ -597,8 +597,10 @@ func (r Root) openVideoDetailModal(m tuipkg.OpenOverlayMsg) (Root, tea.Cmd) {
 		initView = ovpkg.InitialViewChapters
 	case tuipkg.OverlayVideoDetailTranscript:
 		initView = ovpkg.InitialViewTranscript
+	case tuipkg.OverlayVideoDetail, tuipkg.OverlayVideoDetailLinks, tuipkg.OverlayAddToPlaylist:
+		// the plain panel view (initView's zero value)
 	}
-	if _, ok := r.overlays.topPanel(); ok {
+	if r.overlays.topIsPanel() {
 		return r.updateTopOverlay(ovpkg.OpenModalMsg{View: initView})
 	}
 	vd, cmd := ovpkg.NewVideoDetail(r.baseCtx(), r.backend, r.media, r.keys, m.Video, ovpkg.VideoDetailOpts{

@@ -92,19 +92,12 @@ func (c CommandHelp) Render(behind string, width, height int) string {
 
 	lines := c.contentLines(innerW)
 
-	maxRows := height - 8 // borders, padding, title, footer
-	if maxRows < 3 {
-		maxRows = 3
-	}
+	maxRows := max(
+		// borders, padding, title, footer
+		height-8, 3)
 	needsScroll := len(lines) > maxRows
-	maxVS := len(lines) - maxRows
-	if maxVS < 0 {
-		maxVS = 0
-	}
-	vs := c.vs
-	if vs > maxVS {
-		vs = maxVS
-	}
+	maxVS := max(len(lines)-maxRows, 0)
+	vs := min(c.vs, maxVS)
 
 	out := []string{styles.Bold.Render("Commands"), ""}
 	visible := lines[vs:]

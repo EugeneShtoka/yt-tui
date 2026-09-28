@@ -19,6 +19,7 @@ func (vd VideoDetail) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return vd.handleChaptersKey(msg)
 	case vdTranscript:
 		return vd.handleTranscriptKey(msg)
+	case vdPanel:
 	}
 	return vd.handlePanelKey(msg)
 }
@@ -71,6 +72,7 @@ func (vd VideoDetail) openModal(view InitialView) (VideoDetail, tea.Cmd) {
 		return vd.openChapters()
 	case InitialViewTranscript:
 		return vd.openTranscript()
+	case InitialViewPanel:
 	}
 	return vd, nil
 }

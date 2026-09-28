@@ -78,14 +78,12 @@ func TestConcurrentSaves(t *testing.T) {
 
 	const n = 50
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			if err := cfg.Save(); err != nil {
 				t.Errorf("save: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

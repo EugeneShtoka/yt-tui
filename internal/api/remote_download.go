@@ -29,27 +29,27 @@ func (r *Remote) DownloadItems(ctx context.Context) ([]DownloadItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]DownloadItem, len(resp.Msg.Items))
-	for i, pb := range resp.Msg.Items {
+	out := make([]DownloadItem, len(resp.Msg.GetItems()))
+	for i, pb := range resp.Msg.GetItems() {
 		out[i] = DownloadItem{
-			VideoID:   pb.VideoId,
-			Title:     pb.Title,
-			Channel:   pb.Channel,
-			Duration:  int(pb.Duration),
-			URL:       pb.Url,
-			AudioOnly: pb.AudioOnly,
-			Status:    DownloadStatus(pb.Status),
-			Progress:  pb.Progress,
-			Speed:     pb.Speed,
-			ETA:       pb.Eta,
-			FilePath:  pb.FilePath,
+			VideoID:   pb.GetVideoId(),
+			Title:     pb.GetTitle(),
+			Channel:   pb.GetChannel(),
+			Duration:  int(pb.GetDuration()),
+			URL:       pb.GetUrl(),
+			AudioOnly: pb.GetAudioOnly(),
+			Status:    DownloadStatus(pb.GetStatus()),
+			Progress:  pb.GetProgress(),
+			Speed:     pb.GetSpeed(),
+			ETA:       pb.GetEta(),
+			FilePath:  pb.GetFilePath(),
 		}
 		// pb.Error is populated server-side (downloadItemToProto) but was
 		// previously never read back here, so a failed download showed
 		// "failed" with no reason in remote mode while InProc showed the
 		// real cause. (H-9)
-		if pb.Error != "" {
-			out[i].Err = errors.New(pb.Error)
+		if pb.GetError() != "" {
+			out[i].Err = errors.New(pb.GetError())
 		}
 	}
 	return out, nil
@@ -76,12 +76,12 @@ func (r *Remote) Events(ctx context.Context) (<-chan Event, error) {
 		defer close(out)
 		defer func() { _ = stream.Close() }()
 		for stream.Receive() {
-			ev := stream.Msg().Event
+			ev := stream.Msg().GetEvent()
 			if ev == nil {
 				continue
 			}
 			select {
-			case out <- Event{Kind: EventKind(ev.Kind), VideoID: ev.VideoId, Detail: ev.Detail}:
+			case out <- Event{Kind: EventKind(ev.GetKind()), VideoID: ev.GetVideoId(), Detail: ev.GetDetail()}:
 			case <-ctx.Done():
 				return
 			}

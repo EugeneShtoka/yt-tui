@@ -203,14 +203,14 @@ func ProtoToVideo(pb *v1.Video) domain.Video {
 		return domain.Video{}
 	}
 	return domain.Video{
-		ID:         pb.Id,
-		Title:      pb.Title,
-		Channel:    pb.Channel,
-		ChannelID:  pb.ChannelId,
-		Duration:   int(pb.Duration),
-		ViewCount:  pb.ViewCount,
-		UploadDate: pb.UploadDate,
-		URL:        pb.Url,
+		ID:         pb.GetId(),
+		Title:      pb.GetTitle(),
+		Channel:    pb.GetChannel(),
+		ChannelID:  pb.GetChannelId(),
+		Duration:   int(pb.GetDuration()),
+		ViewCount:  pb.GetViewCount(),
+		UploadDate: pb.GetUploadDate(),
+		URL:        pb.GetUrl(),
 	}
 }
 
@@ -219,17 +219,17 @@ func ProtoToChannel(pb *v1.Channel) domain.Channel {
 		return domain.Channel{}
 	}
 	return domain.Channel{
-		ID:                pb.Id,
-		Name:              pb.Name,
-		Alias:             pb.Alias,
-		Tags:              pb.Tags,
-		URL:               pb.Url,
-		Subscribers:       pb.Subscribers,
-		IsLocal:           pb.IsLocal,
-		VideosRefreshedAt: pb.VideosRefreshedAt,
-		State:             domain.SubscriptionState(pb.SubscriptionState),
-		Blocked:           pb.Blocked,
-		LastActivityAt:    pb.LastActivityAt,
+		ID:                pb.GetId(),
+		Name:              pb.GetName(),
+		Alias:             pb.GetAlias(),
+		Tags:              pb.GetTags(),
+		URL:               pb.GetUrl(),
+		Subscribers:       pb.GetSubscribers(),
+		IsLocal:           pb.GetIsLocal(),
+		VideosRefreshedAt: pb.GetVideosRefreshedAt(),
+		State:             domain.SubscriptionState(pb.GetSubscriptionState()),
+		Blocked:           pb.GetBlocked(),
+		LastActivityAt:    pb.GetLastActivityAt(),
 	}
 }
 
@@ -238,23 +238,23 @@ func ProtoToLocalVideo(pb *v1.LocalVideo) domain.LocalVideo {
 		return domain.LocalVideo{}
 	}
 	v := domain.LocalVideo{
-		ID:             pb.Id,
-		Title:          pb.Title,
-		Channel:        pb.Channel,
-		Duration:       int(pb.Duration),
-		ViewCount:      pb.ViewCount,
-		UploadDate:     pb.UploadDate,
-		FilePath:       pb.FilePath,
-		FileSize:       pb.FileSize,
-		DownloadType:   pb.DownloadType,
-		Status:         domain.VideoStatus(pb.Status),
-		LastPositionMs: pb.LastPositionMs,
+		ID:             pb.GetId(),
+		Title:          pb.GetTitle(),
+		Channel:        pb.GetChannel(),
+		Duration:       int(pb.GetDuration()),
+		ViewCount:      pb.GetViewCount(),
+		UploadDate:     pb.GetUploadDate(),
+		FilePath:       pb.GetFilePath(),
+		FileSize:       pb.GetFileSize(),
+		DownloadType:   pb.GetDownloadType(),
+		Status:         domain.VideoStatus(pb.GetStatus()),
+		LastPositionMs: pb.GetLastPositionMs(),
 	}
-	if pb.DownloadedAt != nil {
-		v.DownloadedAt = pb.DownloadedAt.AsTime()
+	if pb.GetDownloadedAt() != nil {
+		v.DownloadedAt = pb.GetDownloadedAt().AsTime()
 	}
-	if pb.LastPlayed != nil {
-		v.LastPlayed = pb.LastPlayed.AsTime()
+	if pb.GetLastPlayed() != nil {
+		v.LastPlayed = pb.GetLastPlayed().AsTime()
 	}
 	return v
 }
@@ -263,9 +263,9 @@ func ProtoToPlaylist(pb *v1.Playlist) domain.Playlist {
 	if pb == nil {
 		return domain.Playlist{}
 	}
-	p := domain.Playlist{ID: pb.Id, Name: pb.Name}
-	if pb.CreatedAt != nil {
-		p.CreatedAt = pb.CreatedAt.AsTime()
+	p := domain.Playlist{ID: pb.GetId(), Name: pb.GetName()}
+	if pb.GetCreatedAt() != nil {
+		p.CreatedAt = pb.GetCreatedAt().AsTime()
 	}
 	return p
 }
@@ -274,7 +274,7 @@ func ProtoToYTPlaylists(pbs []*v1.YTPlaylist) []domain.YTPlaylist {
 	out := make([]domain.YTPlaylist, len(pbs))
 	for i, pb := range pbs {
 		if pb != nil {
-			out[i] = domain.YTPlaylist{ID: pb.Id, Title: pb.Title}
+			out[i] = domain.YTPlaylist{ID: pb.GetId(), Title: pb.GetTitle()}
 		}
 	}
 	return out
@@ -285,12 +285,12 @@ func ProtoToHistoryEntry(pb *v1.HistoryEntry) domain.HistoryEntry {
 		return domain.HistoryEntry{}
 	}
 	e := domain.HistoryEntry{
-		ID: pb.Id, VideoID: pb.VideoId, Title: pb.Title, Channel: pb.Channel, ChannelID: pb.ChannelId,
-		Duration: int(pb.Duration), ViewCount: pb.ViewCount, UploadDate: pb.UploadDate,
-		EventType: pb.EventType, Details: pb.Details,
+		ID: pb.GetId(), VideoID: pb.GetVideoId(), Title: pb.GetTitle(), Channel: pb.GetChannel(), ChannelID: pb.GetChannelId(),
+		Duration: int(pb.GetDuration()), ViewCount: pb.GetViewCount(), UploadDate: pb.GetUploadDate(),
+		EventType: pb.GetEventType(), Details: pb.GetDetails(),
 	}
-	if pb.Timestamp != nil {
-		e.Timestamp = pb.Timestamp.AsTime()
+	if pb.GetTimestamp() != nil {
+		e.Timestamp = pb.GetTimestamp().AsTime()
 	}
 	return e
 }
@@ -300,12 +300,12 @@ func ProtoToActivityEntry(pb *v1.ActivityEntry) domain.ActivityEntry {
 		return domain.ActivityEntry{}
 	}
 	e := domain.ActivityEntry{
-		ID: pb.Id, Type: pb.Type, IsLocal: pb.IsLocal, ChannelID: pb.ChannelId, ChannelName: pb.ChannelName,
-		PlaylistID: pb.PlaylistId, PlaylistLocalID: pb.PlaylistLocalId, PlaylistName: pb.PlaylistName,
-		VideoID: pb.VideoId, VideoTitle: pb.VideoTitle,
+		ID: pb.GetId(), Type: pb.GetType(), IsLocal: pb.GetIsLocal(), ChannelID: pb.GetChannelId(), ChannelName: pb.GetChannelName(),
+		PlaylistID: pb.GetPlaylistId(), PlaylistLocalID: pb.GetPlaylistLocalId(), PlaylistName: pb.GetPlaylistName(),
+		VideoID: pb.GetVideoId(), VideoTitle: pb.GetVideoTitle(),
 	}
-	if pb.Timestamp != nil {
-		e.Timestamp = pb.Timestamp.AsTime()
+	if pb.GetTimestamp() != nil {
+		e.Timestamp = pb.GetTimestamp().AsTime()
 	}
 	return e
 }
@@ -315,20 +315,20 @@ func ProtoToVideoDetails(pb *v1.VideoDetails) domain.VideoDetails {
 		return domain.VideoDetails{}
 	}
 	vd := domain.VideoDetails{
-		Video:        ProtoToVideo(pb.Video),
-		Description:  pb.Description,
-		ThumbnailURL: pb.ThumbnailUrl,
-		Subscribers:  pb.Subscribers,
-		Language:     pb.Language,
+		Video:        ProtoToVideo(pb.GetVideo()),
+		Description:  pb.GetDescription(),
+		ThumbnailURL: pb.GetThumbnailUrl(),
+		Subscribers:  pb.GetSubscribers(),
+		Language:     pb.GetLanguage(),
 	}
-	for _, rc := range pb.Chapters {
+	for _, rc := range pb.GetChapters() {
 		if rc != nil {
-			vd.Chapters = append(vd.Chapters, domain.RawChapter{Title: rc.Title, StartTime: rc.StartTime, EndTime: rc.EndTime})
+			vd.Chapters = append(vd.Chapters, domain.RawChapter{Title: rc.GetTitle(), StartTime: rc.GetStartTime(), EndTime: rc.GetEndTime()})
 		}
 	}
-	for _, s := range pb.SbSegments {
+	for _, s := range pb.GetSbSegments() {
 		if s != nil {
-			vd.SBSegments = append(vd.SBSegments, domain.SBSegment{Start: s.Start, End: s.End})
+			vd.SBSegments = append(vd.SBSegments, domain.SBSegment{Start: s.GetStart(), End: s.GetEnd()})
 		}
 	}
 	return vd
@@ -338,30 +338,30 @@ func ProtoToCachedDetails(pb *v1.CachedDetails) domain.CachedDetails {
 	if pb == nil {
 		return domain.CachedDetails{}
 	}
-	cd := domain.CachedDetails{Description: pb.Description, ThumbnailURL: pb.ThumbnailUrl, Subscribers: pb.Subscribers}
-	if pb.LinksParsed {
-		links := make([]domain.Link, len(pb.Links))
-		for i, l := range pb.Links {
+	cd := domain.CachedDetails{Description: pb.GetDescription(), ThumbnailURL: pb.GetThumbnailUrl(), Subscribers: pb.GetSubscribers()}
+	if pb.GetLinksParsed() {
+		links := make([]domain.Link, len(pb.GetLinks()))
+		for i, l := range pb.GetLinks() {
 			if l != nil {
-				links[i] = domain.Link{Label: l.Label, URL: l.Url}
+				links[i] = domain.Link{Label: l.GetLabel(), URL: l.GetUrl()}
 			}
 		}
 		cd.Links = &links
 	}
-	if pb.ChaptersParsed {
-		chapters := make([]domain.Chapter, len(pb.Chapters))
-		for i, c := range pb.Chapters {
+	if pb.GetChaptersParsed() {
+		chapters := make([]domain.Chapter, len(pb.GetChapters()))
+		for i, c := range pb.GetChapters() {
 			if c != nil {
-				chapters[i] = domain.Chapter{Title: c.Title, OriginalStart: c.OriginalStart, OriginalEnd: c.OriginalEnd, AdjustedStart: c.AdjustedStart, AdjustedEnd: c.AdjustedEnd}
+				chapters[i] = domain.Chapter{Title: c.GetTitle(), OriginalStart: c.GetOriginalStart(), OriginalEnd: c.GetOriginalEnd(), AdjustedStart: c.GetAdjustedStart(), AdjustedEnd: c.GetAdjustedEnd()}
 			}
 		}
 		cd.Chapters = &chapters
 	}
-	if pb.SbSegmentsParsed {
-		segs := make([]domain.SBSegment, len(pb.SbSegments))
-		for i, s := range pb.SbSegments {
+	if pb.GetSbSegmentsParsed() {
+		segs := make([]domain.SBSegment, len(pb.GetSbSegments()))
+		for i, s := range pb.GetSbSegments() {
 			if s != nil {
-				segs[i] = domain.SBSegment{Start: s.Start, End: s.End}
+				segs[i] = domain.SBSegment{Start: s.GetStart(), End: s.GetEnd()}
 			}
 		}
 		cd.SBSegments = &segs

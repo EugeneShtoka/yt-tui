@@ -91,7 +91,7 @@ type playlistsBackend interface {
 }
 
 type Playlists struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  playlistsBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -335,6 +335,7 @@ func (t Playlists) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return t.handleTypeSelect(msg)
 	case plCreateNameInput:
 		return t.handleNameInput(msg)
+	case plCreateNone:
 	}
 
 	keys := t.keys

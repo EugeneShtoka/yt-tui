@@ -39,20 +39,11 @@ func (c *listCursor) page(direction, n, pageH int) {
 		return
 	}
 	relPos := c.cursor - c.vs
-	newVS := c.vs + direction*pageH
-	if newVS < 0 {
-		newVS = 0
-	}
+	newVS := max(c.vs+direction*pageH, 0)
 	if newVS+pageH > n {
-		newVS = n - pageH
-		if newVS < 0 {
-			newVS = 0
-		}
+		newVS = max(n-pageH, 0)
 	}
-	pos := newVS + relPos
-	if pos < 0 {
-		pos = 0
-	}
+	pos := max(newVS+relPos, 0)
 	if pos >= n {
 		pos = n - 1
 	}
@@ -104,10 +95,7 @@ func (c *listCursor) window(n, pageH int) (start, end int) {
 	end = start + pageH
 	if end > n {
 		end = n
-		start = end - pageH
-		if start < 0 {
-			start = 0
-		}
+		start = max(end-pageH, 0)
 	}
 	return start, end
 }

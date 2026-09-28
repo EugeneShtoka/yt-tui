@@ -78,7 +78,7 @@ func trackLoop(ctx context.Context, interval time.Duration, alive func() bool, p
 // resolveWithRetry looks up the MPRIS bus name owned by pid, retrying briefly
 // since the player may not have registered yet.
 func resolveWithRetry(ctx context.Context, conn *dbus.Conn, pid int) (string, bool) {
-	for i := 0; i < resolveRetries; i++ {
+	for range resolveRetries {
 		if name, err := resolveBusNameForPID(conn, pid); err == nil {
 			return name, true
 		}

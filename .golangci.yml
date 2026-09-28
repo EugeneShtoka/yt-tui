@@ -28,8 +28,40 @@ linters:
     # Security
     - gosec          # security checks (G202/G204/G304/G104 excluded below)
     - funlen
+    - gocognit
+    # Adopted from mx-tui.
+    - errorlint      # errors.Is/As over == and type assertions on wrapped errors
+    - sqlclosecheck  # rows/stmts closed with defer
+    - rowserrcheck   # rows.Err checked after iteration
+    - containedctx   # a context held in a struct must be a decision, not a habit
+    - nolintlint     # every suppression names its linter and says why
+    - exhaustive     # a switch over an enum names every value, or says why not
+    - bidichk        # no invisible direction controls in source
+    - protogetter    # read wire messages through their nil-safe getters
+    - usestdlibvars  # http.MethodGet, not "GET"
+    - modernize      # the current idiom (range over int, slices/maps helpers, min/max)
+    - unparam        # a parameter every caller passes the same value, or a result nobody reads
+    - sloglint       # slog calls: key/value pairs consistent
+    - durationcheck  # two durations multiplied (a unit error)
+    - errchkjson     # a json encode error that can happen is checked
+    - usetesting     # t.TempDir / t.Context / t.Setenv over the os and context versions
+    # Considered and left off: contextcheck flags the deliberately detached contexts
+    # (the position tracker, background enrichment), and nilnil the "found nothing"
+    # (nil, nil) returns that are the documented contract of their functions.
 
   settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+      ignore-enum-types: "reflect\\.Kind"
+
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+
+    gocognit:
+      min-complexity: 25
+
     govet:
       enable:
         - shadow     # catch variable shadowing — footgun in bubbletea update loops
@@ -119,6 +151,138 @@ linters:
             - pkg: "github.com/EugeneShtoka/yt-tui/internal/backend"
               desc: "tui must not import backend/service directly; use api interface"
 
+        # ── Allow-lists (from mx-tui): each names exactly what its package may import,
+        # so a new dependency must be written down here. scripts/depguard-coverage-check.sh
+        # fails on a package no rule names.
+        buildinfo-is-standalone:
+          files:
+            - "**/internal/buildinfo/**"
+          allow:
+            - "$gostd"
+        text-is-a-leaf:
+          files:
+            - "**/internal/text/**"
+          allow:
+            - "$gostd"
+        procexec-is-a-leaf:
+          files:
+            - "**/internal/procexec/**"
+          allow:
+            - "$gostd"
+            - "github.com/EugeneShtoka/yt-tui/internal/procexec"
+
+        # The yt-dlp adapter: config, domain types and the process runner only.
+        youtube-is-the-adapter:
+          files:
+            - "**/internal/youtube/**"
+            - "!$test"
+          allow:
+            - "$gostd"
+            - "github.com/EugeneShtoka/yt-tui/internal/config"
+            - "github.com/EugeneShtoka/yt-tui/internal/debug"
+            - "github.com/EugeneShtoka/yt-tui/internal/domain"
+            - "github.com/EugeneShtoka/yt-tui/internal/procexec"
+            - "github.com/EugeneShtoka/yt-tui/internal/text"
+            - "github.com/EugeneShtoka/yt-tui/internal/youtube"
+
+        # The generated wire types: protobuf and connect only.
+        wire-is-generated:
+          files:
+            - "**/internal/api/backend/v1/*.go"
+            - "**/internal/api/backend/v1/backendv1connect/**"
+          allow:
+            - "$gostd"
+            - "google.golang.org/protobuf"
+            - "connectrpc.com/connect"
+            - "github.com/EugeneShtoka/yt-tui/internal/api/backend/v1"
+
+        # Wire <-> domain mapping; no infrastructure.
+        protoconv-maps-wire-to-domain:
+          files:
+            - "**/internal/api/backend/v1/protoconv/**"
+          allow:
+            - "$gostd"
+            - "google.golang.org/protobuf"
+            - "github.com/EugeneShtoka/yt-tui/internal/api/backend/v1"
+            - "github.com/EugeneShtoka/yt-tui/internal/domain"
+
+        # The backend seam: InProc wires the daemon-side services, Remote the wire.
+        # Never the TUI.
+        api-is-the-seam:
+          files:
+            - "**/internal/api/*.go"
+            - "!$test"
+          allow:
+            - "$gostd"
+            - "connectrpc.com/connect"
+            - "golang.org/x/sync"
+            - "github.com/EugeneShtoka/yt-tui/internal/api"
+            - "github.com/EugeneShtoka/yt-tui/internal/backend"
+            - "github.com/EugeneShtoka/yt-tui/internal/config"
+            - "github.com/EugeneShtoka/yt-tui/internal/db"
+            - "github.com/EugeneShtoka/yt-tui/internal/debug"
+            - "github.com/EugeneShtoka/yt-tui/internal/domain"
+            - "github.com/EugeneShtoka/yt-tui/internal/downloader"
+            - "github.com/EugeneShtoka/yt-tui/internal/youtube"
+
+        # Test fakes: the seam's types and nothing behind them.
+        fakes-are-sinks:
+          files:
+            - "**/internal/api/apitest/**"
+            - "**/internal/procexec/procexectest/**"
+          allow:
+            - "$gostd"
+            - "github.com/EugeneShtoka/yt-tui/internal/api"
+            - "github.com/EugeneShtoka/yt-tui/internal/config"
+            - "github.com/EugeneShtoka/yt-tui/internal/domain"
+            - "github.com/EugeneShtoka/yt-tui/internal/procexec"
+
+        # Background thumbnail warming for the client: through the seam only.
+        prewarm-uses-the-seam:
+          files:
+            - "**/internal/prewarm/**"
+          allow:
+            - "$gostd"
+            - "github.com/EugeneShtoka/yt-tui/internal/api"
+            - "github.com/EugeneShtoka/yt-tui/internal/debug"
+
+        # The binaries. yt-tui is the single-binary mode, so it wires the in-process
+        # backend (db, downloader, youtube) as well as the TUI.
+        client-main-wiring:
+          files:
+            - "**/cmd/yt-tui/**"
+          allow:
+            - "$gostd"
+            - "charm.land/bubbletea/v2"
+            - "github.com/charmbracelet/x/term"
+            - "github.com/EugeneShtoka/yt-tui/internal/api"
+            - "github.com/EugeneShtoka/yt-tui/internal/backend/thumbs"
+            - "github.com/EugeneShtoka/yt-tui/internal/backend/transcache"
+            - "github.com/EugeneShtoka/yt-tui/internal/buildinfo"
+            - "github.com/EugeneShtoka/yt-tui/internal/config"
+            - "github.com/EugeneShtoka/yt-tui/internal/db"
+            - "github.com/EugeneShtoka/yt-tui/internal/debug"
+            - "github.com/EugeneShtoka/yt-tui/internal/device/player"
+            - "github.com/EugeneShtoka/yt-tui/internal/downloader"
+            - "github.com/EugeneShtoka/yt-tui/internal/prewarm"
+            - "github.com/EugeneShtoka/yt-tui/internal/theme"
+            - "github.com/EugeneShtoka/yt-tui/internal/tui"
+            - "github.com/EugeneShtoka/yt-tui/internal/youtube"
+
+        # The daemon is headless: nothing under internal/tui, no bubbletea.
+        daemon-main-wiring:
+          files:
+            - "**/cmd/yt-tuid/**"
+          allow:
+            - "$gostd"
+            - "github.com/EugeneShtoka/yt-tui/internal/api"
+            - "github.com/EugeneShtoka/yt-tui/internal/backend"
+            - "github.com/EugeneShtoka/yt-tui/internal/buildinfo"
+            - "github.com/EugeneShtoka/yt-tui/internal/config"
+            - "github.com/EugeneShtoka/yt-tui/internal/db"
+            - "github.com/EugeneShtoka/yt-tui/internal/downloader"
+            - "github.com/EugeneShtoka/yt-tui/internal/youtube"
+
     errcheck:
       # Defer Close/Rollback are intentionally fire-and-forget cleanup paths.
       exclude-functions:
@@ -165,8 +329,10 @@ linters:
         - G104  # unhandled errors: covered by errcheck exclusions (Close/Rollback)
 
     funlen:
-      lines: 60        # Flag functions longer than 60 lines
-      statements: 40   # Flag functions longer than 40 statements
+      # Code lines only; comments are not counted.
+      ignore-comments: true
+      lines: 60        # 60 lines of code
+      statements: 40   # or 40 statements, whichever comes first
 
   # v2 moved issue exclusions under linters.exclusions (was issues.exclude-rules).
   exclusions:
@@ -183,6 +349,15 @@ linters:
           - gosec
           - wrapcheck
           - funlen
+          - gocognit
+          - containedctx
+          # A test helper keeps a parameter every caller passes alike when naming it at
+          # the call site says what the test is about.
+          - unparam
+      # Every TUI handler returns (Model, tea.Cmd) so dispatch treats them alike; one
+      # that has no command yet answers nil rather than a different shape.
+      - linters: [unparam]
+        text: "result 1 \\(charm\\.land/bubbletea/v2\\.Cmd\\) is always nil"
 
 issues:
   max-issues-per-linter: 0

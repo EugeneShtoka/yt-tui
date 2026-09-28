@@ -14,10 +14,8 @@ import (
 func TestSubscribeFanOutToAllSubscribers(t *testing.T) {
 	d := New(&config.Config{}, nil)
 
-	ctx1, cancel1 := context.WithCancel(context.Background())
-	defer cancel1()
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
+	ctx1 := t.Context()
+	ctx2 := t.Context()
 
 	ch1 := d.Subscribe(ctx1)
 	ch2 := d.Subscribe(ctx2)
@@ -94,8 +92,7 @@ func TestSubscribeCanceledSubscriberDoesNotBlockOthers(t *testing.T) {
 	d := New(&config.Config{}, nil)
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
+	ctx2 := t.Context()
 
 	ch1 := d.Subscribe(ctx1)
 	ch2 := d.Subscribe(ctx2)

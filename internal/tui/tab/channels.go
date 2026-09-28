@@ -96,7 +96,7 @@ type channelsBackend interface {
 }
 
 type Channels struct {
-	ctx                context.Context
+	ctx                context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend            channelsBackend
 	keys               keymap.KeyMap
 	circular           bool

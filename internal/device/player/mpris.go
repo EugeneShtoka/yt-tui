@@ -161,7 +161,7 @@ func (b *mprisBackend) pollSession(sess *Session, pid int) {
 // its MPRIS endpoint, retrying briefly since the player may not have called
 // RequestName yet right after the settle window.
 func (b *mprisBackend) resolveBusNameRetry(sess *Session, pid int) (string, bool) {
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if name, err := b.resolveBusName(pid); err == nil {
 			return name, true
 		}

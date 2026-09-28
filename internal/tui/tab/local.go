@@ -52,7 +52,7 @@ type localBackend interface {
 }
 
 type Local struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  localBackend
 	keys     keymap.KeyMap
 	circular bool

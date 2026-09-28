@@ -90,10 +90,7 @@ func (t Search) srchPaneLabel(name string, focused bool) string {
 }
 
 func (t Search) viewRecentSearches(height int) string {
-	pageH := t.srchRecentPageHeight()
-	if pageH > height-1 {
-		pageH = height - 1
-	}
+	pageH := min(t.srchRecentPageHeight(), height-1)
 	start, end := t.recent.window(pageH)
 
 	highlighted := -1
@@ -103,10 +100,7 @@ func (t Search) viewRecentSearches(height int) string {
 		highlighted = t.histIdx
 	}
 
-	nameW := t.width - render.ColNum - 1 - 2
-	if nameW < 10 {
-		nameW = 10
-	}
+	nameW := max(t.width-render.ColNum-1-2, 10)
 
 	rows := make([]string, 0, end-start+2)
 	rows = append(rows, styles.Dim.PaddingLeft(render.ColNum+3).Render("Recent searches"))

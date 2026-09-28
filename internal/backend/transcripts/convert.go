@@ -34,7 +34,7 @@ func SRTToCues(srt string) []Cue {
 	var out []Cue
 	var last string
 	var start float64
-	for _, raw := range strings.Split(srt, "\n") {
+	for raw := range strings.SplitSeq(srt, "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
 		case line == "",

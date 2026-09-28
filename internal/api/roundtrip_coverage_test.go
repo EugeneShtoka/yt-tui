@@ -1,4 +1,3 @@
-//nolint:wrapcheck // test stub — delegates to the apitest fake; errors are irrelevant
 package api_test
 
 import (

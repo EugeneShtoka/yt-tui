@@ -25,7 +25,7 @@ func (h *profileHandler) ListProfiles(ctx context.Context, _ *connect.Request[v1
 // GetProfile returns a named profile's opaque JSON bytes; found=false means it
 // simply doesn't exist (the client falls back to its on-disk config).
 func (h *profileHandler) GetProfile(ctx context.Context, req *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error) {
-	data, found, err := h.b.GetProfile(ctx, req.Msg.Name)
+	data, found, err := h.b.GetProfile(ctx, req.Msg.GetName())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -34,7 +34,7 @@ func (h *profileHandler) GetProfile(ctx context.Context, req *connect.Request[v1
 
 // SaveProfile persists a profile's bytes under the given name (overwriting).
 func (h *profileHandler) SaveProfile(ctx context.Context, req *connect.Request[v1.SaveProfileRequest]) (*connect.Response[v1.SaveProfileResponse], error) {
-	if err := h.b.SaveProfile(ctx, req.Msg.Name, req.Msg.Data); err != nil {
+	if err := h.b.SaveProfile(ctx, req.Msg.GetName(), req.Msg.GetData()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SaveProfileResponse{}), nil

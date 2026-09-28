@@ -1,4 +1,4 @@
-//nolint:wrapcheck,gosec // Connect errors are already structured; pass through without re-wrapping. gosec G115: proto int32 fields are bounded in practice (durations, counts).
+//nolint:wrapcheck // Connect errors are already structured; pass through without re-wrapping.
 package api
 
 import (

@@ -87,7 +87,7 @@ func enrichHistoryRows(entries []domain.HistoryEntry, aux videotable.AuxData) []
 }
 
 type History struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  historyBackend
 	keys     keymap.KeyMap
 	circular bool

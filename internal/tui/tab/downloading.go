@@ -47,7 +47,7 @@ var (
 )
 
 type Downloading struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  downloadingBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -246,10 +246,7 @@ func dlProgressBar(pct float64, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	filled := int(pct / 100 * float64(width))
-	if filled > width {
-		filled = width
-	}
+	filled := min(int(pct/100*float64(width)), width)
 	return "[" + styles.Success.Render(strings.Repeat("█", filled)) +
 		dlStyleEmpty.Render(strings.Repeat("░", width-filled)) + "]"
 }

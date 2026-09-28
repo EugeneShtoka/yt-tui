@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -134,7 +135,7 @@ func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 
 	seen := make(map[string]bool)
 	var pairs []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		// yt-dlp prefixes HttpOnly cookie lines with "#HttpOnly_" — strip it.
 		line = strings.TrimPrefix(line, "#HttpOnly_")
@@ -168,8 +169,8 @@ func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
 	}
 	var names []string
 	for _, p := range pairs {
-		if i := strings.IndexByte(p, '='); i >= 0 {
-			names = append(names, p[:i])
+		if before, _, ok := strings.Cut(p, "="); ok {
+			names = append(names, before)
 		}
 	}
 	debug.Log("parseCookieFile: cookies=%d names=%v sapisid_len=%d", len(pairs), names, len(sapisid))
@@ -195,9 +196,7 @@ func (c *YTClient) post(ctx context.Context, endpoint string, body map[string]an
 			},
 		},
 	}
-	for k, v := range body {
-		payload[k] = v
-	}
+	maps.Copy(payload, body)
 
 	data, err := json.Marshal(payload)
 	if err != nil {

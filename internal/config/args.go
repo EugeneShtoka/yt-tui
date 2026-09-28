@@ -22,9 +22,10 @@ func (c *DaemonConfig) SponsorBlockArg() string {
 	if !c.SponsorBlock || len(c.SponsorBlockCats) == 0 {
 		return ""
 	}
-	out := c.SponsorBlockCats[0]
+	var out strings.Builder
+	out.WriteString(c.SponsorBlockCats[0])
 	for _, cat := range c.SponsorBlockCats[1:] {
-		out += "," + cat
+		out.WriteString("," + cat)
 	}
-	return out
+	return out.String()
 }

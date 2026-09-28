@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -101,24 +102,26 @@ func (d *DB) checkAndClearCacheIfChanged() error {
 	if err != nil {
 		return fmt.Errorf("checkAndClearCacheIfChanged query: %w", err)
 	}
+	defer rows.Close()
 	var parts []string
 	for rows.Next() {
 		var cid int
 		var name, colType string
 		var notNull, pk int
-		var dflt interface{}
+		var dflt any
 		if err = rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
-			rows.Close()
 			return fmt.Errorf("checkAndClearCacheIfChanged scan: %w", err)
 		}
 		parts = append(parts, name+":"+colType)
 	}
-	rows.Close()
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("checkAndClearCacheIfChanged rows: %w", err)
+	}
 	fingerprint := strings.Join(parts, ",")
 
 	var stored string
 	err = d.sql.QueryRowContext(ctx, `SELECT value FROM meta WHERE key='cache_schema'`).Scan(&stored)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("checkAndClearCacheIfChanged read schema: %w", err)
 	}
 	if fingerprint == stored {
@@ -144,25 +147,21 @@ func (d *DB) cleanEmojiTitles() error {
 	}
 	for _, t := range targets {
 		// COALESCE so a nullable text column (e.g. videos.channel) scans as "".
-		rows, err := d.sql.QueryContext(ctx, "SELECT "+t.idCol+", COALESCE("+t.titleCol+",'') FROM "+t.table)
+		type row struct{ id, title string }
+		all, err := queryList(ctx, d.sql, "SELECT "+t.idCol+", COALESCE("+t.titleCol+",'') FROM "+t.table,
+			func(rows *sql.Rows) (row, error) {
+				var r row
+				return r, rows.Scan(&r.id, &r.title)
+			})
 		if err != nil {
 			return fmt.Errorf("cleanEmojiTitles query %s: %w", t.table, err)
 		}
-		type row struct{ id, title string }
-		var updates []row
-		for rows.Next() {
-			var r row
-			if err := rows.Scan(&r.id, &r.title); err != nil {
-				rows.Close()
-				return fmt.Errorf("cleanEmojiTitles scan %s: %w", t.table, err)
+		for _, r := range all {
+			clean := text.StripEmojis(r.title)
+			if clean == r.title {
+				continue
 			}
-			if clean := text.StripEmojis(r.title); clean != r.title {
-				updates = append(updates, row{r.id, clean})
-			}
-		}
-		rows.Close()
-		for _, u := range updates {
-			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", u.title, u.id); err != nil {
+			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", clean, r.id); err != nil {
 				return fmt.Errorf("cleanEmojiTitles update %s: %w", t.table, err)
 			}
 		}

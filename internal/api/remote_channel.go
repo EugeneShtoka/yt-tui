@@ -17,7 +17,7 @@ func (r *Remote) SubscribedChannels(ctx context.Context) ([]domain.Channel, erro
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToChannels(resp.Msg.Channels), nil
+	return protoconv.ProtoToChannels(resp.Msg.GetChannels()), nil
 }
 
 func (r *Remote) ChannelVideos(ctx context.Context, channelURL, channelID string) ([]domain.Video, error) {
@@ -25,7 +25,7 @@ func (r *Remote) ChannelVideos(ctx context.Context, channelURL, channelID string
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) ChannelLatestN(ctx context.Context, channelURL, channelID string, n int) ([]domain.Video, error) {
@@ -33,7 +33,7 @@ func (r *Remote) ChannelLatestN(ctx context.Context, channelURL, channelID strin
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) Search(ctx context.Context, query string) ([]domain.Channel, []domain.Video, error) {
@@ -41,7 +41,7 @@ func (r *Remote) Search(ctx context.Context, query string) ([]domain.Channel, []
 	if err != nil {
 		return nil, nil, err
 	}
-	return protoconv.ProtoToChannels(resp.Msg.Channels), protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToChannels(resp.Msg.GetChannels()), protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) GetChannelVideos(ctx context.Context, channelID string) ([]domain.Video, error) {
@@ -49,7 +49,7 @@ func (r *Remote) GetChannelVideos(ctx context.Context, channelID string) ([]doma
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) GetAllChannelVideos(ctx context.Context, channelIDs []string) ([]domain.Video, error) {
@@ -57,7 +57,7 @@ func (r *Remote) GetAllChannelVideos(ctx context.Context, channelIDs []string) (
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) GetChannelLatestAll(ctx context.Context) (map[string]domain.Video, error) {
@@ -65,8 +65,8 @@ func (r *Remote) GetChannelLatestAll(ctx context.Context) (map[string]domain.Vid
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]domain.Video, len(resp.Msg.Latest))
-	for k, pb := range resp.Msg.Latest {
+	out := make(map[string]domain.Video, len(resp.Msg.GetLatest()))
+	for k, pb := range resp.Msg.GetLatest() {
 		out[k] = protoconv.ProtoToVideo(pb)
 	}
 	return out, nil
@@ -77,7 +77,7 @@ func (r *Remote) ChannelHideStats(ctx context.Context, channelID string) (int, i
 	if err != nil {
 		return 0, 0, err
 	}
-	return int(resp.Msg.Hidden), int(resp.Msg.Played), nil
+	return int(resp.Msg.GetHidden()), int(resp.Msg.GetPlayed()), nil
 }
 
 func (r *Remote) GetSubscribedChannels(ctx context.Context) ([]domain.Channel, error) {
@@ -85,7 +85,7 @@ func (r *Remote) GetSubscribedChannels(ctx context.Context) ([]domain.Channel, e
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToChannels(resp.Msg.Channels), nil
+	return protoconv.ProtoToChannels(resp.Msg.GetChannels()), nil
 }
 
 func (r *Remote) AllChannels(ctx context.Context) ([]domain.Channel, error) {
@@ -93,7 +93,7 @@ func (r *Remote) AllChannels(ctx context.Context) ([]domain.Channel, error) {
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToChannels(resp.Msg.Channels), nil
+	return protoconv.ProtoToChannels(resp.Msg.GetChannels()), nil
 }
 
 func (r *Remote) BlockedChannels(ctx context.Context) ([]domain.Channel, error) {
@@ -101,7 +101,7 @@ func (r *Remote) BlockedChannels(ctx context.Context) ([]domain.Channel, error) 
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToChannels(resp.Msg.Channels), nil
+	return protoconv.ProtoToChannels(resp.Msg.GetChannels()), nil
 }
 
 func (r *Remote) BlockChannel(ctx context.Context, ch domain.Channel) error {

@@ -16,16 +16,16 @@ import (
 
 func serviceHandlerTypes() map[string]reflect.Type {
 	return map[string]reflect.Type{
-		"Feed":        reflect.TypeOf((*backendv1connect.FeedServiceHandler)(nil)).Elem(),
-		"Channel":     reflect.TypeOf((*backendv1connect.ChannelServiceHandler)(nil)).Elem(),
-		"Video":       reflect.TypeOf((*backendv1connect.VideoServiceHandler)(nil)).Elem(),
-		"Library":     reflect.TypeOf((*backendv1connect.LibraryServiceHandler)(nil)).Elem(),
-		"Playlist":    reflect.TypeOf((*backendv1connect.PlaylistServiceHandler)(nil)).Elem(),
-		"History":     reflect.TypeOf((*backendv1connect.HistoryServiceHandler)(nil)).Elem(),
-		"Portability": reflect.TypeOf((*backendv1connect.PortabilityServiceHandler)(nil)).Elem(),
-		"Profile":     reflect.TypeOf((*backendv1connect.ProfileServiceHandler)(nil)).Elem(),
-		"Health":      reflect.TypeOf((*backendv1connect.HealthServiceHandler)(nil)).Elem(),
-		"Download":    reflect.TypeOf((*backendv1connect.DownloadServiceHandler)(nil)).Elem(),
+		"Feed":        reflect.TypeFor[backendv1connect.FeedServiceHandler](),
+		"Channel":     reflect.TypeFor[backendv1connect.ChannelServiceHandler](),
+		"Video":       reflect.TypeFor[backendv1connect.VideoServiceHandler](),
+		"Library":     reflect.TypeFor[backendv1connect.LibraryServiceHandler](),
+		"Playlist":    reflect.TypeFor[backendv1connect.PlaylistServiceHandler](),
+		"History":     reflect.TypeFor[backendv1connect.HistoryServiceHandler](),
+		"Portability": reflect.TypeFor[backendv1connect.PortabilityServiceHandler](),
+		"Profile":     reflect.TypeFor[backendv1connect.ProfileServiceHandler](),
+		"Health":      reflect.TypeFor[backendv1connect.HealthServiceHandler](),
+		"Download":    reflect.TypeFor[backendv1connect.DownloadServiceHandler](),
 	}
 }
 
@@ -162,8 +162,8 @@ var exemptVerbs = map[string]string{
 func TestEveryTransportVerbClassified(t *testing.T) {
 	var unclassified []string
 	for svc, typ := range serviceHandlerTypes() {
-		for i := 0; i < typ.NumMethod(); i++ {
-			name := typ.Method(i).Name
+		for method := range typ.Methods() {
+			name := method.Name
 			if roundTripped[name] {
 				continue
 			}
@@ -183,8 +183,8 @@ func TestEveryTransportVerbClassified(t *testing.T) {
 func TestNoStaleVerbClassifications(t *testing.T) {
 	exists := map[string]bool{}
 	for _, typ := range serviceHandlerTypes() {
-		for i := 0; i < typ.NumMethod(); i++ {
-			exists[typ.Method(i).Name] = true
+		for method := range typ.Methods() {
+			exists[method.Name] = true
 		}
 	}
 	for name := range roundTripped {

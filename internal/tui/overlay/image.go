@@ -152,8 +152,8 @@ func renderThumbnailHalfBlock(img image.Image, targetW, targetH int) string {
 		return ""
 	}
 	var sb strings.Builder
-	for row := 0; row < targetH; row++ {
-		for col := 0; col < targetW; col++ {
+	for row := range targetH {
+		for col := range targetW {
 			tr, tg, tb := sampleRegion(img, bounds, col, 2*row, targetW, 2*targetH, srcW, srcH)
 			br, bg, bb := sampleRegion(img, bounds, col, 2*row+1, targetW, 2*targetH, srcW, srcH)
 			fmt.Fprintf(&sb, "\x1b[48;2;%d;%d;%dm\x1b[38;2;%d;%d;%dm▄",

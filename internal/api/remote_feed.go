@@ -17,7 +17,7 @@ func (r *Remote) Recommended(ctx context.Context) ([]domain.Video, error) {
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) GetFeedCache(ctx context.Context, feed string) ([]domain.Video, error) {
@@ -25,7 +25,7 @@ func (r *Remote) GetFeedCache(ctx context.Context, feed string) ([]domain.Video,
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) SaveFeedCache(ctx context.Context, feed string, videos []domain.Video) error {
@@ -48,7 +48,7 @@ func (r *Remote) HiddenRecVideoIDs(ctx context.Context) (map[string]bool, error)
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Ids, nil
+	return resp.Msg.GetIds(), nil
 }
 
 func (r *Remote) WatchedVideoIDs(ctx context.Context) (map[string]bool, error) {
@@ -56,7 +56,7 @@ func (r *Remote) WatchedVideoIDs(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Ids, nil
+	return resp.Msg.GetIds(), nil
 }
 
 func (r *Remote) ClearRecommended(ctx context.Context) error {

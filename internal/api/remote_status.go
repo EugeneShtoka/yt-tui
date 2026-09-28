@@ -26,7 +26,7 @@ func (r *Remote) CheckAvailability(ctx context.Context) ([]config.ConfigIssue, e
 	if err != nil {
 		return nil, err
 	}
-	return issuesFromProto(resp.Msg.Issues), nil
+	return issuesFromProto(resp.Msg.GetIssues()), nil
 }
 
 func (r *Remote) Capabilities(ctx context.Context) (Capabilities, error) {
@@ -34,7 +34,7 @@ func (r *Remote) Capabilities(ctx context.Context) (Capabilities, error) {
 	if err != nil {
 		return Capabilities{}, err
 	}
-	return Capabilities{ThumbnailsEnabled: resp.Msg.ThumbnailsEnabled}, nil
+	return Capabilities{ThumbnailsEnabled: resp.Msg.GetThumbnailsEnabled()}, nil
 }
 
 // issuesFromProto maps the wire issues back to config-layer issues, tagging each

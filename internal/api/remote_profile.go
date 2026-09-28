@@ -19,7 +19,7 @@ func (r *Remote) ListProfiles(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Names, nil
+	return resp.Msg.GetNames(), nil
 }
 
 func (r *Remote) GetProfile(ctx context.Context, name string) ([]byte, bool, error) {
@@ -27,7 +27,7 @@ func (r *Remote) GetProfile(ctx context.Context, name string) ([]byte, bool, err
 	if err != nil {
 		return nil, false, err
 	}
-	return resp.Msg.Data, resp.Msg.Found, nil
+	return resp.Msg.GetData(), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) SaveProfile(ctx context.Context, name string, data []byte) error {

@@ -17,7 +17,7 @@ func (r *Remote) History(ctx context.Context, limit int) ([]domain.HistoryEntry,
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToHistoryEntries(resp.Msg.Entries), nil
+	return protoconv.ProtoToHistoryEntries(resp.Msg.GetEntries()), nil
 }
 
 func (r *Remote) HistoryVideos(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
@@ -25,7 +25,7 @@ func (r *Remote) HistoryVideos(ctx context.Context, limit int) ([]domain.History
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToHistoryEntries(resp.Msg.Entries), nil
+	return protoconv.ProtoToHistoryEntries(resp.Msg.GetEntries()), nil
 }
 
 func (r *Remote) VideoHistory(ctx context.Context, videoID string) ([]domain.HistoryEntry, error) {
@@ -33,7 +33,7 @@ func (r *Remote) VideoHistory(ctx context.Context, videoID string) ([]domain.His
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToHistoryEntries(resp.Msg.Entries), nil
+	return protoconv.ProtoToHistoryEntries(resp.Msg.GetEntries()), nil
 }
 
 func (r *Remote) ActivityLog(ctx context.Context, limit int) ([]domain.ActivityEntry, error) {
@@ -41,8 +41,8 @@ func (r *Remote) ActivityLog(ctx context.Context, limit int) ([]domain.ActivityE
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.ActivityEntry, len(resp.Msg.Entries))
-	for i, pb := range resp.Msg.Entries {
+	out := make([]domain.ActivityEntry, len(resp.Msg.GetEntries()))
+	for i, pb := range resp.Msg.GetEntries() {
 		out[i] = protoconv.ProtoToActivityEntry(pb)
 	}
 	return out, nil
@@ -53,7 +53,7 @@ func (r *Remote) SearchQueries(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Queries, nil
+	return resp.Msg.GetQueries(), nil
 }
 
 func (r *Remote) AddHistory(ctx context.Context, videoID, eventType, details string) error {

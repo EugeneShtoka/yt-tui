@@ -20,13 +20,11 @@ func TestEmitNeverBlocks(t *testing.T) {
 	go func() {
 		var wg sync.WaitGroup
 		for range producers {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for range eventsEach {
 					d.emit(Event{Kind: EventProgress, VideoID: "test"})
 				}
-			}()
+			})
 		}
 		wg.Wait()
 		close(done)

@@ -21,7 +21,7 @@ func (r *Remote) Export(ctx context.Context, opts portability.ExportOptions) (po
 		return portability.Bundle{}, err
 	}
 	var b portability.Bundle
-	if err := json.Unmarshal(resp.Msg.Bundle, &b); err != nil {
+	if err := json.Unmarshal(resp.Msg.GetBundle(), &b); err != nil {
 		return portability.Bundle{}, fmt.Errorf("Export: decode bundle: %w", err)
 	}
 	return b, nil
@@ -43,7 +43,7 @@ func (r *Remote) ImportPreview(ctx context.Context, bundle portability.Bundle, o
 		return portability.ImportPlan{}, err
 	}
 	var plan portability.ImportPlan
-	if err := json.Unmarshal(resp.Msg.Plan, &plan); err != nil {
+	if err := json.Unmarshal(resp.Msg.GetPlan(), &plan); err != nil {
 		return portability.ImportPlan{}, fmt.Errorf("ImportPreview: decode plan: %w", err)
 	}
 	return plan, nil
@@ -65,7 +65,7 @@ func (r *Remote) ImportApply(ctx context.Context, bundle portability.Bundle, opt
 		return portability.ImportResult{}, err
 	}
 	var res portability.ImportResult
-	if err := json.Unmarshal(resp.Msg.Result, &res); err != nil {
+	if err := json.Unmarshal(resp.Msg.GetResult(), &res); err != nil {
 		return portability.ImportResult{}, fmt.Errorf("ImportApply: decode result: %w", err)
 	}
 	return res, nil

@@ -18,7 +18,7 @@ import (
 func TestBuildTranscriptNoteShared_CtxCancelDoesNotRaceWaitEnrichment(t *testing.T) {
 	p := &InProc{} // transcripts nil → the build is a no-op, but still runs on the tracked goroutine
 
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // caller has already given up before the build is scheduled
 		p.buildTranscriptNoteShared(ctx, "vid", "")
@@ -44,7 +44,7 @@ func TestBuildTranscriptNoteShared_ConcurrentSameKeyDrains(t *testing.T) {
 
 	var callers sync.WaitGroup
 	callers.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer callers.Done()
 			p.buildTranscriptNoteShared(context.Background(), "same-id", "")

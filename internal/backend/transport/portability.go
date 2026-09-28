@@ -19,7 +19,7 @@ var _ backendv1connect.PortabilityServiceHandler = (*portabilityHandler)(nil)
 // Export assembles the bundle on the daemon (where the DB lives) and returns it
 // as opaque JSON bytes; the Remote client decodes them back into a Bundle.
 func (h *portabilityHandler) Export(ctx context.Context, req *connect.Request[v1.ExportRequest]) (*connect.Response[v1.ExportResponse], error) {
-	bundle, err := h.b.Export(ctx, portability.ExportOptions{IncludeWatchData: req.Msg.IncludeWatchData})
+	bundle, err := h.b.Export(ctx, portability.ExportOptions{IncludeWatchData: req.Msg.GetIncludeWatchData()})
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -33,13 +33,13 @@ func (h *portabilityHandler) Export(ctx context.Context, req *connect.Request[v1
 // ImportPreview decodes the incoming bundle, runs the dry-run diff on the
 // daemon, and returns the ImportPlan as opaque JSON bytes.
 func (h *portabilityHandler) ImportPreview(ctx context.Context, req *connect.Request[v1.ImportPreviewRequest]) (*connect.Response[v1.ImportPreviewResponse], error) {
-	bundle, err := decodeBundle(req.Msg.Bundle)
+	bundle, err := decodeBundle(req.Msg.GetBundle())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
 	plan, err := h.b.ImportPreview(ctx, bundle, portability.ImportOptions{
-		ConvertYTToLocal: req.Msg.ConvertYtToLocal,
-		IncludeWatchData: req.Msg.IncludeWatchData,
+		ConvertYTToLocal: req.Msg.GetConvertYtToLocal(),
+		IncludeWatchData: req.Msg.GetIncludeWatchData(),
 	})
 	if err != nil {
 		return nil, rpcErr(err)
@@ -54,13 +54,13 @@ func (h *portabilityHandler) ImportPreview(ctx context.Context, req *connect.Req
 // ImportApply decodes the bundle and applies it on the daemon, returning the
 // ImportResult as opaque JSON bytes.
 func (h *portabilityHandler) ImportApply(ctx context.Context, req *connect.Request[v1.ImportApplyRequest]) (*connect.Response[v1.ImportApplyResponse], error) {
-	bundle, err := decodeBundle(req.Msg.Bundle)
+	bundle, err := decodeBundle(req.Msg.GetBundle())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
 	res, err := h.b.ImportApply(ctx, bundle, portability.ImportOptions{
-		ConvertYTToLocal: req.Msg.ConvertYtToLocal,
-		IncludeWatchData: req.Msg.IncludeWatchData,
+		ConvertYTToLocal: req.Msg.GetConvertYtToLocal(),
+		IncludeWatchData: req.Msg.GetIncludeWatchData(),
 	})
 	if err != nil {
 		return nil, rpcErr(err)

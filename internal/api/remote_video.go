@@ -19,7 +19,7 @@ func (r *Remote) VideoDetails(ctx context.Context, videoURL string) (domain.Vide
 	if err != nil {
 		return domain.VideoDetails{}, err
 	}
-	return protoconv.ProtoToVideoDetails(resp.Msg.Details), nil
+	return protoconv.ProtoToVideoDetails(resp.Msg.GetDetails()), nil
 }
 
 func (r *Remote) GetVideoDetailsCache(ctx context.Context, videoID string) (domain.CachedDetails, bool, error) {
@@ -27,7 +27,7 @@ func (r *Remote) GetVideoDetailsCache(ctx context.Context, videoID string) (doma
 	if err != nil {
 		return domain.CachedDetails{}, false, err
 	}
-	return protoconv.ProtoToCachedDetails(resp.Msg.Details), resp.Msg.Found, nil
+	return protoconv.ProtoToCachedDetails(resp.Msg.GetDetails()), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) VideoPosition(ctx context.Context, videoID string) (int64, bool, error) {
@@ -38,7 +38,7 @@ func (r *Remote) VideoPosition(ctx context.Context, videoID string) (int64, bool
 		// daemon hiccup. (H-8)
 		return 0, false, err
 	}
-	return resp.Msg.PositionMs, resp.Msg.Found, nil
+	return resp.Msg.GetPositionMs(), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) AllVideoPositions(ctx context.Context) (map[string]int64, error) {
@@ -46,7 +46,7 @@ func (r *Remote) AllVideoPositions(ctx context.Context) (map[string]int64, error
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Positions, nil
+	return resp.Msg.GetPositions(), nil
 }
 
 func (r *Remote) UpsertVideo(ctx context.Context, id, title, channel, channelID string, duration int, viewCount int64, uploadDate, url string) error {
@@ -130,7 +130,7 @@ func (r *Remote) GetThumbnail(ctx context.Context, videoID, fallbackURL string) 
 	if err != nil {
 		return nil, false, err
 	}
-	return resp.Msg.Data, resp.Msg.Found, nil
+	return resp.Msg.GetData(), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) GetTranscript(ctx context.Context, videoID, videoURL string) (string, bool, error) {
@@ -138,7 +138,7 @@ func (r *Remote) GetTranscript(ctx context.Context, videoID, videoURL string) (s
 	if err != nil {
 		return "", false, err
 	}
-	return resp.Msg.Text, resp.Msg.Found, nil
+	return resp.Msg.GetText(), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) EligibleThumbnailIDs(ctx context.Context) (map[string]bool, error) {
@@ -146,7 +146,7 @@ func (r *Remote) EligibleThumbnailIDs(ctx context.Context) (map[string]bool, err
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Ids, nil
+	return resp.Msg.GetIds(), nil
 }
 
 func (r *Remote) ResolveSource(ctx context.Context, videoID, fallbackURL string) (PlayableSource, error) {
@@ -154,7 +154,7 @@ func (r *Remote) ResolveSource(ctx context.Context, videoID, fallbackURL string)
 	if err != nil {
 		return PlayableSource{}, err
 	}
-	uri := resp.Msg.Uri
+	uri := resp.Msg.GetUri()
 	if len(uri) > 0 && uri[0] == '/' {
 		uri = r.baseURL + uri
 	}

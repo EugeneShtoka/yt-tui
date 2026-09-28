@@ -63,16 +63,14 @@ func (w *Warmer) Run(ctx context.Context) {
 	work := make(chan string)
 	var wg sync.WaitGroup
 	for i := 0; i < w.concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for id := range work {
 				// The seam checks the local cache first (a hit is a no-op) and writes
 				// the fetched bytes back, so this call both dedups and populates. We
 				// only want the caching side effect; the returned image is discarded.
 				_, _, _ = w.media.GetThumbnail(ctx, id, "")
 			}
-		}()
+		})
 	}
 
 	dispatched := 0

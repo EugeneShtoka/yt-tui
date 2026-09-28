@@ -192,7 +192,7 @@ func TestDataDrivenTabBarRenders(t *testing.T) {
 			t.Fatalf("frame line %d width %d exceeds terminal width %d", i, got, w)
 		}
 	}
-	bar := strings.Split(frame, "\n")[0]
+	bar, _, _ := strings.Cut(frame, "\n")
 	for _, want := range []string{"Feed", "Channels", "Local", "History"} {
 		if !strings.Contains(bar, want) {
 			t.Errorf("tab bar %q missing panel label %q", bar, want)

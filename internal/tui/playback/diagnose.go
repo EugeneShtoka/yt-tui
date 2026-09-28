@@ -132,7 +132,7 @@ func retryable(res player.Result) bool {
 // skipped. With no error line at all, the last thing said is the best on offer.
 func firstErrorLine(output string) string {
 	var last string
-	for _, raw := range strings.Split(output, "\n") {
+	for raw := range strings.SplitSeq(output, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue

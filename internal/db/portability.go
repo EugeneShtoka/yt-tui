@@ -62,7 +62,7 @@ func (d *DB) UpsertChannel(ctx context.Context, ch domain.Channel) error {
 // AddHistory. Dedup is the caller's concern (the service filters events already
 // present before calling this).
 func (d *DB) AddHistoryEvent(ctx context.Context, videoID, eventType, details string, ts time.Time) error {
-	var vid interface{}
+	var vid any
 	if videoID != "" {
 		vid = videoID
 	}

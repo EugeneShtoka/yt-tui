@@ -18,10 +18,7 @@ const BorderPad = 6
 // len() over-counts styled or CJK text. At least one space always separates the
 // two, even when they would otherwise overflow the width.
 func JustifyEnds(left, right string, width int) string {
-	space := width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if space < 1 {
-		space = 1
-	}
+	space := max(width-ansi.StringWidth(left)-ansi.StringWidth(right), 1)
 	return left + strings.Repeat(" ", space) + right
 }
 
@@ -32,13 +29,7 @@ func JustifyEnds(left, right string, width int) string {
 // inside the border+padding. Centralizes the geometry the scrollable overlays
 // (Help, CommandHelp, ConfigIssues) previously re-derived by hand.
 func ModalBox(width, ratioTenths, max int) (boxW, innerW int) {
-	boxW = width * ratioTenths / 10
-	if boxW > max {
-		boxW = max
-	}
-	if boxW > width-4 {
-		boxW = width - 4
-	}
+	boxW = min(min(width*ratioTenths/10, max), width-4)
 	if boxW < 32 {
 		boxW = 32
 	}

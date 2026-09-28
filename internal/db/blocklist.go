@@ -35,7 +35,7 @@ func (d *DB) BlockChannel(ctx context.Context, channelID string) error {
 	if err != nil {
 		return fmt.Errorf("BlockChannel begin: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	defer tx.Rollback()
 	if err := blockChannelIDTx(ctx, tx, channelID); err != nil {
 		return err
 	}

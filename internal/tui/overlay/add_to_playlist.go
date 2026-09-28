@@ -44,7 +44,7 @@ type atpCreatedMsg struct {
 // AddToPlaylist is the "add video to playlist" modal overlay.
 type AddToPlaylist struct {
 	identity
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  api.PlaylistBackend
 	keys     keymap.KeyMap
 	circular bool

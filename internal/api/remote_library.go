@@ -17,8 +17,8 @@ func (r *Remote) LocalVideos(ctx context.Context) ([]domain.LocalVideo, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.LocalVideo, len(resp.Msg.Videos))
-	for i, pb := range resp.Msg.Videos {
+	out := make([]domain.LocalVideo, len(resp.Msg.GetVideos()))
+	for i, pb := range resp.Msg.GetVideos() {
 		out[i] = protoconv.ProtoToLocalVideo(pb)
 	}
 	return out, nil
@@ -34,7 +34,7 @@ func (r *Remote) HasLocalVideo(ctx context.Context, videoID string) (domain.Loca
 		// local. (H-8)
 		return domain.LocalVideo{}, false, err
 	}
-	return protoconv.ProtoToLocalVideo(resp.Msg.Video), resp.Msg.Found, nil
+	return protoconv.ProtoToLocalVideo(resp.Msg.GetVideo()), resp.Msg.GetFound(), nil
 }
 
 func (r *Remote) AddLocalVideo(ctx context.Context, v domain.LocalVideo) error {
@@ -52,5 +52,5 @@ func (r *Remote) DeleteAllLocalFiles(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(resp.Msg.Deleted), nil
+	return int(resp.Msg.GetDeleted()), nil
 }

@@ -37,6 +37,8 @@ const (
 //
 // Both auto-closes reuse the existing "delete" event string so they render
 // identically in the History tab, distinguished only by their details.
+//
+//nolint:gocognit // two set differences (A−B, B−A) documented above as one pass
 func (d *DB) reconcileDownloads(ctx context.Context) error {
 	locals, err := d.localVideoFiles(ctx)
 	if err != nil {

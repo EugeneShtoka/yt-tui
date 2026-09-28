@@ -37,7 +37,7 @@ func queryList[T any](ctx context.Context, qr querier, query string, scan func(*
 	for rows.Next() {
 		v, err := scan(rows)
 		if err != nil {
-			return nil, err //nolint:wrapcheck // call sites wrap with their own context
+			return nil, err
 		}
 		out = append(out, v)
 	}
@@ -58,7 +58,7 @@ func queryMap[K comparable, V any](ctx context.Context, qr querier, query string
 	for rows.Next() {
 		k, v, err := scan(rows)
 		if err != nil {
-			return nil, err //nolint:wrapcheck // call sites wrap with their own context
+			return nil, err
 		}
 		out[k] = v
 	}
@@ -105,7 +105,7 @@ func scanVideo(rows *sql.Rows, leading ...any) (domain.Video, error) {
 		&v.ID, &v.Title, &v.Channel, &v.ChannelID,
 		&v.Duration, &v.ViewCount, &v.UploadDate, &v.URL)
 	if err := rows.Scan(dest...); err != nil {
-		return domain.Video{}, err //nolint:wrapcheck // every call site wraps with its own context
+		return domain.Video{}, err
 	}
 	return v, nil
 }

@@ -19,7 +19,7 @@ var linkRe = regexp.MustCompile(`https?://[^\s\]>)"']+`)
 func ExtractLinks(desc string) []domain.Link {
 	seen := make(map[string]bool)
 	var out []domain.Link
-	for _, line := range strings.Split(desc, "\n") {
+	for line := range strings.SplitSeq(desc, "\n") {
 		for _, loc := range linkRe.FindAllStringIndex(line, -1) {
 			url := strings.TrimRight(line[loc[0]:loc[1]], ".,;:!?)'\"")
 			if seen[url] {

@@ -28,7 +28,7 @@ func (h *playlistHandler) LocalPlaylists(ctx context.Context, _ *connect.Request
 }
 
 func (h *playlistHandler) LocalPlaylistVideos(ctx context.Context, req *connect.Request[v1.LocalPlaylistVideosRequest]) (*connect.Response[v1.LocalPlaylistVideosResponse], error) {
-	vids, err := h.b.LocalPlaylistVideos(ctx, req.Msg.PlaylistId)
+	vids, err := h.b.LocalPlaylistVideos(ctx, req.Msg.GetPlaylistId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -36,7 +36,7 @@ func (h *playlistHandler) LocalPlaylistVideos(ctx context.Context, req *connect.
 }
 
 func (h *playlistHandler) PlaylistVideoIDs(ctx context.Context, req *connect.Request[v1.PlaylistVideoIDsRequest]) (*connect.Response[v1.PlaylistVideoIDsResponse], error) {
-	ids, err := h.b.PlaylistVideoIDs(ctx, req.Msg.PlaylistId)
+	ids, err := h.b.PlaylistVideoIDs(ctx, req.Msg.GetPlaylistId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -44,7 +44,7 @@ func (h *playlistHandler) PlaylistVideoIDs(ctx context.Context, req *connect.Req
 }
 
 func (h *playlistHandler) CreatePlaylist(ctx context.Context, req *connect.Request[v1.CreatePlaylistRequest]) (*connect.Response[v1.CreatePlaylistResponse], error) {
-	id, err := h.b.CreatePlaylist(ctx, req.Msg.Name)
+	id, err := h.b.CreatePlaylist(ctx, req.Msg.GetName())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -52,35 +52,35 @@ func (h *playlistHandler) CreatePlaylist(ctx context.Context, req *connect.Reque
 }
 
 func (h *playlistHandler) DeletePlaylist(ctx context.Context, req *connect.Request[v1.DeletePlaylistRequest]) (*connect.Response[v1.DeletePlaylistResponse], error) {
-	if err := h.b.DeletePlaylist(ctx, req.Msg.Id); err != nil {
+	if err := h.b.DeletePlaylist(ctx, req.Msg.GetId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.DeletePlaylistResponse{}), nil
 }
 
 func (h *playlistHandler) AddToPlaylist(ctx context.Context, req *connect.Request[v1.AddToPlaylistRequest]) (*connect.Response[v1.AddToPlaylistResponse], error) {
-	if err := h.b.AddToPlaylist(ctx, req.Msg.PlaylistId, req.Msg.VideoId); err != nil {
+	if err := h.b.AddToPlaylist(ctx, req.Msg.GetPlaylistId(), req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.AddToPlaylistResponse{}), nil
 }
 
 func (h *playlistHandler) RemoveFromPlaylist(ctx context.Context, req *connect.Request[v1.RemoveFromPlaylistRequest]) (*connect.Response[v1.RemoveFromPlaylistResponse], error) {
-	if err := h.b.RemoveFromPlaylist(ctx, req.Msg.PlaylistId, req.Msg.VideoId); err != nil {
+	if err := h.b.RemoveFromPlaylist(ctx, req.Msg.GetPlaylistId(), req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.RemoveFromPlaylistResponse{}), nil
 }
 
 func (h *playlistHandler) AddToWatchLater(ctx context.Context, req *connect.Request[v1.AddToWatchLaterRequest]) (*connect.Response[v1.AddToWatchLaterResponse], error) {
-	if err := h.b.AddToWatchLater(ctx, protoconv.ProtoToVideo(req.Msg.Video)); err != nil {
+	if err := h.b.AddToWatchLater(ctx, protoconv.ProtoToVideo(req.Msg.GetVideo())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.AddToWatchLaterResponse{}), nil
 }
 
 func (h *playlistHandler) RemoveFromWatchLater(ctx context.Context, req *connect.Request[v1.RemoveFromWatchLaterRequest]) (*connect.Response[v1.RemoveFromWatchLaterResponse], error) {
-	if err := h.b.RemoveFromWatchLater(ctx, req.Msg.VideoId); err != nil {
+	if err := h.b.RemoveFromWatchLater(ctx, req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.RemoveFromWatchLaterResponse{}), nil
@@ -99,7 +99,7 @@ func (h *playlistHandler) YTPlaylists(ctx context.Context, _ *connect.Request[v1
 }
 
 func (h *playlistHandler) YTPlaylistVideos(ctx context.Context, req *connect.Request[v1.YTPlaylistVideosRequest]) (*connect.Response[v1.YTPlaylistVideosResponse], error) {
-	vids, err := h.b.YTPlaylistVideos(ctx, req.Msg.PlaylistId)
+	vids, err := h.b.YTPlaylistVideos(ctx, req.Msg.GetPlaylistId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -131,7 +131,7 @@ func (h *playlistHandler) SyncYTPlaylists(ctx context.Context, _ *connect.Reques
 }
 
 func (h *playlistHandler) GetYTPlaylistVideos(ctx context.Context, req *connect.Request[v1.GetYTPlaylistVideosRequest]) (*connect.Response[v1.GetYTPlaylistVideosResponse], error) {
-	vids, err := h.b.GetYTPlaylistVideos(ctx, req.Msg.PlaylistId)
+	vids, err := h.b.GetYTPlaylistVideos(ctx, req.Msg.GetPlaylistId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -139,10 +139,10 @@ func (h *playlistHandler) GetYTPlaylistVideos(ctx context.Context, req *connect.
 }
 
 func (h *playlistHandler) SaveYTPlaylists(ctx context.Context, req *connect.Request[v1.SaveYTPlaylistsRequest]) (*connect.Response[v1.SaveYTPlaylistsResponse], error) {
-	pls := make([]domain.YTPlaylist, len(req.Msg.Playlists))
-	for i, p := range req.Msg.Playlists {
+	pls := make([]domain.YTPlaylist, len(req.Msg.GetPlaylists()))
+	for i, p := range req.Msg.GetPlaylists() {
 		if p != nil {
-			pls[i] = domain.YTPlaylist{ID: p.Id, Title: p.Title}
+			pls[i] = domain.YTPlaylist{ID: p.GetId(), Title: p.GetTitle()}
 		}
 	}
 	if err := h.b.SaveYTPlaylists(ctx, pls); err != nil {
@@ -152,7 +152,7 @@ func (h *playlistHandler) SaveYTPlaylists(ctx context.Context, req *connect.Requ
 }
 
 func (h *playlistHandler) SaveYTPlaylistVideos(ctx context.Context, req *connect.Request[v1.SaveYTPlaylistVideosRequest]) (*connect.Response[v1.SaveYTPlaylistVideosResponse], error) {
-	if err := h.b.SaveYTPlaylistVideos(ctx, req.Msg.PlaylistId, protoconv.ProtoToVideos(req.Msg.Videos)); err != nil {
+	if err := h.b.SaveYTPlaylistVideos(ctx, req.Msg.GetPlaylistId(), protoconv.ProtoToVideos(req.Msg.GetVideos())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SaveYTPlaylistVideosResponse{}), nil
@@ -166,7 +166,7 @@ func (h *playlistHandler) InitYTClient(ctx context.Context, _ *connect.Request[v
 }
 
 func (h *playlistHandler) CreateYTPlaylist(ctx context.Context, req *connect.Request[v1.CreateYTPlaylistRequest]) (*connect.Response[v1.CreateYTPlaylistResponse], error) {
-	id, err := h.b.CreateYTPlaylist(ctx, req.Msg.Name)
+	id, err := h.b.CreateYTPlaylist(ctx, req.Msg.GetName())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -174,21 +174,21 @@ func (h *playlistHandler) CreateYTPlaylist(ctx context.Context, req *connect.Req
 }
 
 func (h *playlistHandler) DeleteYTPlaylist(ctx context.Context, req *connect.Request[v1.DeleteYTPlaylistRequest]) (*connect.Response[v1.DeleteYTPlaylistResponse], error) {
-	if err := h.b.DeleteYTPlaylist(ctx, req.Msg.PlaylistId); err != nil {
+	if err := h.b.DeleteYTPlaylist(ctx, req.Msg.GetPlaylistId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.DeleteYTPlaylistResponse{}), nil
 }
 
 func (h *playlistHandler) AddToYTPlaylist(ctx context.Context, req *connect.Request[v1.AddToYTPlaylistRequest]) (*connect.Response[v1.AddToYTPlaylistResponse], error) {
-	if err := h.b.AddToYTPlaylist(ctx, req.Msg.PlaylistId, req.Msg.VideoId); err != nil {
+	if err := h.b.AddToYTPlaylist(ctx, req.Msg.GetPlaylistId(), req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.AddToYTPlaylistResponse{}), nil
 }
 
 func (h *playlistHandler) RemoveFromYTPlaylist(ctx context.Context, req *connect.Request[v1.RemoveFromYTPlaylistRequest]) (*connect.Response[v1.RemoveFromYTPlaylistResponse], error) {
-	if err := h.b.RemoveFromYTPlaylist(ctx, req.Msg.PlaylistId, req.Msg.VideoId); err != nil {
+	if err := h.b.RemoveFromYTPlaylist(ctx, req.Msg.GetPlaylistId(), req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.RemoveFromYTPlaylistResponse{}), nil
