@@ -81,7 +81,7 @@ func (c *Client) Recommended(ctx context.Context) ([]domain.Video, error) {
 		limit = 150
 	}
 	args := buildArgs(c.cfg, "https://www.youtube.com/feed/recommended", limit)
-	videos, _, err := c.runAndParseVideos(ctx, args)
+	videos, _, err := c.runAndParseRecommended(ctx, args)
 	if c.cfg.StripEmojis {
 		videos = applyStripEmojisVideos(videos)
 	}

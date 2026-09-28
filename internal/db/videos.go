@@ -80,6 +80,8 @@ func scanString(rows *sql.Rows) (string, error) {
 // SaveChannelVideos, SaveFeedCache, SaveYTPlaylistVideos). Centralizing it means
 // every caller updates every column — a previous copy in SaveFeedCache omitted
 // url=excluded.url, so a video's URL silently never refreshed via that path.
+// A view count of 0 means unknown (the recommended feed carries none), so it
+// never overwrites a count a channel crawl or enrichment already recorded.
 func upsertVideoTx(ctx context.Context, ex execer, v domain.Video) error {
 	if _, err := ex.ExecContext(ctx, `
 		INSERT INTO videos (id, title, channel, channel_id, duration, view_count, upload_date, url)
@@ -87,7 +89,8 @@ func upsertVideoTx(ctx context.Context, ex execer, v domain.Video) error {
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, channel=excluded.channel,
 			channel_id=COALESCE(NULLIF(excluded.channel_id,''), channel_id),
-			duration=excluded.duration, view_count=excluded.view_count,
+			duration=excluded.duration,
+			view_count=CASE WHEN excluded.view_count > 0 THEN excluded.view_count ELSE view_count END,
 			upload_date=excluded.upload_date, url=excluded.url
 	`, v.ID, v.Title, v.Channel, v.ChannelID, v.Duration, v.ViewCount, v.UploadDate, v.URL); err != nil {
 		return fmt.Errorf("upsertVideoTx: %w", err)

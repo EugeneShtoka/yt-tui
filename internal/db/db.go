@@ -169,17 +169,26 @@ func (d *DB) cleanEmojiTitles() error {
 	return nil
 }
 
-// deleteMemberVideos removes member-only videos (view_count=0) from the DB.
-// Videos that have been downloaded (present in local_videos) are preserved.
+// deleteMemberVideos removes member-only videos (view_count=0) that a channel
+// crawl saved before the parser filtered them. A zero count is only a guess at
+// "members-only" — the recommended feed carries no view counts at all — so a
+// video the user has touched is never pruned: downloaded, in the recommended
+// cache, hidden, in a playlist, or in History. Deleting those erased user data
+// on every start (playlist entries, hides, and History rows via ON DELETE
+// CASCADE) and emptied the recommended cache.
 func (d *DB) deleteMemberVideos() error {
 	ctx := context.Background()
+	const pruned = `SELECT id FROM videos WHERE view_count=0
+		AND id NOT IN (SELECT id FROM local_videos)
+		AND id NOT IN (SELECT video_id FROM feed_cache WHERE feed='recommended')
+		AND id NOT IN (SELECT video_id FROM hidden_rec_videos)
+		AND id NOT IN (SELECT video_id FROM collection_videos)
+		AND id NOT IN (SELECT video_id FROM history WHERE video_id IS NOT NULL)`
 	for _, stmt := range []string{
-		`DELETE FROM feed_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
-		`DELETE FROM channel_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
-		`DELETE FROM collection_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
-		`DELETE FROM hidden_rec_videos WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
-		`DELETE FROM video_details_cache WHERE video_id IN (SELECT id FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos))`,
-		`DELETE FROM videos WHERE view_count=0 AND id NOT IN (SELECT id FROM local_videos)`,
+		`DELETE FROM feed_cache WHERE video_id IN (` + pruned + `)`,
+		`DELETE FROM channel_videos WHERE video_id IN (` + pruned + `)`,
+		`DELETE FROM video_details_cache WHERE video_id IN (` + pruned + `)`,
+		`DELETE FROM videos WHERE id IN (` + pruned + `)`,
 	} {
 		if _, err := d.sql.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("deleteMemberVideos: %w", err)

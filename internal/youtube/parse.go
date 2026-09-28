@@ -86,6 +86,20 @@ func newLineScanner(r io.Reader) *bufio.Scanner {
 // Returns (videos, rawCount, err) where rawCount is the number of valid entries
 // seen before the ViewCount==0 (member-only) filter, used for pagination decisions.
 func parseVideoLines(r io.Reader) ([]domain.Video, int, error) {
+	return scanVideoLines(r, false)
+}
+
+// parseRecommendedLines is parseVideoLines for the recommended feed, which keeps
+// entries with no view count. YouTube's home feed stopped carrying view counts
+// (yt-dlp emits "view_count": null for every entry), so the member-only
+// heuristic — no count means members-only, true on channel tabs — would drop the
+// whole feed. The count stays 0 (unknown), which FilterRecommended's min-views
+// filter already treats as "keep".
+func parseRecommendedLines(r io.Reader) ([]domain.Video, int, error) {
+	return scanVideoLines(r, true)
+}
+
+func scanVideoLines(r io.Reader, keepUnviewed bool) ([]domain.Video, int, error) {
 	var videos []domain.Video
 	raw := 0
 	scanner := newLineScanner(r)
@@ -105,7 +119,7 @@ func parseVideoLines(r io.Reader) ([]domain.Video, int, error) {
 			continue
 		}
 		raw++ // count before member-only filter
-		if e.ViewCount == 0 {
+		if e.ViewCount == 0 && !keepUnviewed {
 			continue
 		}
 		videos = append(videos, e.toVideo())
