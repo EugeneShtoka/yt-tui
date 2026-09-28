@@ -210,8 +210,8 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BINARIES := yt-tui yt-tuid
 
-# Build and copy the binaries into BINDIR, with no gates. `install` replaces each
-# file (unlink + create), so a yt-tui that is running keeps its old binary.
+# Build and copy the binaries into BINDIR. `install` replaces each file (unlink +
+# create), so a yt-tui that is running keeps its old binary.
 install: build
 	@set -eu; \
 	if { [ -d "$(BINDIR)" ] && [ -w "$(BINDIR)" ]; } || mkdir -p "$(BINDIR)" 2>/dev/null; then SUDO=""; \
@@ -221,12 +221,10 @@ install: build
 	case ":$$PATH:" in *":$(BINDIR):"*) ;; *) echo "!!  $(BINDIR) is not on PATH" ;; esac; \
 	"$(BINDIR)/yt-tui" --version
 
-# The one command: every CI gate, then build and install. Nothing is installed
-# unless `check` passes. Sequential sub-makes, so `make -j deploy` cannot install
-# before the gates finish.
-deploy:
-	@$(MAKE) --no-print-directory check
-	@$(MAKE) --no-print-directory install
+# Build and install, with no gates (as in mx-tui): the pre-push hook and CI run
+# `make check`. There is no local daemon unit to restart — yt-tui runs its backend
+# in-process, and yt-tuid is deployed as a system service (deploy/yt-tuid.service).
+deploy: install
 
 # Remove what `install` wrote. Config, database and caches are left in place.
 undeploy:

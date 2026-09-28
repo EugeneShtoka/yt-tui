@@ -44,8 +44,7 @@ The `Makefile` wraps the common tasks:
 make build        # build both ./yt-tui and ./yt-tuid (CGO_ENABLED=0, as released)
 make run          # go run the TUI client
 make run-daemon   # go run the headless daemon
-make install      # build + copy both binaries to ~/.local/bin (no gates)
-make deploy       # make check, then make install — the one command
+make deploy       # build + copy both binaries to ~/.local/bin (no gates; alias: install)
 make undeploy     # remove the installed binaries (config and data are kept)
 ```
 
