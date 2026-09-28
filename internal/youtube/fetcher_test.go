@@ -52,6 +52,31 @@ func TestParseVideoLinesFiltersBranches(t *testing.T) {
 	}
 }
 
+// YouTube's home feed carries no view counts: yt-dlp emits "view_count": null for
+// every recommended entry. The channel-tab member-only rule (no count → drop)
+// emptied the whole feed; recommended keeps them with the count unknown (0).
+func TestParseRecommendedLinesKeepsUnknownViewCount(t *testing.T) {
+	lines := strings.Join([]string{
+		`{"id":"rec1","title":"No count","channel_id":"UC1","duration":600,"view_count":null,"upload_date":"20260928"}`,
+		`{"id":"rec2","title":"Counted","view_count":42}`,
+		`{"id":"tab","title":"A Channel","ie_key":"YoutubeTab"}`,
+	}, "\n")
+
+	got, raw, err := parseRecommendedLines(strings.NewReader(lines))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(got) != 2 || raw != 2 || got[0].ID != "rec1" || got[0].ViewCount != 0 || got[1].ID != "rec2" {
+		t.Fatalf("got %+v (raw %d), want rec1 (count 0) and rec2", got, raw)
+	}
+
+	// Channel tabs keep the member-only rule.
+	strict, _, _ := parseVideoLines(strings.NewReader(lines))
+	if len(strict) != 1 || strict[0].ID != "rec2" {
+		t.Errorf("parseVideoLines kept %+v, want only rec2", strict)
+	}
+}
+
 func TestParseVideoLinesDerivesURLWhenMissing(t *testing.T) {
 	fixture := `{"id":"abc","title":"T","view_count":1}`
 	got, _, _ := parseVideoLines(strings.NewReader(fixture))
