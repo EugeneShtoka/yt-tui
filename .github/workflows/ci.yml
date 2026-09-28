@@ -203,9 +203,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Every gate passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           set -euo pipefail
-          results='${{ join(needs.*.result, " ") }}'
+          results="$RESULTS"
           echo "gate results: $results"
           for r in $results; do
             if [ "$r" != "success" ]; then
