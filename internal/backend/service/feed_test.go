@@ -21,6 +21,8 @@ type fakeFeedRepo struct {
 	saveCalls int
 	blIDs     []string
 	blErr     error
+	cached    []domain.Video
+	cachedErr error
 }
 
 func (f *fakeFeedRepo) HiddenRecVideoIDs(ctx context.Context) (map[string]bool, error) {
@@ -37,6 +39,10 @@ func (f *fakeFeedRepo) SaveFeedCache(ctx context.Context, name string, _ []domai
 	f.savedName = name
 	f.saveCalls++
 	return f.saveErr
+}
+
+func (f *fakeFeedRepo) GetFeedCache(ctx context.Context, _ string) ([]domain.Video, error) {
+	return f.cached, f.cachedErr
 }
 
 func (f *fakeFeedRepo) Blocklist(ctx context.Context) ([]string, error) {
@@ -130,5 +136,51 @@ func TestFeedServiceRecommendedCacheSaveErrorIsNonFatal(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("want 1 video, got %d", len(got))
+	}
+}
+
+// The cached feed is a snapshot of a past fetch, so a block or a hide made after
+// it was written must still be honored on the cold-start read — otherwise the
+// suppressed rows come straight back on every restart.
+func TestFeedServiceFeedCacheAppliesSuppressionFilters(t *testing.T) {
+	repo := &fakeFeedRepo{
+		cached: []domain.Video{
+			{ID: "keep", ChannelID: "cOK"},
+			{ID: "blocked", ChannelID: "cBad"},
+			{ID: "hiddenVid", ChannelID: "cOK"},
+		},
+		blIDs:  []string{"cBad"},
+		hidden: map[string]bool{"hiddenVid": true},
+	}
+	s := NewFeedService(repo, fakeRecSource{}, &config.Config{})
+	got, err := s.FeedCache(context.Background(), "recommended")
+	if err != nil {
+		t.Fatalf("FeedCache: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "keep" {
+		t.Fatalf("want only the unsuppressed video, got %#v", got)
+	}
+}
+
+// A read error in either suppression source must surface rather than yield a
+// feed that silently shows blocked channels.
+func TestFeedServiceFeedCachePropagatesRepoErrors(t *testing.T) {
+	sentinel := errors.New("db down")
+	cached := []domain.Video{{ID: "v1", ChannelID: "c1"}}
+	tests := []struct {
+		name string
+		repo *fakeFeedRepo
+	}{
+		{"cache read error", &fakeFeedRepo{cachedErr: sentinel}},
+		{"blocklist error", &fakeFeedRepo{cached: cached, blErr: sentinel}},
+		{"hidden ids error", &fakeFeedRepo{cached: cached, hiddenErr: sentinel}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewFeedService(tc.repo, fakeRecSource{}, &config.Config{})
+			if _, err := s.FeedCache(context.Background(), "recommended"); !errors.Is(err, sentinel) {
+				t.Fatalf("want sentinel, got %v", err)
+			}
+		})
 	}
 }
