@@ -56,10 +56,10 @@ func resolveDataDir(override, fallback string) (string, error) {
 	}
 	dir, err := absPath(override)
 	if err != nil {
-		return "", fmt.Errorf("Load data_dir %q: %w", override, err)
+		return "", fmt.Errorf("LoadFrom data_dir %q: %w", override, err)
 	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
-		return "", fmt.Errorf("Load mkdir data_dir %q: %w", dir, err)
+		return "", fmt.Errorf("LoadFrom mkdir data_dir %q: %w", dir, err)
 	}
 	return dir, nil
 }
@@ -189,7 +189,7 @@ func prepareDownloadDir(cfg *Config) error {
 		cfg.DownloadDir = filepath.Join(os.Getenv("HOME"), cfg.DownloadDir[2:])
 	}
 	if err := os.MkdirAll(cfg.DownloadDir, 0750); err != nil {
-		return fmt.Errorf("Load mkdir download: %w", err)
+		return fmt.Errorf("LoadFrom mkdir download: %w", err)
 	}
 	return nil
 }

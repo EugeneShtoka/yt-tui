@@ -110,7 +110,7 @@ func TestLoadUsesXDGDirs(t *testing.T) {
 	writeFile(t, filepath.Join(configHome, appName, "config.toml"),
 		"download_dir = "+`"`+dl+`"`)
 
-	cfg, err := Load()
+	cfg, err := LoadFrom("")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestLoadDataDirOverrideRelocatesStores(t *testing.T) {
 	writeFile(t, filepath.Join(xdg.ConfigHome, appName, "config.toml"),
 		"data_dir = "+`"`+dataOverride+`"`+"\ndownload_dir = "+`"`+dl+`"`)
 
-	cfg, err := Load()
+	cfg, err := LoadFrom("")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

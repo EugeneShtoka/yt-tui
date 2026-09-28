@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 #
-# actions-pin-check.sh — supply-chain guard for GitHub Actions pinning (H-2).
-#
-# Every third-party action referenced by `uses:` in .github/workflows/*.yml must
-# be pinned to a full 40-character commit SHA, not a mutable tag/branch. A
-# mutable ref (@v7, @main, …) lets a tag-hijack/retag silently and retroactively
-# compromise a workflow that holds `contents: write` + GITHUB_TOKEN
-# (cf. tj-actions/changed-files, CVE-2025-30066). Dependabot's github-actions
-# updater still bumps the SHAs via reviewable PRs; this gate just refuses to let
-# an unpinned ref land in the first place.
-#
-# Exempt by design: local composite actions (`uses: ./...`) and reusable
-# workflows (`uses: owner/repo/.github/workflows/x.yml@ref`) — but we still
-# require even those to be SHA-pinned, so nothing is skipped here.
-#
-# Usage: bash scripts/actions-pin-check.sh   (scans .github/workflows/*.yml)
+# actions-pin-check.sh — every `uses:` in workflows and composite actions must be
+# pinned to a 40-char commit SHA with a `# vX.Y.Z` comment (docker refs: @sha256:).
+# Mutable tags can be retagged by an attacker (cf. CVE-2025-30066).
+# Local actions (`uses: ./...`) are skipped; their action.yml is scanned instead.
 
 set -euo pipefail
 
-shopt -s nullglob
-workflows=(.github/workflows/*.yml .github/workflows/*.yaml)
+shopt -s nullglob globstar
+# Workflows plus every composite action.yml in the tree (vendor excluded).
+workflows=()
+while IFS= read -r f; do
+	[[ -n "$f" ]] && workflows+=("$f")
+done < <(
+	{ printf '%s\n' .github/workflows/*.yml .github/workflows/*.yaml
+	  printf '%s\n' **/action.yml **/action.yaml
+	} 2>/dev/null | grep -vE '^(vendor|node_modules)/' | sort -u
+)
 if [[ ${#workflows[@]} -eq 0 ]]; then
 	echo "actions-pin-check: no workflow files found under .github/workflows/" >&2
 	exit 1
@@ -27,19 +24,22 @@ fi
 
 fail=0
 for wf in "${workflows[@]}"; do
-	# Pull the ref after '@' from every `uses:` line, stripping any trailing
-	# `# comment` and surrounding quotes/whitespace. Local actions (uses: ./...)
-	# carry no '@' and are skipped.
+	# Match `uses:` anywhere on the line (YAML flow mappings too).
 	while IFS= read -r line; do
-		# Normalize: drop everything up to and including `uses:`, strip a trailing
-		# comment, then trim quotes and whitespace.
 		spec="${line#*uses:}"
 		spec="${spec%%#*}"
 		spec="$(echo "$spec" | tr -d '"'"'"' ' | tr -d '[:space:]')"
 
 		[[ -z "$spec" ]] && continue
-		[[ "$spec" == ./* ]] && continue        # local composite action
-		[[ "$spec" == docker://* ]] && continue # docker refs pin by digest separately
+		[[ "$spec" == ./* ]] && continue # local composite action; its own file is scanned above
+
+		if [[ "$spec" == docker://* ]]; then
+			if [[ "$spec" != *@sha256:* ]]; then
+				echo "❌ $wf: docker ref must be pinned to an @sha256: digest: $spec" >&2
+				fail=1
+			fi
+			continue
+		fi
 
 		if [[ "$spec" != *@* ]]; then
 			echo "❌ $wf: unpinned (no ref): $spec" >&2
@@ -51,14 +51,20 @@ for wf in "${workflows[@]}"; do
 		if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
 			echo "❌ $wf: action must be pinned to a 40-char commit SHA, got '@$ref': $spec" >&2
 			fail=1
+			continue
 		fi
-	done < <(grep -E '^\s*-?\s*uses:' "$wf" || true)
+
+		# The version comment lets reviewers and Dependabot read the pin.
+		if [[ ! "$line" =~ \#[[:space:]]*v[0-9] ]]; then
+			echo "❌ $wf: SHA pin carries no '# vX.Y.Z' comment: $spec" >&2
+			fail=1
+		fi
+	done < <(grep -E '(^|[[:space:],{])uses:' "$wf" || true)
 done
 
 if [[ "$fail" -ne 0 ]]; then
 	echo "" >&2
 	echo "GitHub Actions must be pinned to full commit SHAs (with a '# vX.Y.Z' comment)." >&2
-	echo "See scripts/actions-pin-check.sh for the rationale (supply-chain hardening, H-2)." >&2
 	exit 1
 fi
 

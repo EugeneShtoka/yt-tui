@@ -61,7 +61,7 @@ have.
 
 ## Features
 
-**Browsing & discovery**
+### Browsing & discovery
 
 - Recommended feed and subscriptions feed (via your browser's YouTube cookies) —
   your subscription list is pulled from your account automatically on launch and
@@ -75,7 +75,7 @@ have.
 - Per-column sorting everywhere: date, views, name, channel, duration,
   subscribers, tags, file size
 
-**Playback**
+### Playback
 
 - Stream or play any video/audio directly with mpv, VLC, or any configured player
 - **Resume position tracking** for every video (streamed *and* downloaded) via
@@ -85,7 +85,7 @@ have.
   terminals), subscriber count, chapters, and extracted links
 - **Transcript overlay** with chapter navigation and one-key copy
 
-**Downloading**
+### Downloading
 
 - Download video (MKV, with embedded subtitles) or audio (configurable format)
 - Concurrent download queue with live progress, speed, and ETA
@@ -95,7 +95,7 @@ have.
   sentence boundaries
 - Files named `Channel - Title.ext`
 
-**Library & organization**
+### Library & organization
 
 - Local playlists plus full YouTube playlist and Watch Later management
 - Subscribe / unsubscribe and block / unblock channels from any tab
@@ -106,7 +106,7 @@ have.
   profile, optional watch history) as a portable bundle — export opens a
   selection overlay so you choose exactly which sections to include
 
-**Interface**
+### Interface
 
 - Vim-style navigation (`hjkl`, `gg`/`G`, `{n}G`, page keys)
 - Two-level **chord system** for tab switching (`t`+key) and sorting (`s`+key)
@@ -118,7 +118,7 @@ have.
 
 ## Requirements
 
-**Required**
+### Required
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — the network/download engine
 - A media player — [mpv](https://mpv.io/) recommended (VLC, `cvlc`, and
@@ -126,7 +126,7 @@ have.
 - A Chromium- or Firefox-family browser with an active YouTube login — cookies
   are read from it for recommendations, subscriptions, and playlist sync
 
-**Recommended / optional**
+### Recommended / optional
 
 - **ffmpeg** — used by yt-dlp for merging formats, embedding subtitles, and
   SponsorBlock removal (most yt-dlp installs pull it in)
@@ -136,7 +136,7 @@ have.
   Ghostty, …) to see inline thumbnails in the detail overlay; everything else
   works without it
 
-**Platform support**
+### Platform support
 
 - **Linux** — the primary target; full feature set, including MPRIS/D-Bus resume
   tracking.
@@ -198,9 +198,11 @@ yt-tui             # launches the TUI; writes a default config on first run
 2. Run `yt-tui`. On first launch it writes `~/.config/yt-tui/config.toml` and
    opens on the **Feed** tab.
 3. Set your browser in the config if it isn't `vivaldi`:
+
    ```toml
    browser = "firefox"   # anything yt-dlp --cookies-from-browser accepts
    ```
+
    (chrome, firefox, brave, vivaldi, `vivaldi+gnomekeyring`, …)
 4. Back in the app: move with `j`/`k`, press `p` to play, `d` to download,
    `i` for details, `t` then `S` to jump to Search, and `?` for the full help.
@@ -236,11 +238,11 @@ Press `t`, then the tab's key (the status bar lists them). `t` + a digit
 
 | Key | Tab | | Key | Tab |
 | --- | --- | --- | --- | --- |
-| `f` | Feed        | | `d` | Downloading |
-| `c` | Channels    | | `l` | Local |
-| `t` | Tags        | | `h` | History |
-| `p` | Playlists   | | `a` | Activity |
-| `S` | Search      | | | |
+| `f` | Feed | | `d` | Downloading |
+| `c` | Channels | | `l` | Local |
+| `t` | Tags | | `h` | History |
+| `p` | Playlists | | `a` | Activity |
+| `S` | Search | | | |
 
 ### Sorting — chord `s` + key
 
@@ -249,10 +251,10 @@ current panel are offered.
 
 | Key | Sort by | | Key | Sort by |
 | --- | --- | --- | --- | --- |
-| `d` | Date        | | `D` | Duration |
-| `v` | Views       | | `s` | Subscribers |
-| `n` | Name        | | `t` | Tags |
-| `c` | Channel     | | `z` | Size |
+| `d` | Date | | `D` | Duration |
+| `v` | Views | | `s` | Subscribers |
+| `n` | Name | | `t` | Tags |
+| `c` | Channel | | `z` | Size |
 
 ### Video actions
 
@@ -506,11 +508,14 @@ files can be streamed back to your local player via a signed `/media` endpoint.
 1. **Build/copy** the binary: `go build -o yt-tuid ./cmd/yt-tuid`.
 2. **Generate a token:** `openssl rand -hex 32`.
 3. **TLS cert** (your CA, or self-signed):
+
    ```sh
    openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
      -keyout server.key -out server.crt -subj "/CN=yt-tuid"
    ```
+
 4. **Daemon `config.toml`** (top-level keys — same flat format as the client):
+
    ```toml
    token        = "your-token-here"
    download_dir = "/srv/yt-tui/videos"
@@ -521,6 +526,7 @@ files can be streamed back to your local player via a signed `/media` endpoint.
    # browser (e.g. the "Get cookies.txt LOCALLY" extension).
    cookies_file = "/etc/yt-tui/cookies.txt"
    ```
+
 5. **Start:** `yt-tuid --listen 0.0.0.0:7373` (or use `deploy/yt-tuid.service`).
    Flags: `--listen`, `--token`, `--tls-cert`, `--tls-key` override config.
 6. **Firewall:** expose port 7373 to trusted clients only. Never run the daemon
@@ -594,8 +600,8 @@ yt-tui is built to be a quiet, local tool:
 | Resource footprint | Tiny (terminal) | Tiny | Heavy (Electron) | Tiny |
 | API key required | ❌ | ❌ | ❌ (or optional) | ❌ |
 
-_Comparison is a good-faith summary; other projects evolve — check their docs for
-the latest._
+*Comparison is a good-faith summary; other projects evolve — check their docs for
+the latest.*
 
 ## Troubleshooting
 
@@ -629,7 +635,7 @@ clip wide columns — try hiding columns via `[columns]`.
 
 ## Roadmap & known limitations
 
-**Known limitations**
+### Known limitations
 
 - Requires browser cookies for personalized feeds; a fresh/anonymous session
   sees little.
@@ -641,7 +647,7 @@ clip wide columns — try hiding columns via `[columns]`.
   the `simple` backend (playback works, no resume). Windows isn't supported
   natively — run it under WSL2. See [Platform support](#requirements).
 
-**Planned**
+### Planned
 
 - AI-assisted channel auto-tagging.
 

@@ -6,9 +6,16 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
-func TestNewStarting(t *testing.T) {
+// startingFeed is the startup state: cached videos shown now, a refresh in flight.
+func startingFeed(cache []domain.Video) Feed {
+	f := New(cache)
+	f.StartRefresh()
+	return f
+}
+
+func TestStartRefreshOverCache(t *testing.T) {
 	// Seeded from cache → loaded, and immediately fetching with refreshing set.
-	f := NewStarting([]domain.Video{{ID: "a"}})
+	f := startingFeed([]domain.Video{{ID: "a"}})
 	if !f.Loaded() || !f.Loading() || !f.Refreshing() {
 		t.Errorf("cache-seeded feed: loaded=%v loading=%v refreshing=%v, want all true", f.Loaded(), f.Loading(), f.Refreshing())
 	}
@@ -17,7 +24,7 @@ func TestNewStarting(t *testing.T) {
 	}
 
 	// Empty cache → not loaded, fetching but not "refreshing" (nothing underneath).
-	e := NewStarting(nil)
+	e := startingFeed(nil)
 	if e.Loaded() || !e.Loading() || e.Refreshing() {
 		t.Errorf("empty feed: loaded=%v loading=%v refreshing=%v, want F/T/F", e.Loaded(), e.Loading(), e.Refreshing())
 	}

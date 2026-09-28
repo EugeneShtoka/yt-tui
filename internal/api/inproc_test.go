@@ -13,6 +13,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec"
+	"github.com/EugeneShtoka/yt-tui/internal/procexec/procexectest"
 )
 
 func newInProc(t *testing.T, runner procexec.Runner) (*api.InProc, *db.DB) {
@@ -159,16 +160,15 @@ func TestInProcDeleteVideoCompletelyWithoutLocalFile(t *testing.T) {
 // downloader's completion into an api.EventDownloadDone (item 18 runner + 19 InProc).
 func TestInProcEnqueueDownloadItemsAndEvents(t *testing.T) {
 	release := make(chan struct{})
-	runner := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{
+	runner := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{
 			Stdout: "[download] Destination: /tmp/x.mkv\n",
 			WaitFn: func() error { <-release; return nil },
 		}
 	}}
 	p, _ := newInProc(t, runner)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	evCh, err := p.Events(ctx)
 	if err != nil {
 		t.Fatalf("Events: %v", err)

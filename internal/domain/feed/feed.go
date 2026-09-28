@@ -20,14 +20,6 @@ type Feed struct {
 	page       int
 }
 
-// NewStarting builds a Feed seeded with cached videos and immediately marked as
-// fetching — the startup state (show cache now, refresh in the background).
-func NewStarting(cache []domain.Video) Feed {
-	f := Feed{videos: cache, loaded: len(cache) > 0}
-	f.StartRefresh()
-	return f
-}
-
 // New builds a Feed holding videos with no fetch in flight. Used for feeds whose
 // loading state is derived externally (e.g. Subscriptions, rebuilt from the
 // channel data rather than owning its own fetch lifecycle).

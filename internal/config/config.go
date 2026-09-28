@@ -261,10 +261,6 @@ func defaultConfig() *Config {
 	}
 }
 
-// Load reads the config from its default location, honoring the YT_TUI_CONFIG
-// environment variable if set. It is shorthand for LoadFrom("").
-func Load() (*Config, error) { return LoadFrom("") }
-
 // LoadFrom reads the config, allowing an explicit config-file path override
 // (the --config flag). Precedence for locating config.toml is: the override
 // argument, then $YT_TUI_CONFIG, then the XDG default
@@ -290,7 +286,7 @@ func LoadFrom(override string) (*Config, error) {
 	if override != "" {
 		resolved, aerr := absPath(override)
 		if aerr != nil {
-			return nil, fmt.Errorf("Load config path %q: %w", override, aerr)
+			return nil, fmt.Errorf("LoadFrom config path %q: %w", override, aerr)
 		}
 		cfgFile = resolved
 		// Accept either a config file or a directory: when the override points at
@@ -300,7 +296,7 @@ func LoadFrom(override string) (*Config, error) {
 		}
 		configDir = filepath.Dir(cfgFile)
 		if mkErr := os.MkdirAll(configDir, 0750); mkErr != nil {
-			return nil, fmt.Errorf("Load mkdir config %q: %w", configDir, mkErr)
+			return nil, fmt.Errorf("LoadFrom mkdir config %q: %w", configDir, mkErr)
 		}
 	} else {
 		// Best-effort: pull the DB + log out of the old (config) dir on first run
@@ -356,10 +352,10 @@ func loadConfigFile(cfg *Config, cfgFile string) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("Load read: %w", err)
+		return fmt.Errorf("LoadFrom read: %w", err)
 	}
 	if err := toml.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("Load unmarshal: %w", err)
+		return fmt.Errorf("LoadFrom unmarshal: %w", err)
 	}
 	cfg.Keybindings.fillDefaults()
 	var log issueLog

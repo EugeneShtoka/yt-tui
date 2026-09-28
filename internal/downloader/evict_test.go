@@ -1,7 +1,6 @@
 package downloader
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec"
+	"github.com/EugeneShtoka/yt-tui/internal/procexec/procexectest"
 )
 
 // hasItem reports whether the queue currently holds an item for id.
@@ -66,12 +66,11 @@ func TestClearDismissesEveryQueuedItem(t *testing.T) {
 func TestCompletedItemAutoEvicts(t *testing.T) {
 	d := New(&config.Config{}, newTestDB(t))
 	d.evictAfter = 15 * time.Millisecond
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: "[download] Destination: /tmp/x.mkv\n[download] 100.0% of ~5MiB at 2MiB/s ETA 00:00\n"}
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: "[download] Destination: /tmp/x.mkv\n[download] 100.0% of ~5MiB at 2MiB/s ETA 00:00\n"}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	d.Start(domain.Video{ID: "done1", Title: "T", Channel: "C", URL: "http://x/done1"}, TypeVideo)
@@ -85,12 +84,11 @@ func TestCompletedItemAutoEvicts(t *testing.T) {
 func TestFailedItemNotEvicted(t *testing.T) {
 	d := New(&config.Config{}, newTestDB(t))
 	d.evictAfter = 15 * time.Millisecond
-	d.runner = procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stderr: "ERROR: nope", WaitErr: fmt.Errorf("exit status 1")}
+	d.runner = procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stderr: "ERROR: nope", WaitErr: fmt.Errorf("exit status 1")}
 	}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	ch := d.Subscribe(ctx)
 
 	d.Start(domain.Video{ID: "fail1", URL: "http://x/fail1"}, TypeVideo)

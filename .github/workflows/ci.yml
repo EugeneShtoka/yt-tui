@@ -5,48 +5,49 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Lets release.yml run these same gates on the tagged commit.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Cancel superseded runs, except on tags (the release depends on them).
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  # Every step below is a make target, so the gates, their tools and the Go toolchain
+  # (go.mod's `toolchain`, which the Makefile pins) are the same here and in `make
+  # check`. scripts/ci-parity-check.sh (the ci-parity gate) holds the two lists equal.
+  #
+  # Job names build-and-test, lint, vuln, secrets and the cross-compile legs are
+  # required status checks on main: rename one and update branch protection with it.
+
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Build
-        run: go build ./...
+      # Before the build, so an untidy go.mod fails here and not at release time.
+      - name: Modules are tidy and verified, and every package builds as released
+        run: make mod-check compile
 
-      - name: Test (with race detector + coverage)
-        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      # Race detector, coverage profile and the coverage floors (with a summary).
+      - name: Test and coverage gate
+        run: make coverage-check COVERPROFILE=coverage.out
 
-      - name: Coverage summary
-        if: always()
-        run: |
-          # Exclude generated protobuf/Connect code — it has no tests by design
-          # and would otherwise understate hand-written coverage by ~15 points.
-          grep -vE '\.pb\.go:|\.connect\.go:' coverage.out > coverage.hand.out
-          echo '### Test coverage (excluding generated code)' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          go tool cover -func=coverage.hand.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      # Enforce the coverage floors: overall >= 40% and every non-exempt package
-      # >= 35% (see scripts/coverage-gate.sh for the exempt list + rationale).
-      # Reuses the coverage.out produced by the test step above.
-      - name: Coverage gate
-        run: bash scripts/coverage-gate.sh coverage.out
-
-  # Compile-only check for the platforms we release binaries for (see
-  # .goreleaser.yaml) plus a non-native arch, so darwin/arm builds can't rot
-  # unnoticed. Windows is intentionally absent: the player package uses the
-  # Unix-only syscall.SysProcAttr.Setsid, so it does not compile there — the
-  # project is Linux-first with a macOS fallback (see README).
+  # Compile-only, one release platform per leg (linux/amd64 is build-and-test's).
   cross-compile:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         include:
@@ -55,7 +56,8 @@ jobs:
           - { goos: linux, goarch: arm64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -63,86 +65,152 @@ jobs:
 
       - name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: go build ./...
+          CROSS_TARGETS: ${{ matrix.goos }}/${{ matrix.goarch }}
+        run: make cross
 
-  # Supply-chain guard: every third-party action must stay pinned to a full
-  # commit SHA (H-2). A future PR that reintroduces a mutable @vX tag fails here
-  # rather than silently widening the attack surface. Pure shell, no actions of
-  # its own beyond the (SHA-pinned) checkout.
-  pin-check:
+  # Repo guards: pins, the layer map, and this file against `make check`.
+  repo-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
 
-      - name: Actions SHA-pin check
-        run: bash scripts/actions-pin-check.sh
+      - name: Actions SHA pins, layering, CI parity, the gate scripts' tests
+        run: make pin-check arch-check ci-parity script-check
 
-  # Lint + format check run golangci-lint via `go tool`, so the version is
-  # pinned by the go.mod `tool` directive alone — no second version to keep in
-  # sync with a lint action. setup-go's cache covers the tool build.
+  # Validates .goreleaser.yaml without building, with the release's goreleaser.
+  release-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: goreleaser check
+        run: make release-check
+
+  # golangci-lint is pinned by the go.mod tool directive.
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Lint
-        run: go tool golangci-lint run ./...
+      - name: Lint and format check (gofmt/goimports)
+        run: make lint fmt-check
 
-      # Assert formatting too — `golangci-lint run` checks lint rules but not the
-      # formatters, so without this a mis-formatted tree would pass CI. --diff is
-      # non-mutating and fails on drift.
-      - name: Format check (gofmt/gofumpt/etc.)
-        run: go tool golangci-lint fmt --diff ./...
-
-  # Vulnerability scan via `go tool` — version pinned by the go.mod `tool`
-  # directive (Dependabot's gomod updater bumps it via PR), so the gate is
-  # deterministic and not tied to a floating @latest install.
+  # govulncheck is a go.mod tool; npm audit covers markdownlint's lock.
   vuln:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # markdownlint and npm audit run on node: pinned, as every other tool is.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
 
+      - name: Vulnerability scan
+        run: make vuln
+
+  # The CLI at tools/versions.env's version and checksum, not gitleaks-action: the
+  # action's PR-commit API call 403s on fork and Dependabot PRs.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history so gitleaks scans every commit
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Vulnerability scan
-        run: go tool govulncheck ./...
+      # History (needs fetch-depth: 0) and working tree cover disjoint ground.
+      # CHECK_STRICT: a missing history is a failure here, never a skip.
+      - name: Scan history and working tree
+        run: make secrets CHECK_STRICT=1
 
-  # Enforced secret scan — the local pre-commit hook (.githooks) is opt-in and
-  # bypassable, so this is the gate that actually blocks secrets from landing.
-  #
-  # Runs the gitleaks CLI directly (like `make secrets`) rather than
-  # gitleaks-action: the action calls the GitHub API to list PR commits, which
-  # 403s on Dependabot/fork PRs (restricted token). The CLI scans the checked-out
-  # history with no API calls, so it works identically on pushes, forks, and
-  # Dependabot PRs. Uses .gitleaks.toml automatically.
-  secrets:
+  # Generated wire types must match api/proto (buf at tools/versions.env's version).
+  proto:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # full history so gitleaks scans every commit
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
 
-      # Install the gitleaks binary from its release (the module still declares
-      # the old zricethezav path, so `go install .../gitleaks/v8` fails). Pinned
-      # for reproducibility; bump GITLEAKS_VERSION to pick up newer rules.
-      - name: Install gitleaks
-        env:
-          GITLEAKS_VERSION: "8.30.1"
+      # Lints, generates into a scratch dir and compares file by file, so a new
+      # (untracked) generated file fails it too.
+      - name: Schema lints and generated code is in sync with api/proto
+        run: make proto-check
+
+  # markdownlint-cli2 from tools/markdownlint's lock.
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Lint Markdown
+        run: make docs-check
+
+  # One check that covers every gate, for branch protection to require in place of
+  # the list above (which it can then drop).
+  ci-ok:
+    # always(): a skipped required check counts as passed on GitHub.
+    if: always()
+    needs: [build-and-test, cross-compile, repo-checks, release-config, lint, vuln, secrets, proto, docs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every gate passed
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin gitleaks
-          gitleaks version
-
-      - name: Scan
-        run: gitleaks detect --redact --no-banner
+          set -euo pipefail
+          results='${{ join(needs.*.result, " ") }}'
+          echo "gate results: $results"
+          for r in $results; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a required gate did not pass ($results)"
+              exit 1
+            fi
+          done
+          echo "all gates green"

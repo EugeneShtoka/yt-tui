@@ -1,30 +1,23 @@
 #!/usr/bin/env bash
 #
-# coverage-gate.sh — enforce test-coverage floors, locally and in CI.
+# coverage-gate.sh — enforce coverage floors: hand-written total >= TOTAL_MIN and
+# every non-exempt package >= PKG_MIN (a package with no tests counts as 0%).
 #
-# Two gates:
-#   1. Overall coverage must be >= TOTAL_MIN (default 40%).
-#   2. Every non-exempt package must be >= PKG_MIN (default 35%).
-#
-# Reads an existing coverage profile (arg 1, default coverage.out). Generate it
-# with `go test -coverprofile=coverage.out ./...`, or just run `make
-# coverage-check`, which does both.
-#
-# A non-exempt package with no coverage data (i.e. no test files) counts as 0%
-# and fails the gate — so a newly added package must either carry tests or be
-# added to the exempt list below with a reason.
+# Usage: bash scripts/coverage-gate.sh [coverage.out]   (or `make coverage-check`)
 
 set -euo pipefail
 
 MODULE="github.com/EugeneShtoka/yt-tui"
 PROFILE="${1:-coverage.out}"
-TOTAL_MIN="${TOTAL_MIN:-40}"
-PKG_MIN="${PKG_MIN:-35}"
+# A little under the current figures (64.1% hand-written, lowest package 52.3%):
+# catch a slide, not noise.
+TOTAL_MIN="${TOTAL_MIN:-60}"
+PKG_MIN="${PKG_MIN:-50}"
 
-# Packages exempt from the per-package floor, with the reason each is exempt.
-# These carry no meaningfully unit-testable logic; keep the list short and
-# justified. (There is intentionally no "coverage debt" tier — Phase 0 of
-# docs/ARCH-REVIEW-2026-08-07.md raised every real package above the floor.)
+# Generated code is excluded from the gated total.
+GENERATED_RE='\.pb\.go|\.connect\.go'
+
+# Exempt only what *cannot* be unit-tested, with a reason. Stale entries fail.
 exempt=(
 	internal/api/backend/v1                   # generated protobuf
 	internal/api/backend/v1/backendv1connect  # generated Connect stubs
@@ -37,6 +30,7 @@ exempt=(
 	internal/buildinfo                        # version vars
 	internal/debug                            # debug logging
 	internal/procexec                         # exec wrapper
+	internal/procexec/procexectest            # test-only fakes
 	cmd/yt-tui                                # main wiring
 	cmd/yt-tuid                               # main wiring
 )
@@ -48,6 +42,13 @@ is_exempt() {
 }
 
 [[ -f "$PROFILE" ]] || { echo "coverage-gate: profile not found: $PROFILE" >&2; exit 2; }
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+stale=0
+for e in "${exempt[@]}"; do
+	[[ -d "$ROOT/$e" ]] || { echo "coverage-gate: exempt entry names no such package: $e" >&2; stale=1; }
+done
+(( stale )) && { echo "coverage-gate: fix the exempt list in $0" >&2; exit 2; }
 
 # Aggregate per-package covered/total statements straight from the profile.
 # Lines: <import/path/file.go>:<s>.<c>,<e>.<c> <numstmts> <count>
@@ -88,11 +89,24 @@ while IFS= read -r fq; do
 	fi
 done < <(go list ./...)
 
-tot=$(go tool cover -func="$PROFILE" | awk '/^total:/{sub(/%/,"",$NF); print $NF}')
+# Gate on hand-written code; print the raw total (what `make coverage` shows) too.
+handwritten="$(mktemp)"
+trap 'rm -f "$handwritten"' EXIT
+head -1 "$PROFILE" > "$handwritten"
+{ grep -vE "$GENERATED_RE" "$PROFILE" || true; } | tail -n +2 >> "$handwritten"
+
+tot=$(go tool cover -func="$handwritten" | awk '/^total:/{sub(/%/,"",$NF); print $NF}')
+raw=$(go tool cover -func="$PROFILE" | awk '/^total:/{sub(/%/,"",$NF); print $NF}')
 echo
-echo "overall: ${tot}% (min ${TOTAL_MIN}%), per-package floor ${PKG_MIN}%"
+echo "overall: ${tot}% hand-written (min ${TOTAL_MIN}%), ${raw}% including generated code"
+echo "per-package floor: ${PKG_MIN}%"
+# In CI, the same line on the run's summary page.
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+	printf '### Test coverage\n\n%s%% hand-written (floor %s%%), %s%% including generated code\n' \
+		"$tot" "$TOTAL_MIN" "$raw" >>"$GITHUB_STEP_SUMMARY"
+fi
 if awk "BEGIN{exit !($tot < $TOTAL_MIN)}"; then
-	echo "FAIL: overall coverage ${tot}% is below ${TOTAL_MIN}%"
+	echo "FAIL: hand-written coverage ${tot}% is below ${TOTAL_MIN}%"
 	fail=1
 fi
 

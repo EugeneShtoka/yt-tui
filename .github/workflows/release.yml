@@ -6,44 +6,44 @@ on:
       - "v*"
 
 permissions:
-  contents: write # required to create the GitHub Release and upload assets.
+  contents: read
 
 jobs:
-  # Re-run the core gates against the tagged commit before publishing anything,
-  # so a release can never ship code that fails build or tests.
+  # Every CI gate, on the tagged commit, before anything is published.
   verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test (with race detector)
-        run: go test -race -count=1 ./...
+    uses: ./.github/workflows/ci.yml
 
   release:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # GoReleaser needs full history + tags for the changelog.
+          persist-credentials: false
+
+      # A tag pushed from a branch would otherwise release code main never had.
+      - name: The tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      # goreleaser at tools/versions.env's version and checksum (the one `make
+      # release-check` validates the config with), and go.mod's toolchain.
+      - name: Pinned tool versions
+        run: |
+          set -euo pipefail
+          echo "GOTOOLCHAIN=$(awk '$1 == "toolchain" {print $2}' go.mod)" >> "$GITHUB_ENV"
+          bash scripts/ensure-tools.sh goreleaser
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          version: "~> v2"
-          args: release --clean
+        run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

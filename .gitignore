@@ -57,3 +57,6 @@ cookies.txt
 *.p12
 .env
 .env.*
+
+# Pinned tools installed by scripts/ensure-tools.sh (tools/versions.env)
+/.tools/
