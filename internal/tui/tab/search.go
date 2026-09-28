@@ -101,7 +101,7 @@ type searchBackend interface {
 }
 
 type Search struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  searchBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -211,17 +211,8 @@ func (t *Search) applyResultHeights() {
 	avail := t.height - 3 // header + prompt + status line
 	if nCh > 0 && nVid > 0 {
 		avail -= 4 // two pane labels + separators in the split layout
-		chH := nCh
-		if chH > avail/chanPaneMaxFraction {
-			chH = avail / chanPaneMaxFraction
-		}
-		if chH < 1 {
-			chH = 1
-		}
-		vidH := avail - chH
-		if vidH < 1 {
-			vidH = 1
-		}
+		chH := max(min(nCh, avail/chanPaneMaxFraction), 1)
+		vidH := max(avail-chH, 1)
 		t.chNav.SetTargetHeight(chH)
 		t.vidNav.SetTargetHeight(vidH)
 	} else {
@@ -411,11 +402,7 @@ func (t Search) srchHandleKeyInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		t.input.Blur()
 		if len(t.recent.queries) > 0 {
 			t.recentMode = true
-			if t.histIdx >= 0 {
-				t.recent.cursor = t.histIdx
-			} else {
-				t.recent.cursor = 0
-			}
+			t.recent.cursor = max(t.histIdx, 0)
 			t.histIdx = -1
 		}
 		return t, nil
@@ -649,9 +636,6 @@ func (t Search) srchCurrentVideo() (domain.Video, bool) {
 }
 
 func (t Search) srchRecentPageHeight() int {
-	h := t.height - 4
-	if h < 1 {
-		h = 1
-	}
+	h := max(t.height-4, 1)
 	return h
 }

@@ -3,6 +3,7 @@ package tab
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -40,9 +41,7 @@ func (t Channels) chsLoadCmd() tea.Cmd {
 // newest by upload date per channel is kept.
 func mergeRecLatest(latest map[string]domain.Video, recVideos []domain.Video) map[string]domain.Video {
 	out := make(map[string]domain.Video, len(latest)+len(recVideos))
-	for id, v := range latest {
-		out[id] = v
-	}
+	maps.Copy(out, latest)
 	for i := range recVideos {
 		v := recVideos[i]
 		if v.ChannelID == "" {

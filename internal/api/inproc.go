@@ -1,4 +1,3 @@
-//nolint:wrapcheck // pass-through adapter; errors from backend/db/yt are already contextual
 package api
 
 import (
@@ -95,15 +94,13 @@ func (p *InProc) StartBackgroundEnrichment(ctx context.Context) {
 		// Tracked on bgWG (not enrichDone) so it can run concurrently with the
 		// enrichment pass without delaying it, while still being drained by
 		// WaitEnrichment at shutdown (L-2).
-		p.bgWG.Add(1)
-		go func() {
-			defer p.bgWG.Done()
+		p.bgWG.Go(func() {
 			if n, err := p.thumbs.Recrop(); err != nil {
 				debug.Log("enrich: recrop: %v", err)
 			} else if n > 0 {
 				debug.Log("enrich: recropped %d cached thumbnails", n)
 			}
-		}()
+		})
 	}
 	e := enrich.New(p.db, p.yt, p.thumbs, p.transcripts, enrich.Params{
 		DelaySeconds:         p.cfg.EnrichmentDelaySeconds,

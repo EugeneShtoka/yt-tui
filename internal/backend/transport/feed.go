@@ -23,7 +23,7 @@ func (h *feedHandler) Recommended(ctx context.Context, _ *connect.Request[v1.Rec
 }
 
 func (h *feedHandler) HideVideo(ctx context.Context, req *connect.Request[v1.HideVideoRequest]) (*connect.Response[v1.HideVideoResponse], error) {
-	if err := h.b.HideRecVideo(ctx, req.Msg.VideoId); err != nil {
+	if err := h.b.HideRecVideo(ctx, req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.HideVideoResponse{}), nil
@@ -46,7 +46,7 @@ func (h *feedHandler) WatchedVideoIDs(ctx context.Context, _ *connect.Request[v1
 }
 
 func (h *feedHandler) GetFeedCache(ctx context.Context, req *connect.Request[v1.GetFeedCacheRequest]) (*connect.Response[v1.GetFeedCacheResponse], error) {
-	videos, err := h.b.GetFeedCache(ctx, req.Msg.Feed)
+	videos, err := h.b.GetFeedCache(ctx, req.Msg.GetFeed())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -54,14 +54,14 @@ func (h *feedHandler) GetFeedCache(ctx context.Context, req *connect.Request[v1.
 }
 
 func (h *feedHandler) SaveFeedCache(ctx context.Context, req *connect.Request[v1.SaveFeedCacheRequest]) (*connect.Response[v1.SaveFeedCacheResponse], error) {
-	if err := h.b.SaveFeedCache(ctx, req.Msg.Feed, protoconv.ProtoToVideos(req.Msg.Videos)); err != nil {
+	if err := h.b.SaveFeedCache(ctx, req.Msg.GetFeed(), protoconv.ProtoToVideos(req.Msg.GetVideos())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SaveFeedCacheResponse{}), nil
 }
 
 func (h *feedHandler) PurgeFeedCache(ctx context.Context, req *connect.Request[v1.PurgeFeedCacheRequest]) (*connect.Response[v1.PurgeFeedCacheResponse], error) {
-	if err := h.b.PurgeFeedCacheMissingChannelID(ctx, req.Msg.Feed); err != nil {
+	if err := h.b.PurgeFeedCacheMissingChannelID(ctx, req.Msg.GetFeed()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.PurgeFeedCacheResponse{}), nil

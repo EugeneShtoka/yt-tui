@@ -33,12 +33,10 @@ func TestWaitEnrichmentDrainsTranscriptBuilds(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	p.transcriptWG.Add(1)
-	go func() {
-		defer p.transcriptWG.Done()
+	p.transcriptWG.Go(func() {
 		close(started)
 		<-release // hold the "build" open until the test releases it
-	}()
+	})
 	<-started
 
 	returned := make(chan struct{})
@@ -71,12 +69,10 @@ func TestWaitEnrichmentDrainsBackgroundMaintenance(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	p.bgWG.Add(1)
-	go func() {
-		defer p.bgWG.Done()
+	p.bgWG.Go(func() {
 		close(started)
 		<-release // hold the "recrop" open until the test releases it
-	}()
+	})
 	<-started
 
 	returned := make(chan struct{})

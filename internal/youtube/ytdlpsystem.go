@@ -77,7 +77,7 @@ func newestVersion(raws []string) (Version, bool) {
 func colonField(label string) func(string) []string {
 	return func(out string) []string {
 		var vals []string
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			name, val, ok := strings.Cut(line, ":")
 			if !ok || strings.TrimSpace(name) != label {
 				continue
@@ -94,7 +94,7 @@ func colonField(label string) func(string) []string {
 // "==> yt-dlp: stable 2026.08.19 (bottled), HEAD".
 func brewStable(out string) []string {
 	var vals []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		for i, f := range fields {
 			if f == "stable" && i+1 < len(fields) {

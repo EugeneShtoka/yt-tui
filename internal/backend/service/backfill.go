@@ -120,6 +120,8 @@ func (b *backfillScheduler) Run(ctx context.Context, latestN int, staleAfter, de
 // crawled (a short final page → stamped complete) or on a page error (best-effort,
 // logged; its offset is preserved for retry). Honors ctx cancellation and paces
 // yt-dlp calls by delay. Returns the number of channels fully crawled.
+//
+//nolint:gocognit // one rotation loop: resume offset, page, persist, retire — split it and the invariants scatter
 func (b *backfillScheduler) roundRobinFullCrawl(ctx context.Context, channels []*domain.Channel, delay time.Duration) int {
 	type cursor struct {
 		ch      *domain.Channel

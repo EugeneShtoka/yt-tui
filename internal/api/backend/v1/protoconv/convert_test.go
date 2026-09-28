@@ -9,7 +9,9 @@ import (
 )
 
 // ptr is a tiny helper for building the nullable *[]T fields on CachedDetails.
-func ptr[T any](v T) *T { return &v }
+//
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // The round-trip tests below convert a domain value to proto and back, asserting
 // the result is identical. They are the guard the C-1 audit finding asked for:
@@ -72,14 +74,14 @@ func TestCachedDetailsRoundTrip(t *testing.T) {
 			Description:  "d",
 			ThumbnailURL: "t",
 			Subscribers:  7,
-			Links:        ptr([]domain.Link{{Label: "L", URL: "u"}}),
-			Chapters:     ptr([]domain.Chapter{{Title: "C", OriginalStart: 1, OriginalEnd: 2, AdjustedStart: 3, AdjustedEnd: 4}}),
-			SBSegments:   ptr([]domain.SBSegment{{Start: 5, End: 6}}),
+			Links:        new([]domain.Link{{Label: "L", URL: "u"}}),
+			Chapters:     new([]domain.Chapter{{Title: "C", OriginalStart: 1, OriginalEnd: 2, AdjustedStart: 3, AdjustedEnd: 4}}),
+			SBSegments:   new([]domain.SBSegment{{Start: 5, End: 6}}),
 		},
 		{ // parsed-but-empty must stay non-nil after the trip
-			Links:      ptr([]domain.Link{}),
-			Chapters:   ptr([]domain.Chapter{}),
-			SBSegments: ptr([]domain.SBSegment{}),
+			Links:      new([]domain.Link{}),
+			Chapters:   new([]domain.Chapter{}),
+			SBSegments: new([]domain.SBSegment{}),
 		},
 	}
 	for _, in := range cases {

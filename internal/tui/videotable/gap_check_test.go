@@ -15,7 +15,7 @@ func TestTableFillsWidth(t *testing.T) {
 	nav := NewTableNav(cols, false, 4)
 	nav.Resize(120, 20)
 	nav.SetRows(BuildVideoRows([]VideoData{{}}, cols))
-	for _, line := range strings.Split(nav.View(), "\n") {
+	for line := range strings.SplitSeq(nav.View(), "\n") {
 		if w := lipgloss.Width(line); w != 0 && w != 120 {
 			t.Errorf("line width = %d, want 120: %q", w, line)
 		}

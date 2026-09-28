@@ -278,7 +278,7 @@ func TestSearchQueries(t *testing.T) {
 func TestSearchQueriesDeduplication(t *testing.T) {
 	db := newTestDB(t)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := db.AddHistory(context.Background(), "", "search", "golang"); err != nil {
 			t.Fatalf("AddHistory: %v", err)
 		}

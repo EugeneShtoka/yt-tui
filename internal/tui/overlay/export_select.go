@@ -67,7 +67,7 @@ type exportSel struct {
 // config profile (which only the client holds) rides along the same path.
 type ExportSelect struct {
 	identity
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  api.PortabilityBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -283,7 +283,7 @@ func (es ExportSelect) renderContent() string {
 		} else {
 			lines = append(lines, styles.Help.Render("Loading…"))
 		}
-		lines = append(lines, "", importHint(innerW, "", es.keys.Escape.Help().Key+": cancel"))
+		lines = append(lines, "", importHint("", es.keys.Escape.Help().Key+": cancel"))
 		return strings.Join(lines, "\n")
 	}
 
@@ -295,7 +295,7 @@ func (es ExportSelect) renderContent() string {
 		"",
 		importRow(es.rowSel == esRowExport, "Export to file"),
 		"",
-		importHint(innerW, "j/k: move  space: toggle  enter: export", es.keys.Escape.Help().Key+": cancel"),
+		importHint("j/k: move  space: toggle  enter: export", es.keys.Escape.Help().Key+": cancel"),
 	)
 	return strings.Join(lines, "\n")
 }

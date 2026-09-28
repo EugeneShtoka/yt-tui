@@ -27,7 +27,7 @@ type activityBackend interface {
 }
 
 type Activity struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  activityBackend
 	keys     keymap.KeyMap
 	circular bool

@@ -209,10 +209,8 @@ func TestApplyConfigProfileRaceAgainstSnapshot(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writer: import alternating profiles (the racy TUI-side mutation).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			blob := blobA
 			if i%2 == 1 {
 				blob = blobB
@@ -222,22 +220,20 @@ func TestApplyConfigProfileRaceAgainstSnapshot(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	// Two readers mirroring the enrichment loop and the download worker: take a
 	// snapshot, then read the slice-backed args off it (the fields H-1 tears).
-	for r := 0; r < 2; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+	for range 2 {
+		wg.Go(func() {
+			for range iterations {
 				snap := cfg.DaemonSnapshot()
 				_ = snap.SubtitleLangsArg()
 				_ = snap.SponsorBlockArg()
 				_ = snap.AudioFormat
 				_ = snap.RefreshMinutes
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

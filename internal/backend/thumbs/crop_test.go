@@ -14,12 +14,12 @@ import (
 // between 45px black bars — the shape YouTube's hqdefault arrives in.
 func letterboxed() *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 480, 360))
-	for y := 0; y < 360; y++ {
+	for y := range 360 {
 		c := color.RGBA{0, 0, 0, 255}
 		if y >= 45 && y < 315 {
 			c = color.RGBA{200, 30, 30, 255}
 		}
-		for x := 0; x < 480; x++ {
+		for x := range 480 {
 			img.Set(x, y, c)
 		}
 	}

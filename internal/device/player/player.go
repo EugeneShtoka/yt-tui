@@ -64,7 +64,7 @@ func New(cfg *config.Config) (Backend, error) {
 	b, dbusErr := newMPRISBackend(driver)
 	if dbusErr != nil {
 		debug.Log("player: MPRIS/D-Bus unavailable, falling back to simple backend: %v", dbusErr)
-		return newSimpleBackend(driver), nil //nolint:nilerr
+		return newSimpleBackend(driver), nil
 	}
 	return b, nil
 }

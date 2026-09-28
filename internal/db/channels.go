@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -81,7 +82,7 @@ func (d *DB) stampChannelActivityAt(ctx context.Context, channelIDs []string, no
 	if err != nil {
 		return fmt.Errorf("StampChannelActivity begin: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	defer tx.Rollback()
 	seen := make(map[string]bool, len(channelIDs))
 	for _, id := range channelIDs {
 		if id == "" || seen[id] {
@@ -142,7 +143,7 @@ func (d *DB) SaveSubscribedChannels(ctx context.Context, channels []domain.Chann
 		return nil
 	}
 	return d.withTx(ctx, "SaveSubscribedChannels", func(tx *sql.Tx) error {
-		ids := make([]interface{}, len(channels))
+		ids := make([]any, len(channels))
 		for i := range channels {
 			ids[i] = channels[i].ID
 		}
@@ -197,7 +198,7 @@ func (d *DB) SetChannelState(ctx context.Context, channelID string, state domain
 	if err != nil {
 		return fmt.Errorf("SetChannelState begin: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	defer tx.Rollback()
 	if state != domain.SubNone {
 		var blocked int
 		err := tx.QueryRowContext(ctx, `SELECT COALESCE(blocked,0) FROM subscribed_channels WHERE channel_id=?`, channelID).Scan(&blocked)
@@ -314,10 +315,10 @@ func (d *DB) AddSubscribedChannel(ctx context.Context, ch domain.Channel) error 
 	if err != nil {
 		return fmt.Errorf("AddSubscribedChannel begin: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	defer tx.Rollback()
 	var blocked int
 	err = tx.QueryRowContext(ctx, `SELECT COALESCE(blocked,0) FROM subscribed_channels WHERE channel_id=?`, ch.ID).Scan(&blocked)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("AddSubscribedChannel check: %w", err)
 	}
 	if blocked == 1 {

@@ -27,14 +27,14 @@ func (h *libraryHandler) LocalVideos(ctx context.Context, _ *connect.Request[v1.
 }
 
 func (h *libraryHandler) AddLocalVideo(ctx context.Context, req *connect.Request[v1.AddLocalVideoRequest]) (*connect.Response[v1.AddLocalVideoResponse], error) {
-	if err := h.b.AddLocalVideo(ctx, protoconv.ProtoToLocalVideo(req.Msg.Video)); err != nil {
+	if err := h.b.AddLocalVideo(ctx, protoconv.ProtoToLocalVideo(req.Msg.GetVideo())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.AddLocalVideoResponse{}), nil
 }
 
 func (h *libraryHandler) DeleteLocalVideo(ctx context.Context, req *connect.Request[v1.DeleteLocalVideoRequest]) (*connect.Response[v1.DeleteLocalVideoResponse], error) {
-	if err := h.b.DeleteLocalVideo(ctx, req.Msg.Id); err != nil {
+	if err := h.b.DeleteLocalVideo(ctx, req.Msg.GetId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.DeleteLocalVideoResponse{}), nil
@@ -49,7 +49,7 @@ func (h *libraryHandler) DeleteAllLocalFiles(ctx context.Context, _ *connect.Req
 }
 
 func (h *libraryHandler) HasLocalVideo(ctx context.Context, req *connect.Request[v1.HasLocalVideoRequest]) (*connect.Response[v1.HasLocalVideoResponse], error) {
-	lv, found, err := h.b.HasLocalVideo(ctx, req.Msg.VideoId)
+	lv, found, err := h.b.HasLocalVideo(ctx, req.Msg.GetVideoId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}

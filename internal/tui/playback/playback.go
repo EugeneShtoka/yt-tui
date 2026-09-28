@@ -113,7 +113,7 @@ type endedMsg struct {
 // Controller owns the playback lifecycle. Construct with New. It holds no
 // mutable state, so its methods are value receivers and it is safe to copy.
 type Controller struct {
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend Backend
 	player  player.Backend // may be nil when no player binary was found
 	ytdlp   YtdlpInfo      // local yt-dlp, for explaining a launch that never plays

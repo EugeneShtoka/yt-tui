@@ -10,7 +10,7 @@ import (
 )
 
 // nullStr stores "" as SQL NULL (used for optional foreign-key IDs).
-func nullStr(v string) interface{} {
+func nullStr(v string) any {
 	if v == "" {
 		return nil
 	}
@@ -31,7 +31,7 @@ var activityEvents = map[string]bool{
 // Play/stream/download events additionally stamp the video's channel as active
 // (see StampChannelActivity) so engaging with a video keeps its channel fresh.
 func (d *DB) AddHistory(ctx context.Context, videoID, eventType, details string) error {
-	var vid interface{}
+	var vid any
 	if videoID != "" {
 		vid = videoID
 	}

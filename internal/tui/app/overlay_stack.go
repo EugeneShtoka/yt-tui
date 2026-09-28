@@ -16,18 +16,15 @@ import (
 // resize coordination); this type owns only the stack itself.
 type overlayStack []ovpkg.Overlay
 
-// topPanel returns the top overlay when it is the info side panel — the
+// topIsPanel reports whether the top overlay is the info side panel — the
 // stack-position + type check the overlay-open handlers share.
-func (s overlayStack) topPanel() (ovpkg.VideoDetail, bool) {
+func (s overlayStack) topIsPanel() bool {
 	n := len(s)
 	if n == 0 {
-		return ovpkg.VideoDetail{}, false
+		return false
 	}
 	vd, ok := s[n-1].(ovpkg.VideoDetail)
-	if !ok || !vd.IsPanel() {
-		return ovpkg.VideoDetail{}, false
-	}
-	return vd, true
+	return ok && vd.IsPanel()
 }
 
 // topIsHelp reports whether the help overlay is on top (pressing Help again while

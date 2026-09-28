@@ -119,7 +119,7 @@ func TestGetChannelLatestAllSameDayDeterministic(t *testing.T) {
 	}
 
 	var want string
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		latest, err := db.GetChannelLatestAll(context.Background())
 		if err != nil {
 			t.Fatalf("GetChannelLatestAll run %d: %v", i, err)

@@ -55,10 +55,7 @@ func (t Downloading) resubscribeCmd(delay time.Duration) tea.Cmd {
 		ch, err := b.Events(ctx)
 		if err != nil {
 			cancel()
-			next := delay * 2
-			if next > 30*time.Second {
-				next = 30 * time.Second
-			}
+			next := min(delay*2, 30*time.Second)
 			return dlEventsClosedMsg{retryDelay: next}
 		}
 		return dlEventsReadyMsg{TabTarget: tuipkg.TabTarget{Tab: tuipkg.TabDownloading}, ch: ch, cancel: cancel}

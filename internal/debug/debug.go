@@ -31,14 +31,14 @@ func Init(path string) error {
 }
 
 // Log writes a formatted line with a millisecond-precision timestamp.
-func Log(format string, args ...interface{}) {
+func Log(format string, args ...any) {
 	if logger == nil {
 		return
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	ts := time.Now().Format("15:04:05.000")
-	all := make([]interface{}, 0, 1+len(args))
+	all := make([]any, 0, 1+len(args))
 	all = append(all, ts)
 	all = append(all, args...)
 	logger.Printf("[%s] "+format, all...)

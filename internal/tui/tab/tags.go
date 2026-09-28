@@ -3,6 +3,7 @@ package tab
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -61,11 +62,8 @@ func allTags(chs []domain.Channel) []string {
 func channelsInTag(chs []domain.Channel, tag string) []domain.Channel {
 	var out []domain.Channel
 	for i := range chs {
-		for _, tg := range chs[i].Tags {
-			if tg == tag {
-				out = append(out, chs[i])
-				break
-			}
+		if slices.Contains(chs[i].Tags, tag) {
+			out = append(out, chs[i])
 		}
 	}
 	return out
@@ -103,7 +101,7 @@ type tagsBackend interface {
 }
 
 type Tags struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  tagsBackend
 	keys     keymap.KeyMap
 	circular bool

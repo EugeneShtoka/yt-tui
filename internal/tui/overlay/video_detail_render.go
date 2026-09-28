@@ -72,14 +72,14 @@ func (vd VideoDetail) renderThumbnailLines(innerW, thumbH int, norm func(string)
 	var lines []string
 	switch {
 	case kittyCapable():
-		for i := 0; i < thumbH; i++ {
+		for range thumbH {
 			lines = append(lines, norm(""))
 		}
 	case vd.thumbRendered != "":
 		lines = append(lines, strings.Split(vd.thumbRendered, "\n")...)
 	default:
 		placeholder := strings.Repeat("░", innerW)
-		for i := 0; i < thumbH; i++ {
+		for range thumbH {
 			lines = append(lines, norm(placeholder))
 		}
 	}
@@ -129,14 +129,8 @@ func (vd VideoDetail) renderDescriptionLines(innerW, contentRows, usedRows int, 
 	}
 	descLines := vd.descLines
 	needsScroll = len(descLines) > available
-	maxVS := len(descLines) - 1
-	if maxVS < 0 {
-		maxVS = 0
-	}
-	vs := vd.descVS
-	if vs > maxVS {
-		vs = maxVS
-	}
+	maxVS := max(len(descLines)-1, 0)
+	vs := min(vd.descVS, maxVS)
 	visible := descLines[vs:]
 	if len(visible) > available {
 		visible = visible[:available]
@@ -245,20 +239,14 @@ func (vd VideoDetail) transcriptWrapped() []string {
 // floored so a tiny terminal still shows a few lines. Shared by the renderer and
 // the scroll clamp so G/j/k and the last page agree.
 func (vd VideoDetail) transcriptViewportRows() int {
-	rows := vd.contentH - modalChromeRows
-	if rows < 3 {
-		rows = 3
-	}
+	rows := max(vd.contentH-modalChromeRows, 3)
 	return rows
 }
 
 // transcriptMaxVS is the largest scroll offset that still fills the viewport —
 // scrolling stops once the last page shows. 0 when the whole transcript fits.
 func (vd VideoDetail) transcriptMaxVS() int {
-	maxVS := len(vd.transcriptWrapped()) - vd.transcriptViewportRows()
-	if maxVS < 0 {
-		maxVS = 0
-	}
+	maxVS := max(len(vd.transcriptWrapped())-vd.transcriptViewportRows(), 0)
 	return maxVS
 }
 
@@ -280,8 +268,8 @@ func transcriptHeaderRows(lines []string) []int {
 // shows as a bold title (marker and, for chapters, the timestamp stripped);
 // everything else is clamped plain text.
 func renderTranscriptLine(l string, innerW int) string {
-	if strings.HasPrefix(l, "## ") {
-		title := strings.TrimSpace(strings.TrimPrefix(l, "## "))
+	if after, ok := strings.CutPrefix(l, "## "); ok {
+		title := strings.TrimSpace(after)
 		if m := chapterHeaderRE.FindStringSubmatch(l); m != nil {
 			title = m[1]
 		}
@@ -300,10 +288,7 @@ func (vd VideoDetail) renderTranscriptModal(behind string, width int) string {
 	maxRows := vd.transcriptViewportRows()
 	needsScroll := len(lines) > maxRows
 	maxVS := vd.transcriptMaxVS()
-	vs := vd.transcriptVS
-	if vs > maxVS {
-		vs = maxVS
-	}
+	vs := min(vd.transcriptVS, maxVS)
 
 	out := []string{styles.Bold.Render("Transcript"), ""}
 	if len(lines) == 0 {
@@ -354,6 +339,7 @@ func (vd VideoDetail) Render(behind string, width, height int) string {
 			return vd.renderChaptersModal(behind, width)
 		case vdTranscript:
 			return vd.renderTranscriptModal(behind, width)
+		case vdPanel:
 		}
 		if vd.initialView == InitialViewTranscript {
 			// transcript fetch still in flight — show a small loading box
@@ -368,10 +354,7 @@ func (vd VideoDetail) Render(behind string, width, height int) string {
 	// Clamp each line of 'behind' to fill the width left of the panel. The tab
 	// content is rendered panelGap columns narrower (via WidthReduction), so the
 	// padding here leaves a blank gap between the content and the panel.
-	leftW := width - panelW
-	if leftW < 0 {
-		leftW = 0
-	}
+	leftW := max(width-panelW, 0)
 
 	behindLines := strings.Split(behind, "\n")
 	for i, line := range behindLines {
@@ -388,6 +371,7 @@ func (vd VideoDetail) Render(behind string, width, height int) string {
 		composed = vd.renderChaptersModal(composed, width)
 	case vdTranscript:
 		composed = vd.renderTranscriptModal(composed, width)
+	case vdPanel:
 	}
 	// A first-open transcript fetch is still in flight (subState is still vdPanel
 	// until it resolves) — show the loading popup over the panel.

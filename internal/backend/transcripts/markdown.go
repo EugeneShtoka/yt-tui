@@ -304,12 +304,12 @@ func formatTimestamp(seconds float64) string {
 func stripForDisplay(md string) string {
 	// Drop a leading frontmatter block delimited by --- ... ---.
 	if rest, ok := strings.CutPrefix(md, "---\n"); ok {
-		if i := strings.Index(rest, "\n---\n"); i >= 0 {
-			md = rest[i+len("\n---\n"):]
+		if _, after, ok := strings.Cut(rest, "\n---\n"); ok {
+			md = after
 		}
 	}
 	var out []string
-	for _, line := range strings.Split(md, "\n") {
+	for line := range strings.SplitSeq(md, "\n") {
 		trimmed := strings.TrimSpace(line)
 		// Skip image embeds: markdown ![](...) and Obsidian ![[...]].
 		if strings.HasPrefix(trimmed, "![](") || strings.HasPrefix(trimmed, "![[") {
