@@ -48,3 +48,32 @@ func TestBlocklistEmpty(t *testing.T) {
 		t.Errorf("fresh Blocklist = %v, want empty", ids)
 	}
 }
+
+// DeleteChannelFeedCache must clear exactly the blocked channel's cached feed
+// rows and nothing else. Without it the rows survive in feed_cache and
+// GetFeedCache serves them back on the next cold start, so the block appears to
+// have done nothing until a network refresh overwrites the cache.
+func TestDeleteChannelFeedCacheRemovesOnlyThatChannel(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	if err := db.SaveFeedCache(ctx, "recommended", []domain.Video{
+		{ID: "v1", Title: "Blocked one", ChannelID: "cBad", Channel: "Bad"},
+		{ID: "v2", Title: "Blocked two", ChannelID: "cBad", Channel: "Bad"},
+		{ID: "v3", Title: "Innocent", ChannelID: "cOK", Channel: "OK"},
+	}); err != nil {
+		t.Fatalf("SaveFeedCache: %v", err)
+	}
+
+	if err := db.DeleteChannelFeedCache(ctx, "cBad"); err != nil {
+		t.Fatalf("DeleteChannelFeedCache: %v", err)
+	}
+
+	got, err := db.GetFeedCache(ctx, "recommended")
+	if err != nil {
+		t.Fatalf("GetFeedCache: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "v3" {
+		t.Fatalf("feed cache = %+v, want only v3", got)
+	}
+}

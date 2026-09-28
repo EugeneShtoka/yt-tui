@@ -147,7 +147,14 @@ type Feed struct {
 	// pendingUnsub holds the videos removed for an in-flight unsubscribe,
 	// keyed by channel ID, so they can be restored if the backend call fails.
 	pendingUnsub map[string][]domain.Video
+	// pendingBlock is the same escrow for an in-flight block, keyed by channel
+	// ID. A block spans all three sources, so it stores one slice per source.
+	pendingBlock map[string]blockedSources
 }
+
+// blockedSources holds the videos a pending block removed, split by the source
+// slice each came from, so a failed block restores them where they belong.
+type blockedSources struct{ rec, sub, stale []domain.Video }
 
 // feedColumns is the full, natural-order column set for the Feed video list.
 // Extracted so the per-panel column selector and tab.PanelColumnKeys catalog
@@ -200,6 +207,7 @@ func NewFeed(ctx context.Context, backend feedBackend, keys keymap.KeyMap, circu
 		cols:               cols,
 		sort:               newSortState(sortModeOr(opts.Sort, feed.SortDate), videotable.ColumnKeys(cols)),
 		pendingUnsub:       make(map[string][]domain.Video),
+		pendingBlock:       make(map[string]blockedSources),
 	}
 }
 
@@ -290,6 +298,9 @@ func (t Feed) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuipkg.UnsubscribeResultMsg:
 		return t.onUnsubscribeResult(m), nil
+
+	case tuipkg.BlockChannelResultMsg:
+		return t.onBlockResult(m), nil
 
 	case tea.KeyPressMsg:
 		return t.handleKey(m)
@@ -412,6 +423,15 @@ func (t Feed) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if t.mode.needsSub() {
 			return t.unsubscribe(v)
 		}
+	case key.Matches(msg, keys.HideChannel):
+		if v.ChannelID != "" {
+			return t.blockChannel(v)
+		}
+		// No channel ID to block on — fall through to the shared handler, which
+		// reports it rather than silently doing nothing.
+		if cmd, ok := HandleVideoAction(msg, v, keys); ok {
+			return t, cmd
+		}
 	default:
 		if cmd, ok := HandleVideoAction(msg, v, keys); ok {
 			return t, cmd
@@ -445,6 +465,57 @@ func (t Feed) unsubscribe(v domain.Video) (tea.Model, tea.Cmd) {
 	t.subVideos = feed.RemoveChannelVideos(t.subVideos, ch)
 	t.rebuild()
 	return t, func() tea.Msg { return tuipkg.UnsubscribeMsg{Channel: ch} }
+}
+
+// blockChannel optimistically drops the channel's videos from every source and
+// asks Root to run the guarded block transition; BlockChannelResultMsg restores
+// them if it fails. This is the Feed-side half of making the block key work from
+// a video row: the backend write makes it survive a restart, this makes the rows
+// disappear on the keypress rather than on the next fetch.
+func (t Feed) blockChannel(v domain.Video) (tea.Model, tea.Cmd) {
+	ch := domain.Channel{ID: v.ChannelID, Name: v.Channel}
+	t.pendingBlock[ch.ID] = t.removeChannel(ch)
+	t.rebuild()
+	return t, func() tea.Msg { return tuipkg.BlockChannelMsg{Channel: ch, Block: true} }
+}
+
+// removeChannel drops a channel's videos from all three source slices, returning
+// what it removed from each so a failed transition can put them back.
+func (t *Feed) removeChannel(ch domain.Channel) blockedSources {
+	removed := blockedSources{
+		rec:   channelVideos(t.recVideos, ch),
+		sub:   channelVideos(t.subVideos, ch),
+		stale: channelVideos(t.staleVideos, ch),
+	}
+	t.recVideos = feed.RemoveChannelVideos(t.recVideos, ch)
+	t.subVideos = feed.RemoveChannelVideos(t.subVideos, ch)
+	t.staleVideos = feed.RemoveChannelVideos(t.staleVideos, ch)
+	return removed
+}
+
+// onBlockResult reconciles a block with the feed's sources. A failed block that
+// this tab started restores the escrowed videos; a successful one removes the
+// channel unconditionally, which also covers a block started somewhere else —
+// the result is broadcast to every tab, so blocking from the Channels tab clears
+// the feed too instead of leaving the rows until the next fetch.
+func (t Feed) onBlockResult(m tuipkg.BlockChannelResultMsg) tea.Model {
+	removed, pending := t.pendingBlock[m.Channel.ID]
+	delete(t.pendingBlock, m.Channel.ID)
+	switch {
+	case m.Err != nil:
+		if !pending {
+			return t
+		}
+		t.recVideos = feed.MergeVideos(t.recVideos, removed.rec)
+		t.subVideos = feed.MergeVideos(t.subVideos, removed.sub)
+		t.staleVideos = feed.MergeVideos(t.staleVideos, removed.stale)
+	case m.Block:
+		t.removeChannel(m.Channel)
+	default:
+		return t // an unblock adds nothing back; the next fetch surfaces it
+	}
+	t.rebuild()
+	return t
 }
 
 // ── projection ────────────────────────────────────────────────────────────────

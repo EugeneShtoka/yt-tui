@@ -78,9 +78,6 @@ type NavigateMsg struct {
 // reachable by their configured name, not just by type.
 type NavigateToPanelMsg struct{ Name string }
 
-// HideChannelMsg requests Root to hide a channel from recommendations.
-type HideChannelMsg struct{ Channel domain.Channel }
-
 // WatchLaterMsg requests Root to add a video to Watch Later. The backend decides
 // the store (YouTube's "WL" playlist when authed, else a local "Watch Later"
 // playlist), so the TUI stays out of YouTube communication.

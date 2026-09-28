@@ -24,6 +24,7 @@ type ChannelRepo interface {
 	BlockChannel(ctx context.Context, channelID string) error
 	UnblockChannel(ctx context.Context, channelID string) error
 	DeleteChannelVideos(ctx context.Context, channelID string) error
+	DeleteChannelFeedCache(ctx context.Context, channelID string) error
 	GetChannelVideos(ctx context.Context, channelID string) ([]domain.Video, error)
 	SaveChannelVideos(ctx context.Context, channelID string, videos []domain.Video) error
 	TouchChannelVideosRefreshed(ctx context.Context, channelID string) error
@@ -165,7 +166,9 @@ func (s *ChannelService) SetChannelState(ctx context.Context, channelID string, 
 // must still work offline / without auth — the DB block is authoritative for
 // local filtering, so a missing YT client only leaves the upstream subscription
 // in place, which the next sync keeps at 'none' via the block invariant), then
-// flags the channel blocked and clears its cached videos (mirroring Unsubscribe).
+// flags the channel blocked and clears its cached videos (mirroring Unsubscribe)
+// plus its feed_cache rows — the cache is what a cold start reads, so leaving it
+// behind makes the block look like it did nothing until the next network fetch.
 func (s *ChannelService) Block(ctx context.Context, ch domain.Channel) error {
 	if ch.SubState() == domain.SubYT {
 		if ytAPI := s.ytAPI.Load(); ytAPI != nil {
@@ -180,6 +183,9 @@ func (s *ChannelService) Block(ctx context.Context, ch domain.Channel) error {
 		return fmt.Errorf("Block: %w", err)
 	}
 	if err := s.repo.DeleteChannelVideos(ctx, ch.ID); err != nil {
+		return fmt.Errorf("Block: %w", err)
+	}
+	if err := s.repo.DeleteChannelFeedCache(ctx, ch.ID); err != nil {
 		return fmt.Errorf("Block: %w", err)
 	}
 	return nil

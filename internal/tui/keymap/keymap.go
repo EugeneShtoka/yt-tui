@@ -103,7 +103,7 @@ func Build(kb config.KeyBindings) KeyMap { //nolint:funlen // flat binding table
 		PlayAudio:     b(kb.PlayAudio, "stream audio"),
 		Delete:        b(kb.Delete, "delete"),
 		HideVideo:     b(kb.HideVideo, "hide video"),
-		HideChannel:   b(kb.HideChannel, "hide channel"),
+		HideChannel:   b(kb.HideChannel, "block channel"),
 		Unsubscribe:   b(kb.Unsubscribe, "unsubscribe"),
 		CopyURL:       b(kb.CopyURL, "copy URL"),
 		DrillDown:     b(kb.DrillDown, "open"),

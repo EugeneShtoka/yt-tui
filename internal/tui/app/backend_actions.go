@@ -12,7 +12,6 @@ import (
 // need — declared at the point of use (ISP); api.Backend satisfies it.
 type actionBackend interface {
 	Enqueue(ctx context.Context, v domain.Video, audioOnly bool) error
-	HideRecVideo(ctx context.Context, videoID string) error
 	Unsubscribe(ctx context.Context, ch domain.Channel) error
 	BlockChannel(ctx context.Context, ch domain.Channel) error
 	UnblockChannel(ctx context.Context, channelID string) error
@@ -20,7 +19,7 @@ type actionBackend interface {
 }
 
 // backendActions builds the fire-and-forget tea.Cmds for backend mutations that
-// need only a context and the backend — enqueue, hide, unsubscribe, block —
+// need only a context and the backend — enqueue, watch-later, unsubscribe, block —
 // extracted from Root (H-2) so those command factories aren't tangled into the
 // top-level model. Each command performs the mutation off the event loop and
 // reports the outcome as a message; Root's handlers own the follow-up
@@ -47,16 +46,6 @@ func (a backendActions) watchLater(ctx context.Context, v domain.Video) tea.Cmd 
 			return tuipkg.StatusMsg{Text: "watch later: " + err.Error(), IsErr: true}
 		}
 		return tuipkg.StatusMsg{Text: "Added to Watch Later: " + v.Title}
-	}
-}
-
-// hideChannel hides a recommended-feed video by its channel id.
-func (a backendActions) hideChannel(ctx context.Context, ch domain.Channel) tea.Cmd {
-	return func() tea.Msg {
-		if err := a.backend.HideRecVideo(ctx, ch.ID); err != nil {
-			return tuipkg.StatusMsg{Text: "hide: " + err.Error(), IsErr: true}
-		}
-		return tuipkg.StatusMsg{Text: "Hidden: " + ch.Name}
 	}
 }
 
