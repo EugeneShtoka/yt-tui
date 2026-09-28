@@ -244,6 +244,10 @@ func (c *Client) runAndParseVideos(ctx context.Context, args []string) ([]domain
 	return runWithRetry(ctx, c.runner, "video", args, parseVideoLines)
 }
 
+func (c *Client) runAndParseRecommended(ctx context.Context, args []string) ([]domain.Video, int, error) {
+	return runWithRetry(ctx, c.runner, "video", args, parseRecommendedLines)
+}
+
 func (c *Client) runAndParseChannels(ctx context.Context, args []string) ([]domain.Channel, int, error) {
 	return runWithRetry(ctx, c.runner, "channel", args, parseChannelLines)
 }
