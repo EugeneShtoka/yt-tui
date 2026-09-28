@@ -6,7 +6,7 @@ toolchain go1.26.8
 
 require (
 	charm.land/bubbles/v2 v2.2.1
-	charm.land/bubbletea/v2 v2.0.9
+	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	connectrpc.com/connect v1.21.0
 	github.com/BurntSushi/toml v1.6.0
@@ -246,3 +246,8 @@ tool (
 	golang.org/x/vuln/cmd/govulncheck
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
+
+// Idle-gated renderer (charmbracelet/bubbletea#1796, shared with mx-tui): the stock
+// renderer wakes fps times a second forever even when nothing changed. Drop this
+// once the upstream PR lands.
+replace charm.land/bubbletea/v2 => github.com/EugeneShtoka/bubbletea/v2 v2.0.10-idlegate.1
