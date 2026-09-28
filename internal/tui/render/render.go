@@ -43,10 +43,6 @@ const (
 
 var activeDurFmt DurFmt = DurFmthhmmss
 
-// ActiveDurFmt reports the current duration format, letting callers save and
-// restore the process-wide setting (e.g. tests that exercise a specific format).
-func ActiveDurFmt() DurFmt { return activeDurFmt }
-
 // SetDurFmt sets the active duration format and recomputes ColDuration.
 // Typically called once at startup after loading config, but it is idempotent —
 // safe to re-apply (e.g. across test cases). Unrecognized values fall back to hh:mm.
@@ -228,15 +224,9 @@ func OverlayCenter(behind, box string, width int) string {
 	}
 	boxH := len(boxLines)
 
-	x := (width - boxW) / 2
-	if x < 0 {
-		x = 0
-	}
+	x := max((width-boxW)/2, 0)
 	behindLines := strings.Split(behind, "\n")
-	y := (len(behindLines) - boxH) / 2
-	if y < 0 {
-		y = 0
-	}
+	y := max((len(behindLines)-boxH)/2, 0)
 	for i, ol := range boxLines {
 		lineIdx := y + i
 		for lineIdx >= len(behindLines) {
@@ -320,7 +310,7 @@ func WordWrap(text string, width int) []string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	var result []string
-	for _, para := range strings.Split(text, "\n") {
+	for para := range strings.SplitSeq(text, "\n") {
 		if ansi.StringWidth(para) <= width {
 			result = append(result, para)
 			continue
@@ -414,8 +404,8 @@ func ShortenURLs(text string, maxLen int) string {
 
 func abbreviateURL(u string) string {
 	rest := u
-	if i := strings.Index(u, "://"); i >= 0 {
-		rest = u[i+3:]
+	if _, after, ok := strings.Cut(u, "://"); ok {
+		rest = after
 	}
 	rest = strings.TrimPrefix(rest, "www.")
 	domain := rest

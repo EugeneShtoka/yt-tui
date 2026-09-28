@@ -18,8 +18,7 @@ func (r dlRow) GetDurationSecs() int { return r.secs }
 // a fixed h:mm:ss format regardless of the user's DurationFormat, diverging from
 // every other duration column.
 func TestDlDurationColHonorsConfiguredFormat(t *testing.T) {
-	prev := render.ActiveDurFmt()
-	t.Cleanup(func() { render.SetDurFmt(prev) })
+	t.Cleanup(func() { render.SetDurFmt(render.DurFmthhmmss) }) // the package default
 
 	col := DlDurationCol[dlRow]()
 	cell := func(secs int) string {

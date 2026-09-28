@@ -11,6 +11,7 @@ import (
 
 	"github.com/EugeneShtoka/yt-tui/internal/config"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec"
+	"github.com/EugeneShtoka/yt-tui/internal/procexec/procexectest"
 )
 
 // stubSleep replaces the backoff sleep for the duration of a test so the
@@ -29,8 +30,8 @@ func videoLine(id string) string {
 // runYtdlp must parse stdout, capture stderr, and (via waitErr) fold an
 // output-less failed exit into an error.
 func TestRunYtdlpParsesAndCapturesStderr(t *testing.T) {
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: videoLine("a") + "\n" + videoLine("b"), Stderr: "a warning"}
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: videoLine("a") + "\n" + videoLine("b"), Stderr: "a warning"}
 	}}
 	got, raw, stderr, err := runYtdlp(context.Background(), r, nil, parseVideoLines)
 	if err != nil {
@@ -45,8 +46,8 @@ func TestRunYtdlpParsesAndCapturesStderr(t *testing.T) {
 }
 
 func TestRunYtdlpFoldsEmptyExitFailure(t *testing.T) {
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: "", WaitErr: fmt.Errorf("exit status 1")}
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: "", WaitErr: fmt.Errorf("exit status 1")}
 	}}
 	_, _, _, err := runYtdlp(context.Background(), r, nil, parseVideoLines)
 	if err == nil {
@@ -59,8 +60,8 @@ func TestRunYtdlpFoldsEmptyExitFailure(t *testing.T) {
 
 // A non-zero exit that still produced output is a partial success (H-2).
 func TestRunYtdlpPartialSuccess(t *testing.T) {
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: videoLine("a"), WaitErr: fmt.Errorf("exit status 1")}
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: videoLine("a"), WaitErr: fmt.Errorf("exit status 1")}
 	}}
 	got, _, _, err := runYtdlp(context.Background(), r, nil, parseVideoLines)
 	if err != nil {
@@ -75,13 +76,13 @@ func TestRunYtdlpPartialSuccess(t *testing.T) {
 // attempt's result once the retry budget is exhausted.
 func TestRunWithRetryExhaustsOnPersistentRateLimit(t *testing.T) {
 	stubSleep(t)
-	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		atomic.AddInt32(&calls, 1)
-		return &procexec.FakeCmd{Stdout: "", Stderr: "HTTP Error 429: Too Many Requests"}
+	var calls atomic.Int32
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		calls.Add(1)
+		return &procexectest.FakeCmd{Stdout: "", Stderr: "HTTP Error 429: Too Many Requests"}
 	}}
 	_, _, _ = runWithRetry(context.Background(), r, "video", nil, parseVideoLines)
-	if got := atomic.LoadInt32(&calls); got != maxRetries+1 {
+	if got := calls.Load(); got != maxRetries+1 {
 		t.Errorf("want %d attempts, got %d", maxRetries+1, got)
 	}
 }
@@ -90,11 +91,11 @@ func TestRunWithRetryExhaustsOnPersistentRateLimit(t *testing.T) {
 func TestRunWithRetryRecoversAfterRateLimit(t *testing.T) {
 	stubSleep(t)
 	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
 		if atomic.AddInt32(&calls, 1) == 1 {
-			return &procexec.FakeCmd{Stderr: "rate-limited"}
+			return &procexectest.FakeCmd{Stderr: "rate-limited"}
 		}
-		return &procexec.FakeCmd{Stdout: videoLine("ok")}
+		return &procexectest.FakeCmd{Stdout: videoLine("ok")}
 	}}
 	got, _, err := runWithRetry(context.Background(), r, "video", nil, parseVideoLines)
 	if err != nil {
@@ -112,7 +113,7 @@ func TestRunWithRetryRecoversAfterRateLimit(t *testing.T) {
 func TestClientRecommendedUsesRunner(t *testing.T) {
 	c := &Client{
 		cfg:    &config.Config{},
-		runner: procexec.FakeRunner{New: func([]string) procexec.Cmd { return &procexec.FakeCmd{Stdout: videoLine("x")} }},
+		runner: procexectest.FakeRunner{New: func([]string) procexec.Cmd { return &procexectest.FakeCmd{Stdout: videoLine("x")} }},
 	}
 	got, err := c.Recommended(context.Background())
 	if err != nil {
@@ -125,28 +126,28 @@ func TestClientRecommendedUsesRunner(t *testing.T) {
 
 // Pagination must stop once a page returns fewer than pageSize raw entries.
 func TestClientPaginationStops(t *testing.T) {
-	var page int32
+	var page atomic.Int32
 	c := &Client{
 		cfg: &config.Config{},
-		runner: procexec.FakeRunner{New: func([]string) procexec.Cmd {
+		runner: procexectest.FakeRunner{New: func([]string) procexec.Cmd {
 			// First page: a full pageSize of videos → loop continues.
 			// Second page: a short page → loop terminates.
-			if atomic.AddInt32(&page, 1) == 1 {
+			if page.Add(1) == 1 {
 				var b strings.Builder
 				for i := range pageSize {
 					b.WriteString(videoLine(fmt.Sprintf("p1-%d", i)))
 					b.WriteByte('\n')
 				}
-				return &procexec.FakeCmd{Stdout: b.String()}
+				return &procexectest.FakeCmd{Stdout: b.String()}
 			}
-			return &procexec.FakeCmd{Stdout: videoLine("last")}
+			return &procexectest.FakeCmd{Stdout: videoLine("last")}
 		}},
 	}
 	got, err := c.ChannelVideos(context.Background(), "https://youtube.com/@x", "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if p := atomic.LoadInt32(&page); p != 2 {
+	if p := page.Load(); p != 2 {
 		t.Fatalf("want 2 pages fetched, got %d", p)
 	}
 	if len(got) != pageSize+1 {
@@ -160,16 +161,16 @@ func TestClientPaginationStops(t *testing.T) {
 func TestRunWithRetryStopsOnContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		atomic.AddInt32(&calls, 1)
-		return &procexec.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests"}
+	var calls atomic.Int32
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		calls.Add(1)
+		return &procexectest.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests"}
 	}}
 	_, _, err := runWithRetry(ctx, r, "video", nil, parseVideoLines)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
+	if got := calls.Load(); got != 1 {
 		t.Errorf("want exactly 1 attempt before bailing on cancellation, got %d", got)
 	}
 }
@@ -191,7 +192,7 @@ func (r *captureCtxRunner) Command(ctx context.Context, _ string, _ ...string) p
 func TestRunYtdlpForwardsCallerContext(t *testing.T) {
 	type ctxKey struct{}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
-	r := &captureCtxRunner{cmd: &procexec.FakeCmd{Stdout: videoLine("a")}}
+	r := &captureCtxRunner{cmd: &procexectest.FakeCmd{Stdout: videoLine("a")}}
 	if _, _, _, err := runYtdlp(ctx, r, nil, parseVideoLines); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -204,8 +205,8 @@ func TestRunYtdlpForwardsCallerContext(t *testing.T) {
 // failed exit instead of just the bare exit status — the bug was cmd.Output()'s
 // ExitError.Stderr being silently discarded.
 func TestRunYtdlpOutputSurfacesStderrOnFailure(t *testing.T) {
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stderr: "ERROR: Video unavailable", WaitErr: fmt.Errorf("exit status 1")}
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stderr: "ERROR: Video unavailable", WaitErr: fmt.Errorf("exit status 1")}
 	}}
 	_, err := runYtdlpOutput(context.Background(), r, nil)
 	if err == nil || !strings.Contains(err.Error(), "Video unavailable") {
@@ -219,12 +220,12 @@ func TestRunYtdlpOutputSurfacesStderrOnFailure(t *testing.T) {
 // this is the "no transcript, works on retry" bug the wrapper fixes.
 func TestRunYtdlpOutputWithRetryRecoversAfterRateLimit(t *testing.T) {
 	stubSleep(t)
-	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		if atomic.AddInt32(&calls, 1) == 1 {
-			return &procexec.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests", WaitErr: fmt.Errorf("exit status 1")}
+	var calls atomic.Int32
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		if calls.Add(1) == 1 {
+			return &procexectest.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests", WaitErr: fmt.Errorf("exit status 1")}
 		}
-		return &procexec.FakeCmd{Stdout: `{"id":"x"}`}
+		return &procexectest.FakeCmd{Stdout: `{"id":"x"}`}
 	}}
 	out, err := runYtdlpOutputWithRetry(context.Background(), r, "transcript", nil)
 	if err != nil {
@@ -233,7 +234,7 @@ func TestRunYtdlpOutputWithRetryRecoversAfterRateLimit(t *testing.T) {
 	if string(out) != `{"id":"x"}` {
 		t.Fatalf("got %q, want stdout after retry", out)
 	}
-	if got := atomic.LoadInt32(&calls); got != 2 {
+	if got := calls.Load(); got != 2 {
 		t.Errorf("want 2 attempts, got %d", got)
 	}
 }
@@ -242,16 +243,16 @@ func TestRunYtdlpOutputWithRetryRecoversAfterRateLimit(t *testing.T) {
 // the retry budget.
 func TestRunYtdlpOutputWithRetryNoRetryOnHardError(t *testing.T) {
 	stubSleep(t)
-	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		atomic.AddInt32(&calls, 1)
-		return &procexec.FakeCmd{Stderr: "ERROR: Private video", WaitErr: fmt.Errorf("exit status 1")}
+	var calls atomic.Int32
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		calls.Add(1)
+		return &procexectest.FakeCmd{Stderr: "ERROR: Private video", WaitErr: fmt.Errorf("exit status 1")}
 	}}
 	_, err := runYtdlpOutputWithRetry(context.Background(), r, "detail", nil)
 	if err == nil || !strings.Contains(err.Error(), "Private video") {
 		t.Fatalf("want error containing stderr text, got %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
+	if got := calls.Load(); got != 1 {
 		t.Errorf("want exactly 1 attempt for a non-rate-limit error, got %d", got)
 	}
 }
@@ -261,23 +262,23 @@ func TestRunYtdlpOutputWithRetryNoRetryOnHardError(t *testing.T) {
 func TestRunYtdlpOutputWithRetryStopsOnContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	var calls int32
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		atomic.AddInt32(&calls, 1)
-		return &procexec.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests", WaitErr: fmt.Errorf("exit status 1")}
+	var calls atomic.Int32
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		calls.Add(1)
+		return &procexectest.FakeCmd{Stderr: "HTTP Error 429: Too Many Requests", WaitErr: fmt.Errorf("exit status 1")}
 	}}
 	_, err := runYtdlpOutputWithRetry(ctx, r, "transcript", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
+	if got := calls.Load(); got != 1 {
 		t.Errorf("want exactly 1 attempt before bailing on cancellation, got %d", got)
 	}
 }
 
 func TestRunYtdlpOutputReturnsStdoutOnSuccess(t *testing.T) {
-	r := procexec.FakeRunner{New: func([]string) procexec.Cmd {
-		return &procexec.FakeCmd{Stdout: `{"id":"x"}`}
+	r := procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+		return &procexectest.FakeCmd{Stdout: `{"id":"x"}`}
 	}}
 	out, err := runYtdlpOutput(context.Background(), r, nil)
 	if err != nil {
@@ -293,8 +294,8 @@ func TestRunYtdlpOutputReturnsStdoutOnSuccess(t *testing.T) {
 func TestClientVideoDetailsUsesRunner(t *testing.T) {
 	c := &Client{
 		cfg: &config.Config{},
-		runner: procexec.FakeRunner{New: func([]string) procexec.Cmd {
-			return &procexec.FakeCmd{Stdout: `{"id":"vid1","title":"T","channel":"C"}`}
+		runner: procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+			return &procexectest.FakeCmd{Stdout: `{"id":"vid1","title":"T","channel":"C"}`}
 		}},
 	}
 	got, err := c.VideoDetails(context.Background(), "https://youtu.be/vid1")
@@ -309,8 +310,8 @@ func TestClientVideoDetailsUsesRunner(t *testing.T) {
 func TestClientVideoDetailsSurfacesStderr(t *testing.T) {
 	c := &Client{
 		cfg: &config.Config{},
-		runner: procexec.FakeRunner{New: func([]string) procexec.Cmd {
-			return &procexec.FakeCmd{Stderr: "ERROR: Private video", WaitErr: fmt.Errorf("exit status 1")}
+		runner: procexectest.FakeRunner{New: func([]string) procexec.Cmd {
+			return &procexectest.FakeCmd{Stderr: "ERROR: Private video", WaitErr: fmt.Errorf("exit status 1")}
 		}},
 	}
 	_, err := c.VideoDetails(context.Background(), "https://youtu.be/private")
