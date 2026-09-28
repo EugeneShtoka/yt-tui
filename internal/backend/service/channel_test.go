@@ -547,14 +547,14 @@ func TestChannelServiceSetYTAPIConcurrentWithSubscribe(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			svc.SetYTAPI(&fakeYTAPIClient{})
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		ch := domain.Channel{ID: "c1"}
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			_ = svc.Subscribe(context.Background(), ch)
 			_ = svc.Unsubscribe(context.Background(), ch)
 		}

@@ -17,7 +17,7 @@ type channelHandler struct{ b api.ChannelBackend }
 var _ backendv1connect.ChannelServiceHandler = (*channelHandler)(nil)
 
 func (h *channelHandler) Search(ctx context.Context, req *connect.Request[v1.SearchRequest]) (*connect.Response[v1.SearchResponse], error) {
-	chs, vids, err := h.b.Search(ctx, req.Msg.Query)
+	chs, vids, err := h.b.Search(ctx, req.Msg.GetQuery())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -60,28 +60,28 @@ func (h *channelHandler) BlockedChannels(ctx context.Context, _ *connect.Request
 }
 
 func (h *channelHandler) BlockChannel(ctx context.Context, req *connect.Request[v1.BlockChannelRequest]) (*connect.Response[v1.BlockChannelResponse], error) {
-	if err := h.b.BlockChannel(ctx, protoconv.ProtoToChannel(req.Msg.Channel)); err != nil {
+	if err := h.b.BlockChannel(ctx, protoconv.ProtoToChannel(req.Msg.GetChannel())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.BlockChannelResponse{}), nil
 }
 
 func (h *channelHandler) UnblockChannel(ctx context.Context, req *connect.Request[v1.UnblockChannelRequest]) (*connect.Response[v1.UnblockChannelResponse], error) {
-	if err := h.b.UnblockChannel(ctx, req.Msg.ChannelId); err != nil {
+	if err := h.b.UnblockChannel(ctx, req.Msg.GetChannelId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.UnblockChannelResponse{}), nil
 }
 
 func (h *channelHandler) SetChannelState(ctx context.Context, req *connect.Request[v1.SetChannelStateRequest]) (*connect.Response[v1.SetChannelStateResponse], error) {
-	if err := h.b.SetChannelState(ctx, req.Msg.ChannelId, domain.SubscriptionState(req.Msg.State)); err != nil {
+	if err := h.b.SetChannelState(ctx, req.Msg.GetChannelId(), domain.SubscriptionState(req.Msg.GetState())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SetChannelStateResponse{}), nil
 }
 
 func (h *channelHandler) ChannelVideos(ctx context.Context, req *connect.Request[v1.ChannelVideosRequest]) (*connect.Response[v1.ChannelVideosResponse], error) {
-	vids, err := h.b.ChannelVideos(ctx, req.Msg.ChannelUrl, req.Msg.ChannelId)
+	vids, err := h.b.ChannelVideos(ctx, req.Msg.GetChannelUrl(), req.Msg.GetChannelId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -89,7 +89,7 @@ func (h *channelHandler) ChannelVideos(ctx context.Context, req *connect.Request
 }
 
 func (h *channelHandler) ChannelLatestN(ctx context.Context, req *connect.Request[v1.ChannelLatestNRequest]) (*connect.Response[v1.ChannelLatestNResponse], error) {
-	vids, err := h.b.ChannelLatestN(ctx, req.Msg.ChannelUrl, req.Msg.ChannelId, int(req.Msg.N))
+	vids, err := h.b.ChannelLatestN(ctx, req.Msg.GetChannelUrl(), req.Msg.GetChannelId(), int(req.Msg.GetN()))
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -97,63 +97,63 @@ func (h *channelHandler) ChannelLatestN(ctx context.Context, req *connect.Reques
 }
 
 func (h *channelHandler) Subscribe(ctx context.Context, req *connect.Request[v1.SubscribeRequest]) (*connect.Response[v1.SubscribeResponse], error) {
-	if err := h.b.Subscribe(ctx, protoconv.ProtoToChannel(req.Msg.Channel)); err != nil {
+	if err := h.b.Subscribe(ctx, protoconv.ProtoToChannel(req.Msg.GetChannel())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SubscribeResponse{}), nil
 }
 
 func (h *channelHandler) Unsubscribe(ctx context.Context, req *connect.Request[v1.UnsubscribeRequest]) (*connect.Response[v1.UnsubscribeResponse], error) {
-	if err := h.b.Unsubscribe(ctx, protoconv.ProtoToChannel(req.Msg.Channel)); err != nil {
+	if err := h.b.Unsubscribe(ctx, protoconv.ProtoToChannel(req.Msg.GetChannel())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.UnsubscribeResponse{}), nil
 }
 
 func (h *channelHandler) AddSubscribedChannel(ctx context.Context, req *connect.Request[v1.AddSubscribedChannelRequest]) (*connect.Response[v1.AddSubscribedChannelResponse], error) {
-	if err := h.b.AddSubscribedChannel(ctx, protoconv.ProtoToChannel(req.Msg.Channel)); err != nil {
+	if err := h.b.AddSubscribedChannel(ctx, protoconv.ProtoToChannel(req.Msg.GetChannel())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.AddSubscribedChannelResponse{}), nil
 }
 
 func (h *channelHandler) SaveSubscribedChannels(ctx context.Context, req *connect.Request[v1.SaveSubscribedChannelsRequest]) (*connect.Response[v1.SaveSubscribedChannelsResponse], error) {
-	if err := h.b.SaveSubscribedChannels(ctx, protoconv.ProtoToChannels(req.Msg.Channels)); err != nil {
+	if err := h.b.SaveSubscribedChannels(ctx, protoconv.ProtoToChannels(req.Msg.GetChannels())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SaveSubscribedChannelsResponse{}), nil
 }
 
 func (h *channelHandler) RemoveSubscribedChannel(ctx context.Context, req *connect.Request[v1.RemoveSubscribedChannelRequest]) (*connect.Response[v1.RemoveSubscribedChannelResponse], error) {
-	if err := h.b.RemoveSubscribedChannel(ctx, req.Msg.ChannelId); err != nil {
+	if err := h.b.RemoveSubscribedChannel(ctx, req.Msg.GetChannelId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.RemoveSubscribedChannelResponse{}), nil
 }
 
 func (h *channelHandler) DeleteChannelVideos(ctx context.Context, req *connect.Request[v1.DeleteChannelVideosRequest]) (*connect.Response[v1.DeleteChannelVideosResponse], error) {
-	if err := h.b.DeleteChannelVideos(ctx, req.Msg.ChannelId); err != nil {
+	if err := h.b.DeleteChannelVideos(ctx, req.Msg.GetChannelId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.DeleteChannelVideosResponse{}), nil
 }
 
 func (h *channelHandler) SetChannelAlias(ctx context.Context, req *connect.Request[v1.SetChannelAliasRequest]) (*connect.Response[v1.SetChannelAliasResponse], error) {
-	if err := h.b.SetChannelAlias(ctx, req.Msg.ChannelId, req.Msg.Alias); err != nil {
+	if err := h.b.SetChannelAlias(ctx, req.Msg.GetChannelId(), req.Msg.GetAlias()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SetChannelAliasResponse{}), nil
 }
 
 func (h *channelHandler) SetChannelTags(ctx context.Context, req *connect.Request[v1.SetChannelTagsRequest]) (*connect.Response[v1.SetChannelTagsResponse], error) {
-	if err := h.b.SetChannelTags(ctx, req.Msg.ChannelId, req.Msg.Tags); err != nil {
+	if err := h.b.SetChannelTags(ctx, req.Msg.GetChannelId(), req.Msg.GetTags()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SetChannelTagsResponse{}), nil
 }
 
 func (h *channelHandler) GetChannelVideos(ctx context.Context, req *connect.Request[v1.GetChannelVideosRequest]) (*connect.Response[v1.GetChannelVideosResponse], error) {
-	vids, err := h.b.GetChannelVideos(ctx, req.Msg.ChannelId)
+	vids, err := h.b.GetChannelVideos(ctx, req.Msg.GetChannelId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -161,7 +161,7 @@ func (h *channelHandler) GetChannelVideos(ctx context.Context, req *connect.Requ
 }
 
 func (h *channelHandler) GetAllChannelVideos(ctx context.Context, req *connect.Request[v1.GetAllChannelVideosRequest]) (*connect.Response[v1.GetAllChannelVideosResponse], error) {
-	vids, err := h.b.GetAllChannelVideos(ctx, req.Msg.ChannelIds)
+	vids, err := h.b.GetAllChannelVideos(ctx, req.Msg.GetChannelIds())
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -181,14 +181,14 @@ func (h *channelHandler) GetChannelLatestAll(ctx context.Context, _ *connect.Req
 }
 
 func (h *channelHandler) SaveChannelVideos(ctx context.Context, req *connect.Request[v1.SaveChannelVideosRequest]) (*connect.Response[v1.SaveChannelVideosResponse], error) {
-	if err := h.b.SaveChannelVideos(ctx, req.Msg.ChannelId, protoconv.ProtoToVideos(req.Msg.Videos)); err != nil {
+	if err := h.b.SaveChannelVideos(ctx, req.Msg.GetChannelId(), protoconv.ProtoToVideos(req.Msg.GetVideos())); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.SaveChannelVideosResponse{}), nil
 }
 
 func (h *channelHandler) ChannelHideStats(ctx context.Context, req *connect.Request[v1.ChannelHideStatsRequest]) (*connect.Response[v1.ChannelHideStatsResponse], error) {
-	hidden, played, err := h.b.ChannelHideStats(ctx, req.Msg.ChannelId)
+	hidden, played, err := h.b.ChannelHideStats(ctx, req.Msg.GetChannelId())
 	if err != nil {
 		return nil, rpcErr(err)
 	}

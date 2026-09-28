@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/EugeneShtoka/yt-tui/internal/api"
 	"github.com/EugeneShtoka/yt-tui/internal/config"
@@ -209,9 +210,7 @@ func clonePanels(p []config.Panel) []config.Panel {
 func cloneKeybindings(kb config.KeyBindings) config.KeyBindings {
 	if kb.TabKeys != nil {
 		tk := make(map[string]string, len(kb.TabKeys))
-		for k, v := range kb.TabKeys {
-			tk[k] = v
-		}
+		maps.Copy(tk, kb.TabKeys)
 		kb.TabKeys = tk
 	}
 	return kb

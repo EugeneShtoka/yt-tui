@@ -17,8 +17,8 @@ func (r *Remote) LocalPlaylists(ctx context.Context) ([]domain.Playlist, error) 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.Playlist, len(resp.Msg.Playlists))
-	for i, pb := range resp.Msg.Playlists {
+	out := make([]domain.Playlist, len(resp.Msg.GetPlaylists()))
+	for i, pb := range resp.Msg.GetPlaylists() {
 		out[i] = protoconv.ProtoToPlaylist(pb)
 	}
 	return out, nil
@@ -29,7 +29,7 @@ func (r *Remote) LocalPlaylistVideos(ctx context.Context, playlistID string) ([]
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) PlaylistVideoIDs(ctx context.Context, playlistID string) ([]string, error) {
@@ -37,7 +37,7 @@ func (r *Remote) PlaylistVideoIDs(ctx context.Context, playlistID string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Ids, nil
+	return resp.Msg.GetIds(), nil
 }
 
 func (r *Remote) CreatePlaylist(ctx context.Context, name string) (string, error) {
@@ -45,7 +45,7 @@ func (r *Remote) CreatePlaylist(ctx context.Context, name string) (string, error
 	if err != nil {
 		return "", err
 	}
-	return resp.Msg.Id, nil
+	return resp.Msg.GetId(), nil
 }
 
 func (r *Remote) DeletePlaylist(ctx context.Context, id string) error {
@@ -68,7 +68,7 @@ func (r *Remote) YTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToYTPlaylists(resp.Msg.Playlists), nil
+	return protoconv.ProtoToYTPlaylists(resp.Msg.GetPlaylists()), nil
 }
 
 func (r *Remote) YTPlaylistVideos(ctx context.Context, playlistID string) ([]domain.Video, error) {
@@ -76,7 +76,7 @@ func (r *Remote) YTPlaylistVideos(ctx context.Context, playlistID string) ([]dom
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
@@ -84,7 +84,7 @@ func (r *Remote) GetYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToYTPlaylists(resp.Msg.Playlists), nil
+	return protoconv.ProtoToYTPlaylists(resp.Msg.GetPlaylists()), nil
 }
 
 func (r *Remote) SyncYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, error) {
@@ -92,7 +92,7 @@ func (r *Remote) SyncYTPlaylists(ctx context.Context) ([]domain.YTPlaylist, erro
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToYTPlaylists(resp.Msg.Playlists), nil
+	return protoconv.ProtoToYTPlaylists(resp.Msg.GetPlaylists()), nil
 }
 
 func (r *Remote) GetYTPlaylistVideos(ctx context.Context, playlistID string) ([]domain.Video, error) {
@@ -100,7 +100,7 @@ func (r *Remote) GetYTPlaylistVideos(ctx context.Context, playlistID string) ([]
 	if err != nil {
 		return nil, err
 	}
-	return protoconv.ProtoToVideos(resp.Msg.Videos), nil
+	return protoconv.ProtoToVideos(resp.Msg.GetVideos()), nil
 }
 
 func (r *Remote) SaveYTPlaylists(ctx context.Context, playlists []domain.YTPlaylist) error {
@@ -139,7 +139,7 @@ func (r *Remote) CreateYTPlaylist(ctx context.Context, name string) (string, err
 	if err != nil {
 		return "", err
 	}
-	return resp.Msg.Id, nil
+	return resp.Msg.GetId(), nil
 }
 
 func (r *Remote) DeleteYTPlaylist(ctx context.Context, playlistID string) error {

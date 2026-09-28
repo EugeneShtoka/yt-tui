@@ -58,10 +58,7 @@ func CropLetterbox(img image.Image) image.Image {
 // tolerated so JPEG ringing at the bar edge doesn't defeat detection.
 func isBlackRow(img image.Image, b image.Rectangle, y int) bool {
 	const threshold = 24 // 0-255 luma-ish: below this a channel reads as black
-	step := b.Dx() / 32
-	if step < 1 {
-		step = 1
-	}
+	step := max(b.Dx()/32, 1)
 	nonBlack := 0
 	for x := b.Min.X; x < b.Max.X; x += step {
 		r, g, bl, _ := img.At(x, y).RGBA()

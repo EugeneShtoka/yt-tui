@@ -78,10 +78,10 @@ func init() {
 // api.Backend interface is either exposed via a palette command or explicitly
 // exempt. A new backend method that is neither fails here on purpose.
 func TestEveryBackendMethodIsClassified(t *testing.T) {
-	iface := reflect.TypeOf((*api.Backend)(nil)).Elem()
+	iface := reflect.TypeFor[api.Backend]()
 	var unclassified []string
-	for i := 0; i < iface.NumMethod(); i++ {
-		name := iface.Method(i).Name
+	for method := range iface.Methods() {
+		name := method.Name
 		_, backed := paletteCommands[name]
 		if !backed && !exemptActions[name] {
 			unclassified = append(unclassified, name)
@@ -113,10 +113,10 @@ func TestPaletteCommandsExist(t *testing.T) {
 // must still exist on the interface, so removing a Backend method surfaces the
 // stale audit entry instead of silently rotting.
 func TestNoStaleAuditEntries(t *testing.T) {
-	iface := reflect.TypeOf((*api.Backend)(nil)).Elem()
+	iface := reflect.TypeFor[api.Backend]()
 	exists := make(map[string]bool, iface.NumMethod())
-	for i := 0; i < iface.NumMethod(); i++ {
-		exists[iface.Method(i).Name] = true
+	for method := range iface.Methods() {
+		exists[method.Name] = true
 	}
 	for name := range paletteCommands {
 		if !exists[name] {

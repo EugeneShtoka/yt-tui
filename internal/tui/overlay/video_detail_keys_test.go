@@ -349,7 +349,7 @@ func TestTranscriptOpenScrollsAndDismisses(t *testing.T) {
 	}
 	// Down can't scroll past the last page (regression: it used to run away, which
 	// left j/k dead after G).
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		m, _ = asVD(t, m).Update(vdKey('j'))
 	}
 	if got := asVD(t, m).transcriptVS; got != 3 {

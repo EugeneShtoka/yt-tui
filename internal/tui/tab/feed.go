@@ -109,7 +109,7 @@ type feedBackend interface {
 }
 
 type Feed struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend  feedBackend
 	keys     keymap.KeyMap
 	circular bool
@@ -450,8 +450,7 @@ func (t Feed) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		t.rebuild()
 		t.nav.GotoRow(0)
 		return t, cmd
-	case pickerCanceled:
-		return t, nil
+	case pickerCanceled, pickerOngoing:
 	}
 	return t, nil
 }

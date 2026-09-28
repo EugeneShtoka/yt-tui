@@ -51,7 +51,7 @@ func TestHandlerNoTokenOpen(t *testing.T) {
 	store := &fakeStore{videos: map[string]domain.LocalVideo{"v1": {FilePath: path}}}
 	srv := newHandlerSrv(t, store, "")
 
-	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx
+	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx // test request against a local httptest server
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestHandlerBearerAccepted(t *testing.T) {
 	const token = "s3cr3t"
 	srv := newHandlerSrv(t, store, token)
 
-	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/media/v1", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/media/v1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestHandlerBearerRejected(t *testing.T) {
 		{"bad scheme", "Basic s3cr3t"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/media/v1", nil)
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/media/v1", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +122,7 @@ func TestHandlerTicketAccepted(t *testing.T) {
 	srv := newHandlerSrv(t, store, token)
 
 	ticket := media.MintTicket(token, "v1")
-	resp, err := http.Get(srv.URL + "/media/v1?t=" + ticket) //nolint:noctx
+	resp, err := http.Get(srv.URL + "/media/v1?t=" + ticket) //nolint:noctx // test request against a local httptest server
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestHandlerTicketRejected(t *testing.T) {
 		{"malformed", "badticket"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Get(srv.URL + "/media/v1?t=" + tc.ticket) //nolint:noctx
+			resp, err := http.Get(srv.URL + "/media/v1?t=" + tc.ticket) //nolint:noctx // test request against a local httptest server
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +163,7 @@ func TestHandlerPathTraversal(t *testing.T) {
 	srv := newHandlerSrv(t, &fakeStore{}, "")
 
 	for _, path := range []string{"/media/", "/media/a/b"} {
-		resp, err := http.Get(srv.URL + path) //nolint:noctx
+		resp, err := http.Get(srv.URL + path) //nolint:noctx // test request against a local httptest server
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func TestHandlerPathTraversal(t *testing.T) {
 func TestHandlerMissingVideo(t *testing.T) {
 	srv := newHandlerSrv(t, &fakeStore{}, "")
 
-	resp, err := http.Get(srv.URL + "/media/unknown") //nolint:noctx
+	resp, err := http.Get(srv.URL + "/media/unknown") //nolint:noctx // test request against a local httptest server
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestHandlerMissingFile(t *testing.T) {
 	}}
 	srv := newHandlerSrv(t, store, "")
 
-	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx
+	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx // test request against a local httptest server
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestHandlerMissingFile(t *testing.T) {
 func TestHandlerStoreError(t *testing.T) {
 	srv := newHandlerSrv(t, &fakeStore{err: errors.New("db unavailable")}, "")
 
-	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx
+	resp, err := http.Get(srv.URL + "/media/v1") //nolint:noctx // test request against a local httptest server
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestHandlerRangeRequest(t *testing.T) {
 	store := &fakeStore{videos: map[string]domain.LocalVideo{"v1": {FilePath: path}}}
 	srv := newHandlerSrv(t, store, "")
 
-	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/media/v1", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/media/v1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

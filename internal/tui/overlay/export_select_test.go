@@ -85,7 +85,7 @@ func readOnlyExport(t *testing.T, dir string) portability.Bundle {
 	if found == "" {
 		t.Fatal("no export file written")
 	}
-	data, err := os.ReadFile(filepath.Join(dir, found)) //nolint:gosec // test-controlled dir
+	data, err := os.ReadFile(filepath.Join(dir, found))
 	if err != nil {
 		t.Fatal(err)
 	}

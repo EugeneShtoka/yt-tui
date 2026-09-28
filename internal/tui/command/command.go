@@ -1,6 +1,7 @@
 package command
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -46,20 +47,16 @@ func (r *Registry) Resolve(name string, local []Command) (Command, bool) {
 		if c.Name == name {
 			return c, true
 		}
-		for _, a := range c.Aliases {
-			if a == name {
-				return c, true
-			}
+		if slices.Contains(c.Aliases, name) {
+			return c, true
 		}
 	}
 	for _, c := range r.global {
 		if c.Name == name {
 			return c, true
 		}
-		for _, a := range c.Aliases {
-			if a == name {
-				return c, true
-			}
+		if slices.Contains(c.Aliases, name) {
+			return c, true
 		}
 	}
 	return Command{}, false

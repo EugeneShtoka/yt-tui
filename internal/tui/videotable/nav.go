@@ -75,6 +75,8 @@ func (n *TableNav) handleNavPrefix(msg tea.KeyPressMsg, keys keymap.KeyMap) (con
 // HandleNav processes navigation key presses.
 // rowCount is the current number of rows in the table.
 // Returns true if the message was consumed (caller should return immediately).
+//
+//nolint:gocognit // flat dispatch over the navigation keys
 func (n *TableNav) HandleNav(msg tea.KeyPressMsg, keys keymap.KeyMap, rowCount int) bool {
 	if consumed, handled := n.handleNavPrefix(msg, keys); handled {
 		return consumed
@@ -83,10 +85,7 @@ func (n *TableNav) HandleNav(msg tea.KeyPressMsg, keys keymap.KeyMap, rowCount i
 	n.numBuf = ""
 
 	idx := n.tbl.GetHighlightedRowIndex()
-	pageH := n.height - n.overhead
-	if pageH < 1 {
-		pageH = 1
-	}
+	pageH := max(n.height-n.overhead, 1)
 
 	switch {
 	case key.Matches(msg, keys.GotoLine):

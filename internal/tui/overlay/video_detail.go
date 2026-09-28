@@ -85,7 +85,7 @@ type vdTranscriptMsg struct {
 // VideoDetail is the video-detail side panel with nested links/chapters modals.
 type VideoDetail struct {
 	identity
-	ctx          context.Context
+	ctx          context.Context //nolint:containedctx // app-lifetime context from main (H-1); Update takes none
 	backend      api.VideoBackend
 	media        api.MediaProvider // thumbnail/transcript seam (client-side cache + egress)
 	keys         keymap.KeyMap
@@ -99,7 +99,7 @@ type VideoDetail struct {
 	// generation: renewFetchCtx cancels the previous one when the video changes or
 	// the overlay closes, so a superseded fetch is actually killed, not just
 	// ignored via fetchToken (H-1 tail).
-	fetchCtx     context.Context
+	fetchCtx     context.Context //nolint:containedctx // per-video fetch lifetime, canceled on close/navigate
 	fetchCancel  context.CancelFunc
 	loading      bool
 	spinnerFrame string
@@ -478,10 +478,7 @@ func halfBlockRows(w, num, den int) int {
 
 func (vd VideoDetail) thumbDimensions() (w, h int) {
 	thumbW := panelW - 2
-	thumbH := halfBlockRows(thumbW, defaultThumbAspectH, defaultThumbAspectW)
-	if thumbH < 1 {
-		thumbH = 1
-	}
+	thumbH := max(halfBlockRows(thumbW, defaultThumbAspectH, defaultThumbAspectW), 1)
 	if vd.thumb != nil {
 		b := vd.thumb.Bounds()
 		iw := b.Max.X - b.Min.X
@@ -510,6 +507,8 @@ func (vd VideoDetail) applyPostLoad(firstLoad bool, prevThumbURL string, cmds []
 			vd, initCmd = vd.openChapters()
 		case InitialViewLinks:
 			vd, initCmd = vd.openLinks()
+		case InitialViewPanel, InitialViewTranscript:
+			// the panel needs no sub-view; the transcript opens once its fetch lands
 		}
 		if vd.initialView != InitialViewPanel && vd.subState == vdPanel {
 			cmds = append(cmds, func() tea.Msg { return PopOverlayMsg{} })

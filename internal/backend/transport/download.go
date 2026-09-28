@@ -16,14 +16,14 @@ type downloadHandler struct{ b api.DownloadBackend }
 var _ backendv1connect.DownloadServiceHandler = (*downloadHandler)(nil)
 
 func (h *downloadHandler) Enqueue(ctx context.Context, req *connect.Request[v1.EnqueueRequest]) (*connect.Response[v1.EnqueueResponse], error) {
-	if err := h.b.Enqueue(ctx, protoconv.ProtoToVideo(req.Msg.Video), req.Msg.AudioOnly); err != nil {
+	if err := h.b.Enqueue(ctx, protoconv.ProtoToVideo(req.Msg.GetVideo()), req.Msg.GetAudioOnly()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.EnqueueResponse{}), nil
 }
 
 func (h *downloadHandler) CancelDownload(ctx context.Context, req *connect.Request[v1.CancelDownloadRequest]) (*connect.Response[v1.CancelDownloadResponse], error) {
-	if err := h.b.CancelDownload(ctx, req.Msg.VideoId); err != nil {
+	if err := h.b.CancelDownload(ctx, req.Msg.GetVideoId()); err != nil {
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&v1.CancelDownloadResponse{}), nil

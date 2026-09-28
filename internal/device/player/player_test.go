@@ -61,7 +61,7 @@ func TestNewDriverSelectsByBaseName(t *testing.T) {
 func TestResolvePlayerPrefersConfiguredPlayer(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "myplayer")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // test fixture executable
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write fake player: %v", err)
 	}
 	t.Setenv("PATH", dir)

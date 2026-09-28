@@ -75,13 +75,7 @@ func (c Confirm) confirmCmd() tea.Cmd {
 }
 
 func (c Confirm) Render(behind string, width, _ int) string {
-	boxW := width / 2
-	if boxW > 60 {
-		boxW = 60
-	}
-	if boxW < 24 {
-		boxW = 24
-	}
+	boxW := max(min(width/2, 60), 24)
 
 	no, yes := " No ", " Yes "
 	if c.yes {

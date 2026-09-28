@@ -57,7 +57,7 @@ func TestConfigIssuesCloses(t *testing.T) {
 // can be read past the visible window.
 func TestConfigIssuesScrolls(t *testing.T) {
 	var issues []config.ConfigIssue
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		issues = append(issues, config.ConfigIssue{Message: "issue number filler text"})
 	}
 	ci := NewConfigIssues(issues, ciKeys())
