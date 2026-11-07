@@ -140,7 +140,11 @@ func (p *InProc) InitYTClient(ctx context.Context) error {
 // hang on a keyring prompt, so it's paid only when a YT mutation (subscribe,
 // playlist edit) actually needs it. A failed init isn't cached: the next
 // mutation retries, so fixing cookies/browser config takes effect without a restart.
+// With youtube_enabled off it never initializes, so nothing acts on the account.
 func (p *InProc) ytClient(ctx context.Context) (*youtube.YTClient, error) {
+	if !p.cfg.YouTubeEnabled {
+		return nil, fmt.Errorf("youtube_enabled is off: %w", domain.ErrYTNotInitialized)
+	}
 	if c := p.ytAPI.Load(); c != nil {
 		return c, nil
 	}
