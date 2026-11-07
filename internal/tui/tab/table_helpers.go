@@ -11,8 +11,10 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/tui/videotable"
 )
 
-// HandleVideoAction dispatches the 10 universal pure-message video actions:
-// Play, PlayAudio, Download, DownloadAudio, CopyURL, VideoInfo, OpenLinks, OpenChapters, AddList, HideChannel.
+// HandleVideoAction dispatches the universal pure-message video actions:
+// Play, PlayAudio, Download, DownloadAudio, CopyURL, VideoInfo, OpenLinks,
+// OpenChapters, OpenTranscript, AddList, WatchLater, Subscribe, HideChannel.
+// Subscribe subscribes to the video's channel.
 // HideChannel is the same guarded block transition the Channels tab runs on the
 // Block key — it just reaches it from any video row instead of the channel list.
 // Returns (cmd, true) if handled; (nil, false) if the key did not match.
@@ -41,6 +43,14 @@ func HandleVideoAction(msg tea.KeyPressMsg, v domain.Video, keys keymap.KeyMap) 
 		return func() tea.Msg { return tuipkg.OpenOverlayMsg{Kind: tuipkg.OverlayAddToPlaylist, Video: v} }, true
 	case key.Matches(msg, keys.WatchLater):
 		return func() tea.Msg { return tuipkg.WatchLaterMsg{Video: v} }, true
+	case key.Matches(msg, keys.Subscribe):
+		if v.ChannelID == "" {
+			return func() tea.Msg {
+				return tuipkg.StatusMsg{Text: "subscribe: no channel id for " + v.Title, IsErr: true}
+			}, true
+		}
+		ch := domain.Channel{ID: v.ChannelID, Name: v.Channel, State: domain.SubYT}
+		return func() tea.Msg { return tuipkg.SubscribeMsg{Channel: ch} }, true
 	case key.Matches(msg, keys.HideChannel):
 		if v.ChannelID == "" {
 			// Blocking keys on channel ID; without one the transition would create

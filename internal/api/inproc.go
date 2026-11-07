@@ -27,7 +27,8 @@ import (
 type InProc struct {
 	db           *db.DB
 	yt           *youtube.Client
-	ytAPI        atomic.Pointer[youtube.YTClient] // set by InitYTClient; used for YT playlist mutations
+	ytAPI        atomic.Pointer[youtube.YTClient] // set by InitYTClient (lazily via ytClient); used for YT mutations
+	ytInitMu     sync.Mutex                       // serializes lazy InitYTClient so concurrent first uses extract cookies once
 	cfg          *config.Config
 	dl           *downloader.Downloader
 	thumbs       *thumbs.Store      // on-disk thumbnail cache; nil if the dir couldn't be created
