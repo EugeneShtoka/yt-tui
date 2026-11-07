@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 	"github.com/EugeneShtoka/yt-tui/internal/youtube"
@@ -134,34 +135,54 @@ func (p *InProc) InitYTClient(ctx context.Context) error {
 	return nil
 }
 
+// ytClient returns the YouTube API client, initializing it on first use.
+// Nothing calls InitYTClient eagerly — cookie extraction can take seconds or
+// hang on a keyring prompt, so it's paid only when a YT mutation (subscribe,
+// playlist edit) actually needs it. A failed init isn't cached: the next
+// mutation retries, so fixing cookies/browser config takes effect without a restart.
+func (p *InProc) ytClient(ctx context.Context) (*youtube.YTClient, error) {
+	if c := p.ytAPI.Load(); c != nil {
+		return c, nil
+	}
+	p.ytInitMu.Lock()
+	defer p.ytInitMu.Unlock()
+	if c := p.ytAPI.Load(); c != nil {
+		return c, nil
+	}
+	if err := p.InitYTClient(ctx); err != nil {
+		return nil, fmt.Errorf("youtube api: %w", err)
+	}
+	return p.ytAPI.Load(), nil
+}
+
 func (p *InProc) CreateYTPlaylist(ctx context.Context, name string) (string, error) {
-	client := p.ytAPI.Load()
-	if client == nil {
-		return "", domain.ErrYTNotInitialized
+	client, err := p.ytClient(ctx)
+	if err != nil {
+		return "", err
 	}
 	return client.CreatePlaylist(ctx, name)
 }
 
 func (p *InProc) DeleteYTPlaylist(ctx context.Context, playlistID string) error {
-	client := p.ytAPI.Load()
-	if client == nil {
-		return domain.ErrYTNotInitialized
+	client, err := p.ytClient(ctx)
+	if err != nil {
+		return err
 	}
 	return client.DeletePlaylist(ctx, playlistID)
 }
 
 func (p *InProc) AddToYTPlaylist(ctx context.Context, playlistID, videoID string) error {
-	client := p.ytAPI.Load()
-	if client == nil {
-		return domain.ErrYTNotInitialized
+	client, err := p.ytClient(ctx)
+	if err != nil {
+		return err
 	}
 	return client.AddToPlaylist(ctx, playlistID, videoID)
 }
 
 func (p *InProc) RemoveFromYTPlaylist(ctx context.Context, playlistID, videoID string) error {
-	client := p.ytAPI.Load()
-	if client == nil {
-		return domain.ErrYTNotInitialized
+	client, err := p.ytClient(ctx)
+	if err != nil {
+		return err
 	}
 	return client.RemoveFromPlaylist(ctx, playlistID, videoID)
 }

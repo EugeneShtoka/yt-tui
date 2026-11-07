@@ -117,6 +117,7 @@ type Channels struct {
 
 	view       srcMode         // active source filter (recommended / subscribed / mixed / blocked / stale)
 	recFeedIDs map[string]bool // channel IDs currently in the recommended feed
+	pendingSub map[string]bool // channel IDs this tab marked subscribed optimistically
 	stale      staleFilter     // stale-tagged-channel partition config (hide + threshold)
 	picker     modePicker      // the view picker (shared inline selector)
 
@@ -217,7 +218,7 @@ func (t Channels) ShortHelp() []key.Binding {
 	if t.inDetail() {
 		return []key.Binding{t.keys.Play, t.keys.Refresh, t.keys.ForceRefresh, t.keys.Left}
 	}
-	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Unsubscribe, t.keys.Block, t.keys.PanelMode, t.keys.SortChord}
+	return []key.Binding{t.keys.DrillDown, t.keys.RenameChannel, t.keys.TagChannel, t.keys.Subscribe, t.keys.Unsubscribe, t.keys.Block, t.keys.PanelMode, t.keys.SortChord}
 }
 func (t Channels) InterceptsInput() bool { return t.editInput.Focused() || t.picker.isOpen() }
 
@@ -254,6 +255,9 @@ func (t Channels) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.aux = m
 		t.setChNavRows()
 		t.setChVidNavRows()
+
+	case tuipkg.SubscribeResultMsg:
+		t.onSubscribeResult(m)
 
 	case tuipkg.UnsubscribeResultMsg:
 		if m.Err != nil {
@@ -443,6 +447,8 @@ func (t Channels) handleKeyList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return t.beginEdit(ch, chEditAlias)
 	case key.Matches(msg, keys.TagChannel):
 		return t.beginEdit(ch, chEditTags)
+	case key.Matches(msg, keys.Subscribe):
+		return t.subscribeChannel(ch)
 	case key.Matches(msg, keys.Unsubscribe):
 		return t.unsubscribeChannel(ch, false)
 	case key.Matches(msg, keys.Block):
@@ -499,6 +505,53 @@ func (t Channels) beginEdit(ch domain.Channel, mode int) (tea.Model, tea.Cmd) {
 	t.editInput.Focus()
 	t.editMode = mode
 	return t, textinput.Blink
+}
+
+// subscribeChannel marks ch subscribed optimistically and emits the subscribe
+// msg; SubscribeResultMsg restores the original channel if the call fails. The
+// list can hold unsubscribed channels (recommended / mixed / stale modes), so
+// this is how one is promoted to a subscription without leaving the tab.
+func (t Channels) subscribeChannel(ch domain.Channel) (tea.Model, tea.Cmd) {
+	if ch.IsSubscribed() {
+		return t, errMsg("already subscribed: " + ch.DisplayName())
+	}
+	if ch.Blocked {
+		return t, errMsg("unblock " + ch.DisplayName() + " before subscribing")
+	}
+	sub := ch
+	sub.State, sub.IsLocal = domain.SubYT, false
+	t.subs.Set(sub)
+	if t.pendingSub == nil {
+		t.pendingSub = map[string]bool{}
+	}
+	t.pendingSub[ch.ID] = true
+	t.rebuildAndSetChNav()
+	return t, func() tea.Msg { return tuipkg.SubscribeMsg{Channel: sub} }
+}
+
+// onSubscribeResult reconciles the set with a subscribe outcome from any tab:
+// a failure reverts this tab's own optimistic mark; a success (possibly issued from
+// a video row elsewhere) marks the channel subscribed, adding it if unknown.
+func (t *Channels) onSubscribeResult(m tuipkg.SubscribeResultMsg) {
+	cur, known := t.subs.ByID(m.Channel.ID)
+	optimistic := t.pendingSub[m.Channel.ID]
+	delete(t.pendingSub, m.Channel.ID)
+	switch {
+	case m.Err != nil:
+		// Only undo our own optimistic mark — a failed subscribe issued from a
+		// video row elsewhere must not demote a channel that was already subscribed.
+		if !known || !optimistic {
+			return
+		}
+		cur.State = domain.SubNone
+		t.subs.Set(cur)
+	case known:
+		cur.State, cur.IsLocal = m.Channel.SubState(), m.Channel.IsLocal
+		t.subs.Set(cur)
+	default:
+		t.subs.Subscribe(m.Channel)
+	}
+	t.rebuildAndSetChNav()
 }
 
 // unsubscribeChannel removes ch optimistically and emits the unsubscribe msg;

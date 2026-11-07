@@ -120,3 +120,33 @@ func findStatus(t *testing.T, cmd tea.Cmd) tuipkg.StatusMsg {
 	t.Fatalf("no StatusMsg produced")
 	return tuipkg.StatusMsg{}
 }
+
+// subscribeCaptureBackend records the channel the root subscribed to.
+type subscribeCaptureBackend struct {
+	apitest.NopBackend
+	subscribed domain.Channel
+}
+
+func (b *subscribeCaptureBackend) Subscribe(_ context.Context, ch domain.Channel) error {
+	b.subscribed = ch
+	return nil
+}
+
+func TestHandleSubscribe_RoutesToBackendAndBroadcasts(t *testing.T) {
+	be := &subscribeCaptureBackend{}
+	r := Root{backend: be, router: tabRouter{tabs: []tuipkg.Tab{fakeTab{}}}}
+
+	_, cmd := r.Update(tuipkg.SubscribeMsg{Channel: domain.Channel{ID: "ch1", Name: "C1"}})
+	res, ok := runCmd(cmd).(tuipkg.SubscribeResultMsg)
+	if !ok || res.Err != nil || be.subscribed.ID != "ch1" {
+		t.Fatalf("want ok SubscribeResultMsg for ch1, got %#v (backend saw %q)", runCmd(cmd), be.subscribed.ID)
+	}
+
+	m, cmd := r.Update(res)
+	if !receivedContains[tuipkg.SubscribeResultMsg](m.(Root).router.tabs[0].(fakeTab).received) {
+		t.Error("subscribe result should be broadcast to tabs")
+	}
+	if sm := findStatus(t, cmd); sm.IsErr {
+		t.Errorf("want success status, got error %q", sm.Text)
+	}
+}
