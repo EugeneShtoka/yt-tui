@@ -296,6 +296,13 @@ func (t Feed) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.aux = m
 		t.setRows()
 
+	case tuipkg.SubscribeResultMsg:
+		// Pull the new channel's stored videos into the subscribed source — only
+		// if that source was ever loaded; an unloaded one picks them up on demand.
+		if m.Err == nil && t.subLoad == srcLoaded {
+			return t, t.subLoadCmd()
+		}
+
 	case tuipkg.UnsubscribeResultMsg:
 		return t.onUnsubscribeResult(m), nil
 

@@ -3,7 +3,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/EugeneShtoka/yt-tui/internal/debug"
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
@@ -82,16 +84,34 @@ func (p *InProc) SaveChannelVideos(ctx context.Context, channelID string, videos
 }
 
 // Subscribe and Unsubscribe delegate to ChannelService, which routes
-// local/remote channels based on ch.IsLocal.
+// local/remote channels based on ch.IsLocal. A YouTube-side change needs the
+// YT API client, initialized here on first use (ChannelService only reads it).
 func (p *InProc) Subscribe(ctx context.Context, ch domain.Channel) error {
+	if !ch.IsLocal {
+		if _, err := p.ytClient(ctx); err != nil {
+			return fmt.Errorf("Subscribe: %w", err)
+		}
+	}
 	return p.ch.Subscribe(ctx, ch)
 }
 
 func (p *InProc) Unsubscribe(ctx context.Context, ch domain.Channel) error {
+	if !ch.IsLocal {
+		if _, err := p.ytClient(ctx); err != nil {
+			return fmt.Errorf("Unsubscribe: %w", err)
+		}
+	}
 	return p.ch.Unsubscribe(ctx, ch)
 }
 
 func (p *InProc) BlockChannel(ctx context.Context, ch domain.Channel) error {
+	// Blocking a YT subscription also unsubscribes on YouTube when it can; an
+	// init failure is non-fatal — ChannelService falls back to a local-only block.
+	if ch.SubState() == domain.SubYT {
+		if _, err := p.ytClient(ctx); err != nil {
+			debug.Log("InProc.BlockChannel: %v", err)
+		}
+	}
 	return p.ch.Block(ctx, ch)
 }
 

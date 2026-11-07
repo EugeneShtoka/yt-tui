@@ -164,6 +164,18 @@ type NavigateToPlaylistMsg struct {
 	PlaylistName    string
 }
 
+// SubscribeMsg requests Root to subscribe to a channel via the backend.
+type SubscribeMsg struct{ Channel domain.Channel }
+
+// SubscribeResultMsg reports the outcome of a SubscribeMsg's backend call. It is
+// broadcast to every tab so those that optimistically marked the channel
+// subscribed (Channels) can revert on Err != nil, and the Feed can pull the new
+// channel's videos into its subscribed source on success.
+type SubscribeResultMsg struct {
+	Channel domain.Channel
+	Err     error
+}
+
 // UnsubscribeMsg requests Root to unsubscribe from a channel via the backend.
 // The emitting tab has already removed the channel from its local feed.
 type UnsubscribeMsg struct{ Channel domain.Channel }

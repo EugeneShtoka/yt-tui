@@ -239,6 +239,11 @@ func (r Root) dispatchChannelAction(msg tea.Msg) (bool, tea.Model, tea.Cmd) {
 	case tuipkg.NavigateToPanelMsg:
 		model, cmd := r.handleNavigateToPanel(m)
 		return true, model, cmd
+	case tuipkg.SubscribeMsg:
+		return true, r, r.actions().subscribe(r.baseCtx(), m.Channel)
+	case tuipkg.SubscribeResultMsg:
+		model, cmd := r.handleSubscribeResult(m)
+		return true, model, cmd
 	case tuipkg.UnsubscribeMsg:
 		model, cmd := r.handleUnsubscribe(m)
 		return true, model, cmd
@@ -825,6 +830,20 @@ func (r Root) applyNavigate(i int, query string) (Root, tea.Cmd) {
 		return r, tea.Batch(refreshCmd, func() tea.Msg { return tuipkg.SearchFocusInputMsg{} })
 	}
 	return r, refreshCmd
+}
+
+// handleSubscribeResult broadcasts the result to every tab (Channels reverts its
+// optimistic mark on failure; Feed reloads its subscribed source on success) and
+// shows the outcome in the status bar.
+func (r Root) handleSubscribeResult(m tuipkg.SubscribeResultMsg) (Root, tea.Cmd) {
+	r, bcastCmd := r.handleBroadcast(m)
+	statusCmd := func() tea.Msg {
+		if m.Err != nil {
+			return tuipkg.StatusMsg{Text: "subscribe: " + m.Err.Error(), IsErr: true}
+		}
+		return tuipkg.StatusMsg{Text: "Subscribed: " + m.Channel.DisplayName()}
+	}
+	return r, tea.Batch(bcastCmd, statusCmd)
 }
 
 func (r Root) handleUnsubscribe(m tuipkg.UnsubscribeMsg) (Root, tea.Cmd) {
