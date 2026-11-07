@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/downloader"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec"
 	"github.com/EugeneShtoka/yt-tui/internal/procexec/procexectest"
+	"github.com/EugeneShtoka/yt-tui/internal/youtube"
 )
 
 func newInProc(t *testing.T, runner procexec.Runner) (*api.InProc, *db.DB) {
@@ -261,5 +263,50 @@ func TestWaitEnrichmentStopsPeriodicLoopOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("periodic enrichment loop did not stop within 5s of cancel")
+	}
+}
+
+// StartBackgroundEnrichment must authenticate the YouTube API client when
+// YouTube access is enabled: nothing else calls InitYTClient, and without it
+// every account mutation (subscribe, unsubscribe, playlist edits) fails with
+// ErrYTNotInitialized. A cookies_file keeps the test offline (no yt-dlp), and
+// the canceled context makes the background backfill and the mutation below
+// return immediately instead of touching the network.
+func TestStartBackgroundEnrichmentInitsYTClient(t *testing.T) {
+	cookies := filepath.Join(t.TempDir(), "cookies.txt")
+	jar := "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsapisid-value\n"
+	if err := os.WriteFile(cookies, []byte(jar), 0o600); err != nil {
+		t.Fatalf("write cookies: %v", err)
+	}
+	database, err := db.New(t.TempDir(), false, 90)
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	cfg := &config.Config{DaemonConfig: config.DaemonConfig{YouTubeEnabled: true, CookiesFile: cookies}}
+	dl := downloader.NewWithRunner(cfg, database, procexec.OS{})
+	p := api.NewInProc(database, youtube.NewClient(cfg), dl, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.StartBackgroundEnrichment(ctx)
+	p.WaitEnrichment()
+
+	if _, err := p.CreateYTPlaylist(ctx, "x"); errors.Is(err, domain.ErrYTNotInitialized) {
+		t.Fatalf("CreateYTPlaylist: YouTube API client was not initialized: %v", err)
+	}
+}
+
+// With YouTube access disabled the client must stay uninitialized, so account
+// mutations keep reporting ErrYTNotInitialized instead of acting on the account.
+func TestStartBackgroundEnrichmentSkipsYTClientWhenDisabled(t *testing.T) {
+	p, _ := newInProc(t, procexec.OS{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.StartBackgroundEnrichment(ctx)
+	p.WaitEnrichment()
+
+	if _, err := p.CreateYTPlaylist(ctx, "x"); !errors.Is(err, domain.ErrYTNotInitialized) {
+		t.Fatalf("CreateYTPlaylist err = %v, want ErrYTNotInitialized", err)
 	}
 }

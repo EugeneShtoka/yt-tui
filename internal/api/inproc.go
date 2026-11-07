@@ -102,6 +102,19 @@ func (p *InProc) StartBackgroundEnrichment(ctx context.Context) {
 			}
 		})
 	}
+	// Authenticate the YouTube innertube client (subscribe/unsubscribe, playlist
+	// edits) from the configured cookies. Nothing else calls InitYTClient, so
+	// without this every account mutation fails with ErrYTNotInitialized in both
+	// the single binary and the daemon. Tracked on bgWG and bound to ctx: browser
+	// cookie extraction shells out to yt-dlp, which can take seconds, so it must
+	// not delay startup and must be drained by WaitEnrichment at shutdown.
+	if p.cfg.YouTubeEnabled {
+		p.bgWG.Go(func() {
+			if err := p.InitYTClient(ctx); err != nil {
+				debug.Log("enrich: init YouTube API client: %v", err)
+			}
+		})
+	}
 	e := enrich.New(p.db, p.yt, p.thumbs, p.transcripts, enrich.Params{
 		DelaySeconds:         p.cfg.EnrichmentDelaySeconds,
 		ThumbnailsPerChannel: p.cfg.ThumbnailsPerChannel,
