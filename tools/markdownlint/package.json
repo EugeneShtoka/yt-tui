@@ -4,5 +4,9 @@
   "description": "The markdownlint-cli2 that CI and make docs-check both run (npm ci against the lock).",
   "dependencies": {
     "markdownlint-cli2": "0.24.0"
+  },
+  "overrides": {
+    "katex": "0.19.1",
+    "re2js": "2.9.1"
   }
 }
