@@ -76,6 +76,10 @@ func (w *Warmer) Run(ctx context.Context) {
 	dispatched := 0
 loop:
 	for id := range ids {
+		// select picks randomly when a worker is also ready, so check ctx first.
+		if ctx.Err() != nil {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			break loop
