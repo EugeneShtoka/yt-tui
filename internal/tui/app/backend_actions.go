@@ -12,6 +12,7 @@ import (
 // need — declared at the point of use (ISP); api.Backend satisfies it.
 type actionBackend interface {
 	Enqueue(ctx context.Context, v domain.Video, audioOnly bool) error
+	Subscribe(ctx context.Context, ch domain.Channel) error
 	Unsubscribe(ctx context.Context, ch domain.Channel) error
 	BlockChannel(ctx context.Context, ch domain.Channel) error
 	UnblockChannel(ctx context.Context, channelID string) error
@@ -46,6 +47,15 @@ func (a backendActions) watchLater(ctx context.Context, v domain.Video) tea.Cmd 
 			return tuipkg.StatusMsg{Text: "watch later: " + err.Error(), IsErr: true}
 		}
 		return tuipkg.StatusMsg{Text: "Added to Watch Later: " + v.Title}
+	}
+}
+
+// subscribe subscribes to a channel, reporting the result as SubscribeResultMsg
+// so tabs that applied it optimistically can revert on failure.
+func (a backendActions) subscribe(ctx context.Context, ch domain.Channel) tea.Cmd {
+	return func() tea.Msg {
+		err := a.backend.Subscribe(ctx, ch)
+		return tuipkg.SubscribeResultMsg{Channel: ch, Err: err}
 	}
 }
 

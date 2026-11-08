@@ -95,6 +95,14 @@ func (s *ChannelService) SubscribedChannels(ctx context.Context) ([]domain.Chann
 // Subscribe adds a channel subscription. Local channels are stored in DB only;
 // remote channels call the YouTube API and then DB.
 func (s *ChannelService) Subscribe(ctx context.Context, ch domain.Channel) error {
+	// A channel known but unsubscribed (State none, e.g. from the recommended
+	// feed) would otherwise be upserted back as "none" — a silent no-op.
+	if !ch.IsSubscribed() {
+		ch.State = domain.SubYT
+		if ch.IsLocal {
+			ch.State = domain.SubLocal
+		}
+	}
 	if !ch.IsLocal {
 		ytAPI := s.ytAPI.Load()
 		if ytAPI == nil {

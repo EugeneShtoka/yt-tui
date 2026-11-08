@@ -29,6 +29,7 @@ type fakeChannelRepo struct {
 	stateChangedTo   domain.SubscriptionState
 	stamped          []string
 	fetchOffsets     []int64 // each SetChannelFetchOffset call, in order
+	added            domain.Channel
 }
 
 func (f *fakeChannelRepo) GetSubscribedChannels(ctx context.Context) ([]domain.Channel, error) {
@@ -43,8 +44,11 @@ func (f *fakeChannelRepo) BlockedChannels(ctx context.Context) ([]domain.Channel
 func (f *fakeChannelRepo) SaveSubscribedChannels(context.Context, []domain.Channel) error {
 	return f.saveErr
 }
-func (f *fakeChannelRepo) AddSubscribedChannel(context.Context, domain.Channel) error { return nil }
-func (f *fakeChannelRepo) RemoveSubscribedChannel(context.Context, string) error      { return nil }
+func (f *fakeChannelRepo) AddSubscribedChannel(_ context.Context, ch domain.Channel) error {
+	f.added = ch
+	return nil
+}
+func (f *fakeChannelRepo) RemoveSubscribedChannel(context.Context, string) error { return nil }
 func (f *fakeChannelRepo) SetChannelState(ctx context.Context, id string, state domain.SubscriptionState) error {
 	f.stateChangedID, f.stateChangedTo = id, state
 	return nil
@@ -615,5 +619,20 @@ func TestChannelServiceChannelVideosPersistsEachPage(t *testing.T) {
 	}
 	if len(repo.savedPages[2]) != 3 {
 		t.Errorf("final merged save had %d videos, want 3", len(repo.savedPages[2]))
+	}
+}
+
+// Subscribing a known-but-unsubscribed channel (State none, e.g. picked from the
+// recommended feed) must persist a subscribed state, not upsert "none" back.
+func TestChannelServiceSubscribePromotesStateNone(t *testing.T) {
+	repo := &fakeChannelRepo{}
+	svc := NewChannelService(repo, fakeChannelSource{})
+	svc.SetYTAPI(&fakeYTAPIClient{})
+
+	if err := svc.Subscribe(context.Background(), domain.Channel{ID: "c1", State: domain.SubNone}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if repo.added.ID != "c1" || repo.added.State != domain.SubYT {
+		t.Fatalf("persisted %+v, want c1 with state %q", repo.added, domain.SubYT)
 	}
 }
