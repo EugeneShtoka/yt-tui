@@ -22,17 +22,29 @@ func PreserveCursor(old []domain.Video, cursor int, updated []domain.Video) int 
 }
 
 // MergeVideos merges incoming into existing by video ID; incoming wins on conflict.
+//
+// The result order is deterministic: each video keeps the position of its first
+// occurrence (existing first, then new IDs from incoming), and a conflicting
+// incoming video replaces the earlier one in place. Callers sort the result with
+// a stable sort on coarse keys (upload date has day precision), so ties keep
+// this input order; building the result from map iteration instead reshuffled
+// equal-date videos on every merge, e.g. on each poll tick in the Mixed feed.
 func MergeVideos(existing, incoming []domain.Video) []domain.Video {
-	m := make(map[string]domain.Video, len(existing)+len(incoming))
+	pos := make(map[string]int, len(existing)+len(incoming))
+	out := make([]domain.Video, 0, len(existing)+len(incoming))
+	add := func(v domain.Video) {
+		if i, ok := pos[v.ID]; ok {
+			out[i] = v
+			return
+		}
+		pos[v.ID] = len(out)
+		out = append(out, v)
+	}
 	for _, v := range existing {
-		m[v.ID] = v
+		add(v)
 	}
 	for _, v := range incoming {
-		m[v.ID] = v
-	}
-	out := make([]domain.Video, 0, len(m))
-	for _, v := range m {
-		out = append(out, v)
+		add(v)
 	}
 	return out
 }

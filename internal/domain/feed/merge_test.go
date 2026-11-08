@@ -38,6 +38,32 @@ func TestMergeVideosIncomingWins(t *testing.T) {
 	}
 }
 
+// MergeVideos must return a deterministic order: first occurrence wins the
+// position (existing first, then new incoming IDs) and a conflict replaces in
+// place. The Mixed feed re-merges on every poll tick and stable-sorts by
+// day-precision upload date, so a map-iteration order here reshuffles all
+// same-day videos every few seconds. Repeated runs catch a regression to map
+// order, which Go randomizes per iteration.
+func TestMergeVideosDeterministicOrder(t *testing.T) {
+	existing := []domain.Video{{ID: "a"}, {ID: "b", Title: "old"}, {ID: "c"}}
+	incoming := []domain.Video{{ID: "d"}, {ID: "b", Title: "new"}, {ID: "e"}}
+	want := []string{"a", "b", "c", "d", "e"}
+	for run := range 50 {
+		got := MergeVideos(existing, incoming)
+		if len(got) != len(want) {
+			t.Fatalf("run %d: len=%d, want %d", run, len(got), len(want))
+		}
+		for i, id := range want {
+			if got[i].ID != id {
+				t.Fatalf("run %d: order = %s, want %v", run, ids(got), want)
+			}
+		}
+		if got[1].Title != "new" {
+			t.Fatalf("run %d: conflict not replaced in place, b.Title=%q", run, got[1].Title)
+		}
+	}
+}
+
 // ── PreserveCursor ────────────────────────────────────────────────────────────
 
 func TestPreserveCursor(t *testing.T) {
