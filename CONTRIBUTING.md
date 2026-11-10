@@ -84,7 +84,7 @@ make release-check  # goreleaser check
 make proto-check    # buf lint + generated code in sync (make proto regenerates)
 make docs-check     # markdownlint
 make fix            # auto-fix: go mod tidy + gofmt + golangci-lint --fix
-make pins-outdated  # hand-pinned tools and the bubbletea fork vs. upstream (network)
+make pins-outdated  # hand-pinned tools vs. upstream (network)
 ```
 
 `arch-check` fails on a function only tests reach (`go tool deadcode`): move it

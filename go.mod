@@ -6,7 +6,7 @@ toolchain go1.26.10
 
 require (
 	charm.land/bubbles/v2 v2.2.1
-	charm.land/bubbletea/v2 v2.0.10
+	charm.land/bubbletea/v2 v2.1.2-0.20261109105522-e4d617e7e0c0
 	charm.land/lipgloss/v2 v2.0.6
 	connectrpc.com/connect v1.21.1
 	github.com/BurntSushi/toml v1.6.0
@@ -66,7 +66,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charithe/durationcheck v0.0.11 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/ckaznocha/intrange v0.3.1 // indirect
@@ -209,7 +209,7 @@ require (
 	github.com/uudashr/gocognit v1.2.1 // indirect
 	github.com/uudashr/iface v1.5.0 // indirect
 	github.com/xen0n/gosmopolitan v1.3.0 // indirect
-	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/xo/terminfo v1.0.0 // indirect
 	github.com/yagipy/maintidx v1.0.0 // indirect
 	github.com/yeya24/promlinter v0.3.0 // indirect
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
@@ -246,8 +246,3 @@ tool (
 	golang.org/x/vuln/cmd/govulncheck
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
-
-// Idle-gated renderer (charmbracelet/bubbletea#1796, shared with mx-tui): the stock
-// renderer wakes fps times a second forever even when nothing changed. Drop this
-// once the upstream PR lands.
-replace charm.land/bubbletea/v2 => github.com/EugeneShtoka/bubbletea/v2 v2.0.10-idlegate.1

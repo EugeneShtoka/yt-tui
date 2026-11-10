@@ -174,7 +174,7 @@ hooks:
 	@echo "  https://github.com/gitleaks/gitleaks"
 
 # The tools the workflows pin by hand (Dependabot does not bump them) against their
-# latest releases, and the bubbletea fork against upstream. Needs network.
+# latest releases. Needs network.
 pins-outdated:
 	bash scripts/pinned-tools.sh
 
