@@ -15,11 +15,6 @@ updates:
     cooldown:
       default-days: 5
     open-pull-requests-limit: 5
-    # go.mod replaces bubbletea with the idle-gated fork, so a bump of the upstream
-    # requirement changes nothing that is built. The fork is rebased by hand
-    # (`make pins-outdated` says when).
-    ignore:
-      - dependency-name: "charm.land/bubbletea/v2"
     groups:
       # Majors go in their own PR, so one that needs code changes does not hold
       # every routine security patch behind it.
