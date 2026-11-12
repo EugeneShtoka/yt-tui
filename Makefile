@@ -9,8 +9,8 @@
 #    PATH, which may be newer. GOTOOLCHAIN=local opts out, for offline work.
 #  - No user `go env` file: CI has none, and one can carry GOEXPERIMENT or GOFLAGS
 #    that change the build.
-#  - golangci-lint, govulncheck, deadcode and the protoc plugins: the go.mod `tool`
-#    directive.
+#  - golangci-lint, gohawk, govulncheck, deadcode and the protoc plugins: the go.mod
+#    `tool` directive.
 #  - goreleaser, gitleaks, buf and markdownlint-cli2: tools/versions.env and
 #    tools/markdownlint's lock, installed into .tools by scripts/ensure-tools.sh,
 #    which CI runs too.
@@ -83,9 +83,13 @@ test-quick:
 	go test ./...
 
 # --allow-serial-runners: a second concurrent run waits for the first instead of
-# failing with "parallel golangci-lint is running".
+# failing with "parallel golangci-lint is running". gohawk (a go.mod tool) adds
+# what golangci-lint has no check for: goroutines not joined, contradictory lock
+# order, a lock or resource kept on some return path, goroutines in a loop sharing
+# a local.
 lint:
 	$(GOLANGCI) run --allow-serial-runners ./...
+	go tool gohawk ./...
 
 fmt:
 	$(GOLANGCI) fmt ./...
