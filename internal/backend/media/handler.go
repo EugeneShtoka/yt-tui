@@ -55,7 +55,7 @@ func Handler(store LocalVideoStore, token string) http.Handler {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }() // read only
 
 		fi, err := f.Stat()
 		if err != nil {
