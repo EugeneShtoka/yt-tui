@@ -78,6 +78,9 @@ changelog:
     - title: Bug fixes
       regexp: '^.*?fix(\(.+\))??!?:.+$'
       order: 1
+    - title: Dependencies
+      regexp: '^deps(\(.+\))??!?:.+$'
+      order: 2
     - title: Others
       order: 999
 
