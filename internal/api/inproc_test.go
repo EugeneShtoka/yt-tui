@@ -202,7 +202,9 @@ func TestInProcEnqueueDownloadItemsAndEvents(t *testing.T) {
 			if ev.Kind == api.EventDownloadDone && ev.VideoID == "v1" {
 				return
 			}
-		case <-time.After(2 * time.Second):
+		// Generous: complete() does three SQLite writes before emitting, which can
+		// exceed 2s under the full parallel -race suite.
+		case <-time.After(10 * time.Second):
 			t.Fatal("no EventDownloadDone bridged from the downloader")
 		}
 	}
