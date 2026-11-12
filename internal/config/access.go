@@ -11,7 +11,7 @@ package config
 // Mutate runs fn while holding the write lock, so a wholesale field rewrite
 // (e.g. applying an imported config profile) is atomic with respect to the
 // background readers that take a DaemonSnapshot. fn must not call back into
-// any method that re-acquires mu (Save, SaveAsync, DaemonSnapshot) or it will
+// any method that re-acquires mu (Save, DaemonSnapshot) or it will
 // deadlock — do the field writes directly on the *Config passed alongside.
 func (c *Config) Mutate(fn func()) {
 	c.mu.Lock()
