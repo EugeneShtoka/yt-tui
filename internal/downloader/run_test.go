@@ -29,10 +29,11 @@ func newTestDB(t *testing.T) *db.DB {
 }
 
 // waitEvent drains the event channel until an event of the given kind arrives
-// or the deadline passes.
+// or the deadline passes. The deadline is generous: completion waits on SQLite
+// writes, which can take seconds under the full parallel -race suite.
 func waitEvent(t *testing.T, ch <-chan Event, kind EventKind) Event {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case ev := <-ch:
