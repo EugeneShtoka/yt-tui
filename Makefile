@@ -108,10 +108,12 @@ fix:
 	go fmt ./...
 	$(GOLANGCI) run --fix ./...
 
-# Go modules, and the one npm tree the gates run (markdownlint-cli2's lock).
+# Go modules, and the one npm tree the gates run (markdownlint-cli2's lock). An
+# advisory with no fixed release can be allowed in tools/markdownlint/audit-allow.json,
+# with a reason and an expiry date.
 vuln:
 	$(GOVULN) ./...
-	cd tools/markdownlint && npm audit --audit-level=low --omit=dev
+	bash scripts/npm-audit.sh tools/markdownlint
 
 # Regenerate api/proto codegen (needs buf). Output is committed.
 proto:
