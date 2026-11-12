@@ -169,9 +169,12 @@ script-check:
 
 # Every package must be named by a depguard rule, the binaries must link only what
 # their layer allows, and no function may be reachable only from tests (tests build
-# their own fixtures; scripts/deadcode-allow.txt lists the reasoned exceptions).
+# their own fixtures; scripts/deadcode-allow.txt lists the reasoned exceptions) nor
+# an exported one named only by tests (testonly: deadcode keeps the methods of a
+# type that reaches an interface).
 arch-check: arch-quick
 	bash scripts/deadcode-check.sh
+	go run scripts/testonly.go
 
 # arch-check without deadcode's whole-program analysis.
 arch-quick:
