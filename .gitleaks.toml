@@ -8,12 +8,20 @@ title = "yt-tui gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Project false positives: test fixtures and documented placeholders"
+description = "Project false positives: documented placeholders"
 
-# Test files use fake tokens on purpose (e.g. the round-trip tests set
-# `const token = "s3cr3t"`). Real secrets never belong in tests anyway.
+# There is deliberately no `paths` entry for project files. A `paths` entry under
+# [allowlist] is *global*: the old `.*_test\.go$` one switched off the entire
+# inherited rule set for every test file, so a live-shaped token in a test went
+# undetected (kith verified this by planting a `ghp_` PAT). The `regexes` below already cover the placeholders that actually
+# false-positive. If a new test fixture ever does trip a rule, add it to `regexes`,
+# or scope it with a per-rule [[rules.allowlist]] — never re-broaden by path.
+
+# .tools/ holds the pinned third-party tools (scripts/ensure-tools.sh). It is
+# gitignored, never part of the project, and `gitleaks dir` would otherwise scan
+# other people's code on every run.
 paths = [
-  '''.*_test\.go$''',
+  '''(^|/)\.tools/''',
 ]
 
 # Placeholder strings that appear in the README / config samples and in test
