@@ -358,7 +358,9 @@ func TestRoundTripResolveSourceTicket(t *testing.T) {
 	if _, writeErr := f.WriteString("video content"); writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	f.Close()
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
 
 	const token = "testtoken"
 	b := &testBackend{

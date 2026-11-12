@@ -179,11 +179,6 @@ func (c *Client) ChannelVideosStream(ctx context.Context, channelURL, channelID 
 	return all, nil
 }
 
-// ChannelLatest fetches the cfg.ChannelLatestCount most recent videos for a channel.
-func (c *Client) ChannelLatest(ctx context.Context, channelURL, channelID string) ([]domain.Video, error) {
-	return c.ChannelLatestN(ctx, channelURL, channelID, c.cfg.ChannelLatestCount)
-}
-
 // ChannelLatestN fetches at most n recent videos for a channel (intentionally capped).
 func (c *Client) ChannelLatestN(ctx context.Context, channelURL, channelID string, n int) ([]domain.Video, error) {
 	args := buildArgs(c.cfg, channelVideosURL(channelURL, channelID), n)

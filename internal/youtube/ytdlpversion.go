@@ -85,7 +85,7 @@ func InstalledVersion(ctx context.Context) (Version, bool) {
 func runLocal(ctx context.Context, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, versionExecTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).Output()
+	out, err := exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // G204: callers pass yt-dlp or a fixed package-manager query; no shell
 	if err != nil {
 		return "", fmt.Errorf("runLocal %s: %w", name, err)
 	}

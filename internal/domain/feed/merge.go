@@ -6,21 +6,6 @@ import (
 	"github.com/EugeneShtoka/yt-tui/internal/domain"
 )
 
-// PreserveCursor maps a cursor position from an old video slice to the index of
-// the same video (by ID) in a new slice, returning 0 if it can't be found.
-func PreserveCursor(old []domain.Video, cursor int, updated []domain.Video) int {
-	if cursor >= len(old) {
-		return 0
-	}
-	prevID := old[cursor].ID
-	for i, v := range updated {
-		if v.ID == prevID {
-			return i
-		}
-	}
-	return 0
-}
-
 // MergeVideos merges incoming into existing by video ID; incoming wins on conflict.
 //
 // The result order is deterministic: each video keeps the position of its first

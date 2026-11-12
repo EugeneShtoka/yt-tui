@@ -9,8 +9,8 @@
 #    PATH, which may be newer. GOTOOLCHAIN=local opts out, for offline work.
 #  - No user `go env` file: CI has none, and one can carry GOEXPERIMENT or GOFLAGS
 #    that change the build.
-#  - golangci-lint, govulncheck, deadcode and the protoc plugins: the go.mod `tool`
-#    directive.
+#  - golangci-lint, gohawk, govulncheck, deadcode and the protoc plugins: the go.mod
+#    `tool` directive.
 #  - goreleaser, gitleaks, buf and markdownlint-cli2: tools/versions.env and
 #    tools/markdownlint's lock, installed into .tools by scripts/ensure-tools.sh,
 #    which CI runs too.
@@ -77,10 +77,19 @@ endif
 test:
 	go test -race -count=1 -coverprofile=$(COVERPROFILE) ./...
 
+# The pre-push gate's tests: no race detector, and from Go's test cache, so a package
+# whose code and tests did not change is not run again. CI runs `test`.
+test-quick:
+	go test ./...
+
 # --allow-serial-runners: a second concurrent run waits for the first instead of
-# failing with "parallel golangci-lint is running".
+# failing with "parallel golangci-lint is running". gohawk (a go.mod tool) adds
+# what golangci-lint has no check for: goroutines not joined, contradictory lock
+# order, a lock or resource kept on some return path, goroutines in a loop sharing
+# a local.
 lint:
 	$(GOLANGCI) run --allow-serial-runners ./...
+	go tool gohawk ./...
 
 fmt:
 	$(GOLANGCI) fmt ./...
@@ -99,10 +108,12 @@ fix:
 	go fmt ./...
 	$(GOLANGCI) run --fix ./...
 
-# Go modules, and the one npm tree the gates run (markdownlint-cli2's lock).
+# Go modules, and the one npm tree the gates run (markdownlint-cli2's lock). An
+# advisory with no fixed release can be allowed in tools/markdownlint/audit-allow.json,
+# with a reason and an expiry date.
 vuln:
 	$(GOVULN) ./...
-	cd tools/markdownlint && npm audit --audit-level=low --omit=dev
+	bash scripts/npm-audit.sh tools/markdownlint
 
 # Regenerate api/proto codegen (needs buf). Output is committed.
 proto:
@@ -160,16 +171,22 @@ script-check:
 
 # Every package must be named by a depguard rule, the binaries must link only what
 # their layer allows, and no function may be reachable only from tests (tests build
-# their own fixtures; scripts/deadcode-allow.txt lists the reasoned exceptions).
-arch-check:
+# their own fixtures; scripts/deadcode-allow.txt lists the reasoned exceptions) nor
+# an exported one named only by tests (testonly: deadcode keeps the methods of a
+# type that reaches an interface).
+arch-check: arch-quick
+	bash scripts/deadcode-check.sh
+	go run scripts/testonly.go
+
+# arch-check without deadcode's whole-program analysis.
+arch-quick:
 	bash scripts/depguard-coverage-check.sh
 	bash scripts/deps-check.sh
-	bash scripts/deadcode-check.sh
 
 # Enable the tracked pre-commit/pre-push hooks for this clone.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks enabled: secrets + fmt + vet before a commit, secrets + make check before a push."
+	@echo "hooks enabled: secrets + fmt + vet before a commit, secrets + make quick before a push."
 	@echo "Install gitleaks for full secret-scan coverage:"
 	@echo "  https://github.com/gitleaks/gitleaks"
 
@@ -198,6 +215,13 @@ coverage:
 coverage-check: test
 	bash scripts/coverage-gate.sh $(COVERPROFILE); status=$$?; rm -f $(COVERPROFILE); exit $$status
 
+# The pre-push gate: what this machine can say in about a minute. The race detector and
+# the coverage floors, cross builds, the vulnerability scan, deadcode and the release
+# config are CI's (`check`); pushing a tag runs them here too.
+.PHONY: quick test-quick arch-quick
+quick: mod-check compile test-quick lint fmt-check secrets pin-check arch-quick \
+	ci-parity script-check proto-check docs-check
+
 # Every CI gate, with CI's tools (ci-parity-check.sh holds the two lists equal).
 # Non-mutating. CHECK_STRICT=1 also fails what would be skipped here.
 check: mod-check compile coverage-check cross lint fmt-check vuln secrets pin-check \
@@ -221,8 +245,8 @@ install: build
 	case ":$$PATH:" in *":$(BINDIR):"*) ;; *) echo "!!  $(BINDIR) is not on PATH" ;; esac; \
 	"$(BINDIR)/yt-tui" --version
 
-# Build and install, with no gates (as in mx-tui): the pre-push hook and CI run
-# `make check`. There is no local daemon unit to restart — yt-tui runs its backend
+# Build and install, with no gates (as in mx-tui): the pre-push hook runs `make quick`
+# and CI `make check`. There is no local daemon unit to restart — yt-tui runs its backend
 # in-process, and yt-tuid is deployed as a system service (deploy/yt-tuid.service).
 deploy: install
 

@@ -26,7 +26,7 @@ linters:
     - bodyclose      # HTTP response bodies must be closed
     - ineffassign    # detect ineffective assignments
     # Security
-    - gosec          # security checks (G202/G204/G304/G104 excluded below)
+    - gosec          # security checks (G104 excluded below)
     - funlen
     - gocognit
     # Adopted from mx-tui.
@@ -289,7 +289,8 @@ linters:
         - (*database/sql.Rows).Close
         - (*database/sql.Tx).Rollback
         - (io.Closer).Close
-        - (*os.File).Close
+        # Not (*os.File).Close: closing a file written to reports whether the write
+        # landed, so every one is checked (or discarded by name, with the reason).
 
     gocritic:
       enabled-tags:
@@ -322,10 +323,6 @@ linters:
 
     gosec:
       excludes:
-        - G202  # SQL concat: structure/placeholders only, not user input
-        - G204  # subprocess: intentional tool launching (yt-dlp, mpv, editor)
-        - G304  # file include: legitimate config/debug file path ops
-        - G703  # path traversal (taint): the --config/data_dir paths are user-supplied by design
         - G104  # unhandled errors: covered by errcheck exclusions (Close/Rollback)
 
     funlen:

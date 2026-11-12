@@ -220,11 +220,11 @@ func spawnPositionTracker(info player.ActivePlayback, configPath string) {
 	}
 	args = append(args, info.VideoID, strconv.Itoa(info.PID))
 
-	cmd := exec.Command(exe, args...)                    //nolint:noctx // the tracker must NOT be tied to our context — it outlives us by design
+	cmd := exec.Command(exe, args...)                    //nolint:noctx,gosec // the tracker must NOT be tied to our context — it outlives us by design; G204: exe is this binary
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // detach from our process group
 	if null, oerr := os.Open(os.DevNull); oerr == nil {
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = null, null, null
-		defer null.Close()
+		defer func() { _ = null.Close() }() // read only; the child holds its own copy
 	}
 	if serr := cmd.Start(); serr != nil {
 		debug.Log("spawnPositionTracker: start: %v", serr)

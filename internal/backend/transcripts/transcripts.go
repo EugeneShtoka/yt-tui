@@ -74,7 +74,7 @@ func (s *Store) Read(id string) (string, bool) {
 	}
 	srt, _ := filepath.Glob(filepath.Join(s.dir, id+".*.srt"))
 	for _, f := range srt {
-		if data, err := os.ReadFile(f); err == nil {
+		if data, err := os.ReadFile(f); err == nil { //nolint:gosec // G304: a glob match in the store dir; id passed safeID
 			return SRTToText(string(data)), true
 		}
 	}
@@ -102,7 +102,7 @@ func (s *Store) SelectCues(id, original string, acceptable []string) ([]Cue, boo
 	selectors = append(selectors, acceptable...)
 	for _, sel := range selectors {
 		if path := matchLangFile(files, sel); path != "" {
-			if data, err := os.ReadFile(path); err == nil {
+			if data, err := os.ReadFile(path); err == nil { //nolint:gosec // G304: a file listed from the store dir
 				return SRTToCues(string(data)), true
 			}
 		}

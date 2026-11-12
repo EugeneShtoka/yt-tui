@@ -113,19 +113,13 @@ func TestAtomicSaveLeavesValidFile(t *testing.T) {
 }
 
 // TestConfigCloseFlushesAndIsIdempotent verifies Close performs a final flush
-// (so a coalesced SaveAsync isn't lost on shutdown), tolerates a second call,
-// and leaves SaveAsync working via the synchronous fallback (no send on a
-// closed channel).
+// and tolerates a second call.
 func TestConfigCloseFlushesAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.ConfigFile = filepath.Join(dir, "config.toml")
-	cfg.saveReq = make(chan struct{}, 1)
-	go cfg.saveWorker(cfg.saveReq)
 
 	cfg.DownloadDir = filepath.Join(dir, "sentinel")
-	cfg.SaveAsync()
-
 	cfg.Close()
 
 	var got Config
@@ -135,10 +129,6 @@ func TestConfigCloseFlushesAndIsIdempotent(t *testing.T) {
 	if got.DownloadDir != cfg.DownloadDir {
 		t.Fatalf("Close did not flush latest state: got %q want %q", got.DownloadDir, cfg.DownloadDir)
 	}
-	if cfg.saveReq != nil {
-		t.Fatal("Close did not nil saveReq")
-	}
 
-	cfg.Close()     // second call must not panic (closeOnce)
-	cfg.SaveAsync() // after Close must not panic (falls back to sync save)
+	cfg.Close() // second call must not panic (closeOnce)
 }

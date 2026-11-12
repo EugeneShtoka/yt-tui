@@ -199,11 +199,6 @@ func (n *TableNav) Model() etable.Model {
 	return n.tbl
 }
 
-// SetModel replaces the underlying etable.Model.
-func (n *TableNav) SetModel(tbl etable.Model) {
-	n.tbl = tbl
-}
-
 // SetWidth sets only the table width, leaving height unchanged.
 func (n *TableNav) SetWidth(w int) {
 	n.width = w
