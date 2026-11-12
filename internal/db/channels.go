@@ -150,12 +150,13 @@ func (d *DB) SaveSubscribedChannels(ctx context.Context, channels []domain.Chann
 		notIn := `subscription_state='subscribed_yt' AND channel_id NOT IN (` + placeholders(len(channels)) + `)`
 		// GC annotation-free YT subs that dropped off the fetch.
 		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM subscribed_channels WHERE `+notIn+` AND alias='' AND tags=''`,
+			`DELETE FROM subscribed_channels WHERE `+notIn+` AND alias='' AND tags=''`, //nolint:gosec // G202: only placeholders are concatenated; every ID is bound
 			ids...,
 		); err != nil {
 			return fmt.Errorf("SaveSubscribedChannels gc: %w", err)
 		}
 		// Transition the annotated remainder to 'none', preserving alias/tags.
+		//nolint:gosec // G202: only placeholders are concatenated; every ID is bound
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE subscribed_channels SET subscription_state='none', is_local=0, updated_at=CURRENT_TIMESTAMP
 			 WHERE `+notIn+` AND (alias!='' OR tags!='')`,

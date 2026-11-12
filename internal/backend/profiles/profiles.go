@@ -66,7 +66,7 @@ func (s *Store) Get(name string) (data []byte, found bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // G304: path() rejects separators and dot names, so it stays in the store dir
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}

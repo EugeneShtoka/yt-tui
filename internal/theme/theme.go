@@ -41,7 +41,7 @@ func Default() Theme {
 // Load reads a theme TOML file, filling any missing fields from Default().
 func Load(path string) (Theme, error) {
 	t := Default()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: the theme file the user configured
 	if err != nil {
 		return t, fmt.Errorf("Load read: %w", err)
 	}
@@ -57,13 +57,17 @@ func WriteDefault(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: theme.toml in the user's config dir
 	if err != nil {
 		return fmt.Errorf("WriteDefault: %w", err)
 	}
-	defer f.Close()
 	if err := toml.NewEncoder(f).Encode(Default()); err != nil {
+		_ = f.Close() // the encode error is the report
 		return fmt.Errorf("WriteDefault encode: %w", err)
+	}
+	// A failed close can mean the write never landed.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("WriteDefault close: %w", err)
 	}
 	return nil
 }
