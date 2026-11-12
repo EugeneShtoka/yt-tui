@@ -14,13 +14,14 @@ PROFILE="${1:-coverage.out}"
 TOTAL_MIN="${TOTAL_MIN:-60}"
 PKG_MIN="${PKG_MIN:-50}"
 
-# Generated code is excluded from the gated total.
-GENERATED_RE='\.pb\.go|\.connect\.go'
+# Generated code is what Go's convention marks so: a "// Code generated ... DO NOT EDIT."
+# line before the package clause. It is left out of the gated total, and a package of
+# nothing else (the protobuf types and Connect stubs) is exempt without a list entry;
+# one hand-written file in it ends the exemption.
+GENERATED_HEADER='^// Code generated .* DO NOT EDIT[.]$' # [.]: awk -v would turn \. into a warning
 
 # Exempt only what *cannot* be unit-tested, with a reason. Stale entries fail.
 exempt=(
-	internal/api/backend/v1                   # generated protobuf
-	internal/api/backend/v1/backendv1connect  # generated Connect stubs
 	internal/api/apitest                      # test-only fakes
 	internal/theme                            # declarative styles
 	internal/tui/keymap                       # declarative key tables
@@ -35,6 +36,12 @@ exempt=(
 	cmd/yt-tuid                               # main wiring
 )
 
+# generated reports whether the Go file at path is generated (GENERATED_HEADER before
+# its package clause).
+generated() {
+	awk -v re="$GENERATED_HEADER" 'BEGIN { r = 1 } /^package / { exit } $0 ~ re { r = 0; exit } END { exit r }' "$1"
+}
+
 is_exempt() {
 	local p="$1" e
 	for e in "${exempt[@]}"; do [[ "$p" == "$e" ]] && return 0; done
@@ -44,9 +51,22 @@ is_exempt() {
 [[ -f "$PROFILE" ]] || { echo "coverage-gate: profile not found: $PROFILE" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Every generated file, module-relative, and every package of generated files only.
+declare -A generated_file generated_pkg
+while IFS=$'\t' read -r fq dir files; do
+	pkg="${fq#"$MODULE"/}"
+	own=0 gen=0
+	for f in $files; do
+		if generated "$dir/$f"; then generated_file["$pkg/$f"]=1; gen=1; else own=1; fi
+	done
+	(( gen && !own )) && generated_pkg["$pkg"]=1
+done < <(go list -f '{{.ImportPath}}{{"\t"}}{{.Dir}}{{"\t"}}{{join .GoFiles " "}}' ./...)
+
 stale=0
 for e in "${exempt[@]}"; do
 	[[ -d "$ROOT/$e" ]] || { echo "coverage-gate: exempt entry names no such package: $e" >&2; stale=1; }
+	[[ -n "${generated_pkg["$e"]:-}" ]] && { echo "coverage-gate: exempt entry is generated, so exempt already: $e" >&2; stale=1; }
 done
 (( stale )) && { echo "coverage-gate: fix the exempt list in $0" >&2; exit 2; }
 
@@ -69,6 +89,10 @@ printf '%-48s %8s\n' "PACKAGE" "COVER"
 printf '%-48s %8s\n' "-------" "-----"
 while IFS= read -r fq; do
 	pkg="${fq#"$MODULE"/}"
+	if [[ -n "${generated_pkg["$pkg"]:-}" ]]; then
+		printf '%-48s %8s\n' "$pkg" "generated"
+		continue
+	fi
 	if is_exempt "$pkg"; then
 		printf '%-48s %8s\n' "$pkg" "exempt"
 		continue
@@ -93,7 +117,10 @@ done < <(go list ./...)
 handwritten="$(mktemp)"
 trap 'rm -f "$handwritten"' EXIT
 head -1 "$PROFILE" > "$handwritten"
-{ grep -vE "$GENERATED_RE" "$PROFILE" || true; } | tail -n +2 >> "$handwritten"
+tail -n +2 "$PROFILE" | while IFS= read -r line; do
+	file="${line%%:*}"
+	[[ -n "${generated_file["${file#"$MODULE"/}"]:-}" ]] || printf '%s\n' "$line"
+done >> "$handwritten"
 
 tot=$(go tool cover -func="$handwritten" | awk '/^total:/{sub(/%/,"",$NF); print $NF}')
 raw=$(go tool cover -func="$PROFILE" | awk '/^total:/{sub(/%/,"",$NF); print $NF}')
