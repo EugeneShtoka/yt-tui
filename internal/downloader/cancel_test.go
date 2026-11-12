@@ -35,7 +35,10 @@ func TestQueuedDownloadIsCancellable(t *testing.T) {
 
 	// Remove cancels the queued goroutine (via ctx.Done) and drops the item.
 	d.Remove("v1")
-	if d.IsDownloading("v1") {
-		t.Fatal("item still present/downloading after Remove")
+	d.mu.RLock()
+	_, still := d.items["v1"]
+	d.mu.RUnlock()
+	if still {
+		t.Fatal("item still present after Remove")
 	}
 }

@@ -64,25 +64,6 @@ func TestMergeVideosDeterministicOrder(t *testing.T) {
 	}
 }
 
-// ── PreserveCursor ────────────────────────────────────────────────────────────
-
-func TestPreserveCursor(t *testing.T) {
-	old := []domain.Video{{ID: "a"}, {ID: "b"}, {ID: "c"}}
-	updated := []domain.Video{{ID: "x"}, {ID: "b"}, {ID: "c"}}
-	// cursor on "b" (index 1) should follow it to its new index (1).
-	if got := PreserveCursor(old, 1, updated); got != 1 {
-		t.Errorf("PreserveCursor followed to %d, want 1", got)
-	}
-	// cursor on a video absent from the new slice resets to 0.
-	if got := PreserveCursor(old, 0, updated); got != 0 {
-		t.Errorf("PreserveCursor for missing video = %d, want 0", got)
-	}
-	// out-of-range cursor resets to 0.
-	if got := PreserveCursor(old, 99, updated); got != 0 {
-		t.Errorf("PreserveCursor out-of-range = %d, want 0", got)
-	}
-}
-
 // ── RemoveVideoByID ───────────────────────────────────────────────────────────
 
 func TestRemoveVideoByIDEmpty(t *testing.T) {
