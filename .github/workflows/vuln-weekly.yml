@@ -33,7 +33,7 @@ jobs:
       - name: Vulnerability scan
         run: make vuln
 
-  # goreleaser, gitleaks and buf are pinned in tools/versions.env, and
+  # goreleaser, gitleaks, buf, syft and cosign are pinned in tools/versions.env, and
   # markdownlint-cli2 by its lock. A failure here is a pin behind its latest release,
   # a missing checksum, or a lock that disagrees with its package.json.
   pinned-tools:
