@@ -63,8 +63,8 @@ func (b *mprisBackend) exec(videoID string, args []string, startAt time.Duration
 	if err != nil {
 		return nil, fmt.Errorf("exec: open devnull: %w", err)
 	}
-	defer null.Close()
-	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...)
+	defer func() { _ = null.Close() }()                                        // read only; the child holds its own copy
+	cmd := exec.CommandContext(context.Background(), b.driver.Path(), args...) //nolint:gosec // G204: the configured player binary; args go without a shell
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = null
 	cmd.Stderr = null

@@ -77,22 +77,22 @@ func (c *Config) save(path string) error {
 	}
 	tmpName := tmp.Name()
 	if err := toml.NewEncoder(tmp).Encode(c); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
+		_ = tmp.Close()        // the encode error is the report
+		_ = os.Remove(tmpName) //nolint:gosec // G703: the temp file just created beside the user's config
 		return fmt.Errorf("save encode: %w", err)
 	}
 	// Flush to disk before the rename so a crash immediately after can't leave a
 	// renamed-but-empty file — the rename must publish durable bytes.
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
+		_ = tmp.Close()        // the sync error is the report
+		_ = os.Remove(tmpName) //nolint:gosec // G703: the temp file just created beside the user's config
 		return fmt.Errorf("save sync: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
+		_ = os.Remove(tmpName) //nolint:gosec // G703: the temp file just created beside the user's config
 		return fmt.Errorf("save close: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := os.Rename(tmpName, path); err != nil { //nolint:gosec // G703: the temp file onto the user's own config path
 		return fmt.Errorf("save rename: %w", err)
 	}
 	return nil

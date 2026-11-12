@@ -280,7 +280,7 @@ func (ip ImportPreview) loadAndPreviewCmd(path string, opts portability.ImportOp
 	backend, ctx := ip.backend, ip.ctx
 	target := tuipkg.OverlayTarget{ID: ip.ID()}
 	return func() tea.Msg {
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // G304: a bundle the user picked from the export dir listing
 		if err != nil {
 			return importPreviewMsg{OverlayTarget: target, path: path, opts: opts, err: err}
 		}

@@ -30,5 +30,5 @@ type OS struct{}
 
 // Command returns an *exec.Cmd (which satisfies Cmd) bound to ctx.
 func (OS) Command(ctx context.Context, name string, args ...string) Cmd {
-	return exec.CommandContext(ctx, name, args...)
+	return exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: the exec seam itself; callers name the program, no shell involved
 }

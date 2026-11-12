@@ -77,7 +77,7 @@ func newYTClientFromBrowser(ctx context.Context, browser string) (*YTClient, err
 		return nil, fmt.Errorf("NewYTClient mktemp: %w", err)
 	}
 	cookiePath := f.Name()
-	f.Close()
+	_ = f.Close() // nothing written: only its name is wanted, and it is removed next
 	// Remove the empty file so yt-dlp creates it itself — passing an empty file
 	// to --cookies causes "does not look like a Netscape format cookies file". A
 	// failed removal is logged: a leftover empty/stale file here would make the
@@ -97,7 +97,7 @@ func newYTClientFromBrowser(ctx context.Context, browser string) (*YTClient, err
 	// Use the channels feed — same URL the app already uses for subscriptions,
 	// so it's known to work. --flat-playlist --playlist-end 1 fetches minimal
 	// data; the important side-effect is yt-dlp writing the cookie jar to file.
-	cmd := exec.CommandContext(ctx, "yt-dlp",
+	cmd := exec.CommandContext(ctx, "yt-dlp", //nolint:gosec // G204: a fixed program; browser is the user's configured browser, one argument
 		"--cookies-from-browser", browser,
 		"--cookies", cookiePath,
 		"--flat-playlist",
@@ -128,7 +128,7 @@ func newYTClientFromBrowser(ctx context.Context, browser string) (*YTClient, err
 }
 
 func parseCookieFile(path string) (cookieHeader, sapisid string, err error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: the user's configured cookies file, or the jar yt-dlp just wrote
 	if err != nil {
 		return "", "", fmt.Errorf("parseCookieFile: %w", err)
 	}

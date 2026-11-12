@@ -21,10 +21,39 @@ jobs:
   # (go.mod's `toolchain`, which the Makefile pins) are the same here and in `make
   # check`. scripts/ci-parity-check.sh (the ci-parity gate) holds the two lists equal.
   #
-  # Job names build-and-test, lint, vuln, secrets and the cross-compile legs are
-  # required status checks on main: rename one and update branch protection with it.
+  # ci-ok (at the end) is the single required status check on main: a new gate job
+  # must be added to its `needs`, or branch protection will not wait for it.
+
+  # Whether a pull request changes docs alone (scripts/docs-only.sh). Then the docs and
+  # secrets gates run and the others skip themselves, which ci-ok accepts for such a PR
+  # only. Pushes to main and the release's run (workflow_call) run every gate.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: A pull request of docs alone?
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          docs_only=false
+          if [ "$EVENT" = pull_request ] && git diff --name-only "$BASE...$HEAD" | bash scripts/docs-only.sh; then
+            docs_only=true
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
 
   build-and-test:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -46,6 +75,8 @@ jobs:
 
   # Compile-only, one release platform per leg (linux/amd64 is build-and-test's).
   cross-compile:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -70,6 +101,8 @@ jobs:
 
   # Repo guards: pins, the layer map, and this file against `make check`.
   repo-checks:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -86,6 +119,8 @@ jobs:
 
   # Validates .goreleaser.yaml without building, with the release's goreleaser.
   release-config:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -102,6 +137,8 @@ jobs:
 
   # golangci-lint is pinned by the go.mod tool directive.
   lint:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -118,6 +155,8 @@ jobs:
 
   # govulncheck is a go.mod tool; npm audit covers markdownlint's lock.
   vuln:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -158,6 +197,8 @@ jobs:
 
   # Generated wire types must match api/proto (buf at tools/versions.env's version).
   proto:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -193,23 +234,27 @@ jobs:
       - name: Lint Markdown
         run: make docs-check
 
-  # One check that covers every gate, for branch protection to require in place of
-  # the list above (which it can then drop).
+  # The single required check for branch protection: it covers every gate above.
   ci-ok:
     # always(): a skipped required check counts as passed on GitHub.
     if: always()
-    needs: [build-and-test, cross-compile, repo-checks, release-config, lint, vuln, secrets, proto, docs]
+    needs: [changes, build-and-test, cross-compile, repo-checks, release-config, lint, vuln, secrets, proto, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every gate passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
           set -euo pipefail
           results="$RESULTS"
-          echo "gate results: $results"
+          echo "gate results: $results (docs only: $DOCS_ONLY)"
           for r in $results; do
+            # A gate skips itself only for a pull request of docs alone (changes).
+            if [ "$r" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; then
+              continue
+            fi
             if [ "$r" != "success" ]; then
               echo "::error::a required gate did not pass ($results)"
               exit 1

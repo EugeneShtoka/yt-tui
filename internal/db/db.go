@@ -161,7 +161,7 @@ func (d *DB) cleanEmojiTitles() error {
 			if clean == r.title {
 				continue
 			}
-			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", clean, r.id); err != nil {
+			if _, err := d.sql.ExecContext(ctx, "UPDATE "+t.table+" SET "+t.titleCol+"=? WHERE "+t.idCol+"=?", clean, r.id); err != nil { //nolint:gosec // G202: table and column names come from the fixed targets list; values are bound
 				return fmt.Errorf("cleanEmojiTitles update %s: %w", t.table, err)
 			}
 		}
