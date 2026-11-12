@@ -77,7 +77,7 @@ make fmt-check      # formatting diff, non-mutating
 make vuln           # govulncheck + npm audit of markdownlint's lock
 make secrets        # gitleaks: full history + working tree
 make pin-check      # every GitHub Actions ref is SHA-pinned
-make arch-check     # depguard names every package, deps-check, deadcode
+make arch-check     # depguard names every package, deps-check, deadcode, testonly
 make ci-parity      # make check == CI
 make script-check   # the gate scripts' own tests
 make release-check  # goreleaser check
@@ -87,9 +87,10 @@ make fix            # auto-fix: go mod tidy + gofmt + golangci-lint --fix
 make pins-outdated  # hand-pinned tools vs. upstream (network)
 ```
 
-`arch-check` fails on a function only tests reach (`go tool deadcode`): move it
-into a `_test.go` file or a `*test` package, delete it, or add it to
-`scripts/deadcode-allow.txt` with the reason.
+`arch-check` fails on a function only tests reach (`go tool deadcode`), or an
+exported one only tests name (`scripts/testonly.go`): move it into a `_test.go`
+file or a `*test` package, delete it, or add it to `scripts/deadcode-allow.txt`
+with the reason.
 
 **Add tests for behavioral changes.** The codebase favors table-driven,
 behavioral tests (assert on state, not on rendered glyph strings). Pure logic

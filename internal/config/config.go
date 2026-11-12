@@ -194,10 +194,7 @@ type Config struct {
 	// import takes the write lock (see Mutate / DaemonSnapshot).
 	// Unexported fields are ignored by the TOML encoder.
 	mu sync.RWMutex
-	// saveReq coalesces async save requests into a single background write.
-	// Guarded by mu so Close can nil-and-close it without racing SaveAsync.
-	saveReq chan struct{}
-	// closeOnce guards a single shutdown of the save worker.
+	// closeOnce guards Close's single final save.
 	closeOnce sync.Once
 }
 
@@ -325,12 +322,6 @@ func LoadFrom(override string) (*Config, error) {
 	cfg.DataDir = dataDir
 	cfg.StateDir = dirs.State
 	cfg.ConfigFile = cfgFile
-
-	// Start the background save worker now that ConfigFile is known. All saves
-	// after startup go through this single goroutine (via SaveAsync) or Save,
-	// both serialized by cfg.mu.
-	cfg.saveReq = make(chan struct{}, 1)
-	go cfg.saveWorker(cfg.saveReq)
 
 	if err := prepareDownloadDir(cfg); err != nil {
 		return nil, err
