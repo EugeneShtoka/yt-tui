@@ -78,9 +78,13 @@ test:
 	go test -race -count=1 -coverprofile=$(COVERPROFILE) ./...
 
 # --allow-serial-runners: a second concurrent run waits for the first instead of
-# failing with "parallel golangci-lint is running".
+# failing with "parallel golangci-lint is running". gohawk (a go.mod tool) adds
+# what golangci-lint has no check for: goroutines not joined, contradictory lock
+# order, a lock or resource kept on some return path, goroutines in a loop sharing
+# a local.
 lint:
 	$(GOLANGCI) run --allow-serial-runners ./...
+	go tool gohawk ./...
 
 fmt:
 	$(GOLANGCI) fmt ./...
