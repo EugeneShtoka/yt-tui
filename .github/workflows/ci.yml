@@ -21,8 +21,8 @@ jobs:
   # (go.mod's `toolchain`, which the Makefile pins) are the same here and in `make
   # check`. scripts/ci-parity-check.sh (the ci-parity gate) holds the two lists equal.
   #
-  # Job names build-and-test, lint, vuln, secrets and the cross-compile legs are
-  # required status checks on main: rename one and update branch protection with it.
+  # ci-ok (at the end) is the single required status check on main: a new gate job
+  # must be added to its `needs`, or branch protection will not wait for it.
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -193,8 +193,7 @@ jobs:
       - name: Lint Markdown
         run: make docs-check
 
-  # One check that covers every gate, for branch protection to require in place of
-  # the list above (which it can then drop).
+  # The single required check for branch protection: it covers every gate above.
   ci-ok:
     # always(): a skipped required check counts as passed on GitHub.
     if: always()
