@@ -9,8 +9,8 @@
 #    PATH, which may be newer. GOTOOLCHAIN=local opts out, for offline work.
 #  - No user `go env` file: CI has none, and one can carry GOEXPERIMENT or GOFLAGS
 #    that change the build.
-#  - golangci-lint, govulncheck, deadcode and the protoc plugins: the go.mod `tool`
-#    directive.
+#  - golangci-lint, gohawk, govulncheck, deadcode and the protoc plugins: the go.mod
+#    `tool` directive.
 #  - goreleaser, gitleaks, buf and markdownlint-cli2: tools/versions.env and
 #    tools/markdownlint's lock, installed into .tools by scripts/ensure-tools.sh,
 #    which CI runs too.
