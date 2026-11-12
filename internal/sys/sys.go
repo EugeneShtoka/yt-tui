@@ -28,7 +28,7 @@ func EditorCommand(path string) *exec.Cmd {
 // OpenURL launches the URL in the desktop's default handler via xdg-open,
 // without waiting for it to exit.
 func OpenURL(url string) error {
-	if err := exec.CommandContext(context.Background(), "xdg-open", url).Start(); err != nil {
+	if err := exec.CommandContext(context.Background(), "xdg-open", url).Start(); err != nil { //nolint:gosec // G204: a fixed program; the URL is one argument, no shell involved
 		return fmt.Errorf("OpenURL: %w", err)
 	}
 	return nil

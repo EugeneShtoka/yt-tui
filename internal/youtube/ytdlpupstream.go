@@ -102,7 +102,7 @@ func upstreamCachePath(cfg *config.Config) string {
 }
 
 func readUpstreamRecord(path string) (upstreamRecord, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: a fixed file name under the state dir
 	if err != nil {
 		return upstreamRecord{}, fmt.Errorf("readUpstreamRecord: %w", err)
 	}
@@ -127,7 +127,7 @@ func writeUpstreamRecord(path string, rec upstreamRecord) error {
 	// Best-effort cleanup of the staging file; a no-op once the rename succeeded.
 	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // the write error is the report
 		return fmt.Errorf("writeUpstreamRecord: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

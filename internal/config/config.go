@@ -194,10 +194,7 @@ type Config struct {
 	// import takes the write lock (see Mutate / DaemonSnapshot).
 	// Unexported fields are ignored by the TOML encoder.
 	mu sync.RWMutex
-	// saveReq coalesces async save requests into a single background write.
-	// Guarded by mu so Close can nil-and-close it without racing SaveAsync.
-	saveReq chan struct{}
-	// closeOnce guards a single shutdown of the save worker.
+	// closeOnce guards Close's single final save.
 	closeOnce sync.Once
 }
 
@@ -291,11 +288,11 @@ func LoadFrom(override string) (*Config, error) {
 		cfgFile = resolved
 		// Accept either a config file or a directory: when the override points at
 		// an existing directory, config.toml is resolved inside it.
-		if info, statErr := os.Stat(cfgFile); statErr == nil && info.IsDir() {
+		if info, statErr := os.Stat(cfgFile); statErr == nil && info.IsDir() { //nolint:gosec // G703: the --config path the user named
 			cfgFile = filepath.Join(cfgFile, "config.toml")
 		}
 		configDir = filepath.Dir(cfgFile)
-		if mkErr := os.MkdirAll(configDir, 0750); mkErr != nil {
+		if mkErr := os.MkdirAll(configDir, 0750); mkErr != nil { //nolint:gosec // G703: the directory of the --config path the user named
 			return nil, fmt.Errorf("LoadFrom mkdir config %q: %w", configDir, mkErr)
 		}
 	} else {
@@ -326,12 +323,6 @@ func LoadFrom(override string) (*Config, error) {
 	cfg.StateDir = dirs.State
 	cfg.ConfigFile = cfgFile
 
-	// Start the background save worker now that ConfigFile is known. All saves
-	// after startup go through this single goroutine (via SaveAsync) or Save,
-	// both serialized by cfg.mu.
-	cfg.saveReq = make(chan struct{}, 1)
-	go cfg.saveWorker(cfg.saveReq)
-
 	if err := prepareDownloadDir(cfg); err != nil {
 		return nil, err
 	}
@@ -342,7 +333,7 @@ func LoadFrom(override string) (*Config, error) {
 // loadConfigFile reads cfgFile into cfg (if it exists) and applies defaults for
 // any missing or invalid fields. A missing file is not an error.
 func loadConfigFile(cfg *Config, cfgFile string) error {
-	data, err := os.ReadFile(cfgFile)
+	data, err := os.ReadFile(cfgFile) //nolint:gosec // G304: the config file the user named, or the XDG default
 	if os.IsNotExist(err) {
 		// No file yet — still normalize the pure defaults (e.g. backfill each
 		// panel's Mode/Sort) so the first-run save writes a complete config.

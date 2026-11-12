@@ -119,37 +119,6 @@ func TestSync(t *testing.T) {
 	}
 }
 
-func TestSyncFromYTMembershipChanged(t *testing.T) {
-	s := newSet([]domain.Channel{{ID: "ch1", Name: "Alpha", Alias: "kept"}})
-	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1", Name: "Alpha"}, {ID: "ch2", Name: "Beta"}})
-	if !changed {
-		t.Error("SyncFromYT: expected changed=true")
-	}
-	if s.Len() != 2 {
-		t.Errorf("SyncFromYT: len=%d, want 2", s.Len())
-	}
-	ch, _ := s.ByID("ch1")
-	if ch.Alias != "kept" {
-		t.Errorf("SyncFromYT: alias not preserved, got %q", ch.Alias)
-	}
-}
-
-func TestSyncFromYTNoChange(t *testing.T) {
-	s := newSet([]domain.Channel{{ID: "ch1"}})
-	changed := s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
-	if changed {
-		t.Error("SyncFromYT: expected changed=false")
-	}
-}
-
-func TestSyncFromYTPreservesLocalOnly(t *testing.T) {
-	s := newSet([]domain.Channel{{ID: "ch1"}, {ID: "local1"}})
-	s.SyncFromYT([]domain.Channel{{ID: "ch1"}})
-	if _, ok := s.ByID("local1"); !ok {
-		t.Error("SyncFromYT: local-only channel was dropped")
-	}
-}
-
 func TestUnsubscribeLocal(t *testing.T) {
 	ch := domain.Channel{ID: "ch1", Name: "Alpha", IsLocal: true}
 	s := newSet([]domain.Channel{ch})

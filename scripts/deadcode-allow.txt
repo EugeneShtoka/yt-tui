@@ -1,7 +1,7 @@
 # Functions `go tool deadcode ./cmd/...` may report: reachable only from tests, kept on
 # purpose. One per line, as deadcode prints it after the position ("unreachable func: X"),
 # then the reason. Anything else deadcode finds fails arch-check: move it into a _test.go
-# file (or a *test package), or delete it.
+# file (or a *test package), or delete it. scripts/testonly.go reads this list too.
 NewSession            # player.Session's constructor for other packages' tests: its fields are unexported
 OriginalToAdjustedMs  # SponsorBlock timeline mapping for cut local files; tested, not yet wired to playback resume
 AdjustedToOriginalMs  # the inverse of OriginalToAdjustedMs

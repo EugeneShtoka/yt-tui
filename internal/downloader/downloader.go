@@ -499,16 +499,6 @@ func (d *Downloader) Items() []Item {
 	return result
 }
 
-// IsDownloading returns true if the video is queued or active.
-func (d *Downloader) IsDownloading(id string) bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	if item, ok := d.items[id]; ok {
-		return item.Status == StatusPending || item.Status == StatusActive
-	}
-	return false
-}
-
 // Stop cancels all in-flight downloads and blocks until their goroutines have
 // exited, so daemon shutdown doesn't race yt-dlp subprocess teardown or leave
 // completion writes half-applied. mu is released before the join because run
