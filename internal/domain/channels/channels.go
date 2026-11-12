@@ -189,30 +189,3 @@ func Sync(existing, ytChannels []domain.Channel) []domain.Channel {
 	}
 	return ytChannels
 }
-
-// SyncFromYT merges a fresh YT-fetched channel list into the set.
-// Returns true if membership changed.
-func (s *ChannelSet) SyncFromYT(ytChannels []domain.Channel) bool {
-	merged := Sync(s.channels, ytChannels)
-	if !membershipChanged(s.channels, merged) {
-		return false
-	}
-	s.rebuild(merged)
-	return true
-}
-
-func membershipChanged(a, b []domain.Channel) bool {
-	if len(a) != len(b) {
-		return true
-	}
-	ids := make(map[string]bool, len(a))
-	for i := range a {
-		ids[a[i].ID] = true
-	}
-	for i := range b {
-		if !ids[b[i].ID] {
-			return true
-		}
-	}
-	return false
-}

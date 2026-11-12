@@ -24,11 +24,6 @@ func (s *Store) EnableMarkdown(dir string) error {
 // MarkdownEnabled reports whether a markdown dir has been configured.
 func (s *Store) MarkdownEnabled() bool { return s.mdDir != "" }
 
-// MarkdownDir returns the configured markdown notes directory ("" if disabled).
-// Callers building a note's local image embed need it to compute the relative
-// path from the note to the cached thumbnail.
-func (s *Store) MarkdownDir() string { return s.mdDir }
-
 func (s *Store) mdPath(id string) string { return filepath.Join(s.mdDir, id+".md") }
 
 // RelImageRef returns the note→image path (forward-slashed, for markdown) from
