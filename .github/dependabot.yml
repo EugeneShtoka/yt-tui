@@ -30,7 +30,9 @@ updates:
           - minor
           - patch
     commit-message:
-      prefix: chore # keeps dep bumps out of the release changelog (see .goreleaser.yaml)
+      # Its own changelog group (see .goreleaser.yaml): a module bump can be a security
+      # fix, and the release notes should say so.
+      prefix: deps
 
   # GitHub Actions used in the workflows — likewise batched into one grouped PR.
   # Dependabot bumps the SHA pins while preserving the `# vX.Y.Z` comment, so the
