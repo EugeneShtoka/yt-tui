@@ -38,6 +38,21 @@ worth flagging if you find a problem:
 - **TLS material / tokens in logs.** Report any case where secrets end up in the
   debug log or on stderr.
 
+## Verifying a release
+
+Every release archive carries a build attestation naming the workflow and commit
+that produced it, `checksums.txt` is signed keylessly with Sigstore, and an SBOM
+(`*.sbom.json`) listing every dependency ships beside each archive:
+
+```sh
+gh attestation verify yt-tui_*_linux_amd64.tar.gz --repo EugeneShtoka/yt-tui
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/EugeneShtoka/yt-tui/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing checksums.txt
+```
+
 ## Supported versions
 
 This is a pre-1.0 project; only the latest release is supported. Please upgrade
