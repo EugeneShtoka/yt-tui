@@ -10,10 +10,12 @@ import (
 
 // withXDGDirs points the XDG base homes at three distinct temp dirs for the
 // duration of a test, restoring the originals afterwards. Returns the base
-// homes so the test can assert against them. Not safe for t.Parallel (it
-// mutates package-global xdg state).
+// homes so the test can assert against them. It also clears YT_TUI_CONFIG, so a
+// developer's exported override can't make Load read and re-save their real
+// config. Not safe for t.Parallel (it mutates package-global xdg state).
 func withXDGDirs(t *testing.T) (configHome, dataHome, stateHome string) {
 	t.Helper()
+	t.Setenv(envConfigPath, "")
 	root := t.TempDir()
 	configHome = filepath.Join(root, "config")
 	dataHome = filepath.Join(root, "data")
