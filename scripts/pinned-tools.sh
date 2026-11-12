@@ -30,7 +30,9 @@ row tool pinned latest ""
 for entry in \
 	"goreleaser|goreleaser/goreleaser|GORELEASER|yes" \
 	"gitleaks|gitleaks/gitleaks|GITLEAKS|yes" \
-	"buf|bufbuild/buf|BUF|yes"; do
+	"buf|bufbuild/buf|BUF|yes" \
+	"syft|anchore/syft|SYFT|no" \
+	"cosign|sigstore/cosign|COSIGN|no"; do
 	IFS='|' read -r name repo var sums <<<"$entry"
 	version_var="${var}_VERSION"
 	pinned="${!version_var:-}"
