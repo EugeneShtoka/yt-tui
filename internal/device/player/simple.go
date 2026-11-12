@@ -3,7 +3,6 @@ package player
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -18,15 +17,8 @@ func newSimpleBackend(driver Driver) *simpleBackend {
 }
 
 func (s *simpleBackend) exec(args []string) (*Session, error) {
-	null, err := os.Open(os.DevNull)
-	if err != nil {
-		return nil, fmt.Errorf("exec: open devnull: %w", err)
-	}
-	defer func() { _ = null.Close() }()                                        // read only; the child holds its own copy
 	cmd := exec.CommandContext(context.Background(), s.driver.Path(), args...) //nolint:gosec // G204: the configured player binary; args go without a shell
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Stdout = null
-	cmd.Stderr = null
 	// Capture the player's console output when we can, so a launch that never
 	// plays can be explained (see consoleLog). mpv reports yt-dlp's errors on
 	// stdout and other players on stderr, so both go to the same log; /dev/null
