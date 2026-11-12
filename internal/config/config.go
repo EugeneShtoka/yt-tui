@@ -291,11 +291,11 @@ func LoadFrom(override string) (*Config, error) {
 		cfgFile = resolved
 		// Accept either a config file or a directory: when the override points at
 		// an existing directory, config.toml is resolved inside it.
-		if info, statErr := os.Stat(cfgFile); statErr == nil && info.IsDir() {
+		if info, statErr := os.Stat(cfgFile); statErr == nil && info.IsDir() { //nolint:gosec // G703: the --config path the user named
 			cfgFile = filepath.Join(cfgFile, "config.toml")
 		}
 		configDir = filepath.Dir(cfgFile)
-		if mkErr := os.MkdirAll(configDir, 0750); mkErr != nil {
+		if mkErr := os.MkdirAll(configDir, 0750); mkErr != nil { //nolint:gosec // G703: the directory of the --config path the user named
 			return nil, fmt.Errorf("LoadFrom mkdir config %q: %w", configDir, mkErr)
 		}
 	} else {
@@ -342,7 +342,7 @@ func LoadFrom(override string) (*Config, error) {
 // loadConfigFile reads cfgFile into cfg (if it exists) and applies defaults for
 // any missing or invalid fields. A missing file is not an error.
 func loadConfigFile(cfg *Config, cfgFile string) error {
-	data, err := os.ReadFile(cfgFile)
+	data, err := os.ReadFile(cfgFile) //nolint:gosec // G304: the config file the user named, or the XDG default
 	if os.IsNotExist(err) {
 		// No file yet — still normalize the pure defaults (e.g. backfill each
 		// panel's Mode/Sort) so the first-run save writes a complete config.

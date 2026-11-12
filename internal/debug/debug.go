@@ -20,7 +20,7 @@ var (
 // Init opens path for writing and enables debug logging.
 // The file is truncated on each run so old sessions don't accumulate.
 func Init(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // G304: the log path under the XDG state dir
 	if err != nil {
 		return fmt.Errorf("Init: %w", err)
 	}
