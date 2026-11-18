@@ -1,13 +1,13 @@
 module github.com/EugeneShtoka/yt-tui
 
-go 1.26.6
+go 1.26.7
 
 toolchain go1.26.11
 
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.2-0.20261109105522-e4d617e7e0c0
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	connectrpc.com/connect v1.21.1
 	github.com/BurntSushi/toml v1.6.0
 	github.com/adrg/xdg v0.5.3
@@ -17,7 +17,7 @@ require (
 	github.com/evertras/bubble-table v0.23.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/mattn/go-runewidth v0.0.31
-	golang.org/x/image v0.47.0
+	golang.org/x/image v0.48.0
 	golang.org/x/sync v0.25.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.62.0
@@ -226,9 +226,9 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260811152304-ee035b5b010f // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261009151841-97e8ea77aa2a // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/vuln v1.6.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
